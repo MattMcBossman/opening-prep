@@ -24,7 +24,7 @@
   display: flex;
   gap: 24px;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   text-align: left;
 }
 
@@ -62,8 +62,9 @@
 
 .side-column {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
   flex: 1;
   min-width: 280px;
 }
@@ -72,6 +73,24 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
+  box-sizing: border-box;
+}
+
+/* Fixed width so it doesn't take more room than the short move notation needs, and so
+   its own width never shifts the explorer panel beside it. Stretches to match the
+   board column's height (via the explorer-layout parent) rather than a guessed pixel
+   value, so it stays aligned regardless of what's in the engine panel below the board. */
+.moves-panel {
+  width: 180px;
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+
+.explorer-panel {
+  flex: 1;
+  min-width: 420px;
 }
 
 .panel-status {
@@ -109,7 +128,8 @@
 }
 
 .move-list {
-  max-height: 220px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -117,18 +137,21 @@
 }
 
 .move-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 24px 1fr 1fr;
   align-items: center;
   gap: 4px;
 }
 
 .move-number {
   color: var(--text);
-  width: 28px;
   font-size: 13px;
 }
 
 .move-button {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
   border: none;
   background: none;
   padding: 3px 8px;
@@ -136,6 +159,9 @@
   cursor: pointer;
   color: var(--text-h);
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .move-button:hover {
@@ -215,6 +241,53 @@
 .explorer-row td {
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
+}
+
+.explorer-games-pct {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.result-bar {
+  display: flex;
+  width: 100%;
+  min-width: 160px;
+  height: 20px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.result-bar-white,
+.result-bar-draw,
+.result-bar-black {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.result-bar-white {
+  background: #f0f0f0;
+  color: #222;
+}
+
+.result-bar-draw {
+  background: #9aa0a6;
+  color: #1a1a1a;
+}
+
+.result-bar-black {
+  background: #2b2b2b;
+  color: #f0f0f0;
+}
+
+.result-bar-label {
+  padding: 0 2px;
 }
 
 .engine-panel {

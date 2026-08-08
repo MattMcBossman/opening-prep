@@ -5,6 +5,8 @@ A web app for building and drilling a personal chess opening repertoire. Primari
 
 This file is the persistent project reference for Warp/agent-assisted development. Keep it up to date as scope, architecture, and decisions evolve.
 
+Whenever a change in this repo would make `README.md` inaccurate or incomplete (setup steps, scripts, project layout, or overall status/roadmap), update `README.md` in the same change — don't wait to be asked.
+
 ## Inspiration source: `openingtree/` submodule
 `openingtree/` is a pre-existing React app (CRA-style, React 16, custom webpack scripts) that already implements:
 - Lichess and Chess.com API iterators for pulling a player's game history (`src/app/iterator/LichessIterator.js`, `ChessComIterator.js`, `BaseLichessIterator.js`).

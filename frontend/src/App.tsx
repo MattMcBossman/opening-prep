@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
-import { useGame } from './hooks/useGame'
+import { useGame, START_FEN } from './hooks/useGame'
 import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
 import { useLichessToken } from './hooks/useLichessToken'
@@ -13,6 +13,7 @@ import { ExplorerStatsTable } from './components/ExplorerStatsTable'
 import { EngineEvalPanel } from './components/EngineEvalPanel'
 import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
+import type { ExplorerOpening } from './types'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -32,6 +33,27 @@ function App() {
   const explorer = useExplorerStats(fen, token)
   const evaluation = useEngineEval(fen)
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+
+  // Remembers the opening name/ECO fetched for every FEN visited along the current
+  // line, so a position with no name of its own can fall back to the last known name
+  // for the line rather than showing "Unnamed position".
+  const openingNameCache = useRef(new Map<string, ExplorerOpening>()).current
+  useEffect(() => {
+    if (explorer.data) {
+      openingNameCache.set(fen, explorer.data.opening)
+    }
+  }, [fen, explorer.data, openingNameCache])
+
+  const resolvedOpening = useMemo<ExplorerOpening>(() => {
+    const live = explorer.data?.opening ?? null
+    if (live) return live
+    for (let ply = pointer - 1; ply >= 0; ply--) {
+      const ancestorFen = ply === 0 ? START_FEN : moves[ply - 1].fenAfter
+      const cached = openingNameCache.get(ancestorFen)
+      if (cached) return cached
+    }
+    return null
+  }, [explorer.data, pointer, moves, openingNameCache])
 
   // Any position change (drag move, click-to-move, explorer click, history navigation,
   // reset) invalidates the current selection.
@@ -90,11 +112,7 @@ function App() {
       </header>
       <main className="explorer-layout">
         <div className="board-column">
-          <OpeningName
-            eco={explorer.data?.opening?.eco ?? null}
-            name={explorer.data?.opening?.name ?? null}
-            fen={fen}
-          />
+          <OpeningName eco={resolvedOpening?.eco ?? null} name={resolvedOpening?.name ?? null} fen={fen} />
           <div className="board-wrapper">
             <Chessboard
               options={{
@@ -121,12 +139,12 @@ function App() {
         </div>
 
         <div className="side-column">
-          <section className="panel">
+          <section className="panel moves-panel">
             <h2>Moves</h2>
             <MoveList moves={moves} pointer={pointer} onSelect={goTo} />
           </section>
 
-          <section className="panel">
+          <section className="panel explorer-panel">
             <h2>Lichess explorer</h2>
             <LichessTokenSettings token={token} onChange={setToken} />
             <ExplorerStatsTable
