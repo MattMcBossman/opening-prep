@@ -135,6 +135,23 @@ export class StockfishEngine {
     }
   }
 
+  /**
+   * Like `evaluate`, but resolves once with the final (non-`thinking`) result
+   * instead of streaming intermediate updates. Used for one-off before/after
+   * comparisons (e.g. drill wrong-move classification) where only the settled
+   * evaluation at a fixed depth is needed - see useEngineComparison.
+   */
+  async evaluateOnce(fen: string, depth = 14): Promise<EngineEvaluation> {
+    return new Promise((resolve) => {
+      this.evaluate(fen, {
+        maxDepth: depth,
+        onUpdate: (evaluation) => {
+          if (!evaluation.thinking) resolve(evaluation)
+        },
+      })
+    })
+  }
+
   /** Stops whatever is currently being reported, and waits until the engine is idle. */
   private stopAndWaitForIdle(): Promise<void> {
     this.stopCurrent()

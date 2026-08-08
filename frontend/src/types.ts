@@ -35,6 +35,13 @@ export type Repertoire = {
   black: RepertoireTree
 }
 
+/**
+ * The distinct audio cues played when a move is made. Ordered by precedence in
+ * `classifyMoveSound`: a move can be several of these at once (a capture that gives
+ * check, say), but only the most significant one is heard.
+ */
+export type MoveSound = 'move' | 'capture' | 'check' | 'checkmate'
+
 export type EngineEvaluation = {
   /** FEN this evaluation was computed for, so consumers can convert the PV to SAN safely. */
   fen: string

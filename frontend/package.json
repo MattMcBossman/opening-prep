@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "setup:engine": "node scripts/copy-engine.mjs",
     "postinstall": "node scripts/copy-engine.mjs"
   },
@@ -25,6 +27,7 @@
     "oxlint": "^1.75.0",
     "stockfish": "^18.0.8",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
   }
 }

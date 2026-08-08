@@ -37,21 +37,28 @@ export function useGame() {
   const goBack = useCallback(() => setPointer((p) => Math.max(0, p - 1)), [])
   const goForward = useCallback(() => setPointer((p) => Math.min(moves.length, p + 1)), [moves.length])
 
+  /**
+   * Plays `move` if it's legal here, returning the resulting history entry (or null if
+   * it wasn't legal). Returning the entry rather than a bare boolean lets callers react
+   * to *what* was played - notably picking the move/capture/check/checkmate sound from
+   * its SAN - while still reading as a success check at call sites that don't care.
+   */
   const makeMove = useCallback(
-    (move: MoveInput): boolean => {
+    (move: MoveInput): HistoryEntry | null => {
       const trial = new Chess(fen)
       let result
       try {
         result = trial.move(move)
       } catch {
-        return false
+        return null
       }
-      if (!result) return false
+      if (!result) return null
 
       const uci = `${result.from}${result.to}${result.promotion ?? ''}`
-      setMoves((prev) => [...prev.slice(0, pointer), { san: result.san, uci, fenAfter: trial.fen() }])
+      const entry: HistoryEntry = { san: result.san, uci, fenAfter: trial.fen() }
+      setMoves((prev) => [...prev.slice(0, pointer), entry])
       setPointer((p) => p + 1)
-      return true
+      return entry
     },
     [fen, pointer],
   )

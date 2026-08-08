@@ -1,0 +1,150 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { collectDrillLines } from '../lib/repertoireDrills'
+import type { DrillStep } from '../lib/repertoireDrills'
+import {
+  applyMoveClassification,
+  attemptOwnMove as attemptOwnMoveLogic,
+  createDrillSession,
+  isSessionComplete,
+  reorderUpcoming,
+  retryFailedLines as retryFailedLinesLogic,
+  sessionProgress,
+  wouldAcceptOwnMove,
+} from '../lib/drillSessionLogic'
+import type { DrillSessionState } from '../lib/drillSessionLogic'
+import { useEngineComparison } from './useEngineComparison'
+import { findNearestSimilarPosition } from '../lib/positionSimilarity'
+import type { SimilarPositionMatch } from '../lib/positionSimilarity'
+import { START_FEN } from './useGame'
+import type { RepertoireColor, RepertoireMove } from '../types'
+
+type UseDrillSessionParams = {
+  color: RepertoireColor
+  getContinuations: (fen: string) => RepertoireMove[]
+  rootFen?: string
+}
+
+// How close (by Hamming distance) two positions need to be before surfacing one as
+// a "similar position" hint - conservative, since a large distance stops being a
+// meaningful transposition signal (see the Phase 3 plan's similar-position section).
+const SIMILARITY_MAX_DISTANCE = 6
+
+export type SimilarPositionHint = SimilarPositionMatch & {
+  /** Whether the move the user just played is itself saved from the similar position. */
+  matchesPlayedMove: boolean
+}
+
+/**
+ * Drives a drill session: enumerates leaf-path drill lines from the repertoire,
+ * owns the pure session state machine (see drillSessionLogic.ts), and layers on
+ * the async bits that don't belong in pure logic - engine-based wrong-move
+ * classification and similar-position hinting. Kept fully separate from
+ * explorer/useGame state so practicing can never mutate the repertoire (see the
+ * Phase 3 plan's "Risks and decisions").
+ */
+export function useDrillSession({ color, getContinuations, rootFen = START_FEN }: UseDrillSessionParams) {
+  const { compare } = useEngineComparison()
+  const [state, setState] = useState<DrillSessionState>(() =>
+    createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen),
+  )
+
+  // Positions where it was the drilling color's own turn, across every enumerated
+  // line - the candidate pool for "is this wrong move actually saved somewhere
+  // similar-looking?" (see similarPosition below). Own-turn positions only, since
+  // wrong-move attempts only ever happen on the drilling color's own turn.
+  const ownTurnFens = useMemo(() => {
+    const fens = new Set<string>()
+    for (const line of state.lines) {
+      for (const step of line.steps) {
+        if (step.mover === 'own') fens.add(step.fen)
+      }
+    }
+    return fens
+  }, [state.lines])
+
+  const startNewSession = useCallback(() => {
+    setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
+  }, [color, getContinuations, rootFen])
+
+  // Re-collect and restart whenever the drilled color or root position changes -
+  // e.g. the user switches from drilling White to drilling Black. Deliberately
+  // NOT reacting to `getContinuations` identity changes alone: a drill session is
+  // a fixed snapshot of the repertoire for its duration (see the Phase 3 plan's
+  // "Risks and decisions" - drilling must never fight with concurrent editing).
+  useEffect(() => {
+    setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [color, rootFen])
+
+  // Mirrors the latest committed state so attemptMove can compute its result up
+  // front rather than inside a state updater. attemptMove only ever runs from a DOM
+  // event handler (never during render), so the ref is never stale by then - and
+  // computing outside the updater keeps the async engine comparison from being
+  // kicked off twice under StrictMode, which deliberately double-invokes updaters.
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  /**
+   * Applies one attempt and returns the steps it actually put on the board (the
+   * accepted move plus any auto-played opponent reply), so the caller can react to
+   * them imperatively - notably to sound each one. Empty when the attempt was
+   * rejected and the position didn't change.
+   */
+  const attemptMove = useCallback(
+    (played: { uci: string; san: string; resultingFen: string }): DrillStep[] => {
+      const prev = stateRef.current
+      const next = attemptOwnMoveLogic(prev, getContinuations, played)
+      if (next.lastFeedback?.kind === 'wrong') {
+        const token = next.lastFeedback.attemptToken
+        compare(prev.currentFen, played.resultingFen, color).then((result) => {
+          setState((current) => applyMoveClassification(current, token, result))
+        })
+      }
+      setState(next)
+      return next.lastAppliedSteps
+    },
+    [getContinuations, compare, color],
+  )
+
+  // Synchronous preview for the board layer to decide, at drop time, whether a
+  // piece drop will actually change the position (should "stick") or not
+  // (should snap back) - covers both a genuine mistake and the new "saved but
+  // already fully drilled" rejection, which also never changes the position.
+  const wouldAccept = useCallback((uci: string) => wouldAcceptOwnMove(state, getContinuations, uci), [state, getContinuations])
+
+  const retryFailed = useCallback(() => setState((prev) => retryFailedLinesLogic(prev)), [])
+
+  const shuffleOrder = useCallback(() => {
+    setState((prev) => {
+      const shuffled = [...prev.order]
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      }
+      return reorderUpcoming(prev, shuffled)
+    })
+  }, [])
+
+  const similarPosition = useMemo<SimilarPositionHint | null>(() => {
+    const feedback = state.lastFeedback
+    if (feedback?.kind !== 'wrong') return null
+    const match = findNearestSimilarPosition(feedback.originFen, ownTurnFens, SIMILARITY_MAX_DISTANCE)
+    if (!match) return null
+    const matchesPlayedMove = getContinuations(match.fen).some((m) => m.uci === feedback.playedUci)
+    return { ...match, matchesPlayedMove }
+  }, [state.lastFeedback, ownTurnFens, getContinuations])
+
+  return {
+    state,
+    progress: sessionProgress(state),
+    complete: isSessionComplete(state),
+    attemptMove,
+    wouldAccept,
+    retryFailed,
+    shuffleOrder,
+    startNewSession,
+    similarPosition,
+  }
+}

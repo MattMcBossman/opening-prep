@@ -12,16 +12,16 @@ export function ThemeToggle({ theme, onToggle }: Props) {
   return (
     <button
       type="button"
-      className="theme-toggle"
+      className="header-toggle"
       role="switch"
       aria-checked={isDark}
       onClick={onToggle}
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
-      <span className="theme-toggle-track">
-        <span className="theme-toggle-thumb" />
+      <span className="header-toggle-track">
+        <span className="header-toggle-thumb" />
       </span>
-      <span className="theme-toggle-label">{isDark ? 'Dark' : 'Light'}</span>
+      <span className="header-toggle-label">{isDark ? 'Dark' : 'Light'}</span>
     </button>
   )
 }

@@ -20,11 +20,19 @@
   font-size: 14px;
 }
 
-.theme-toggle {
+/* Right-aligned group of header switches (theme, sound). Holds the `margin-left: auto`
+   so the individual toggles stay position-agnostic and can be reordered freely. */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+
+.header-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   border: none;
   background: none;
   cursor: pointer;
@@ -32,7 +40,7 @@
   font-size: 13px;
 }
 
-.theme-toggle-track {
+.header-toggle-track {
   position: relative;
   width: 36px;
   height: 20px;
@@ -41,11 +49,11 @@
   transition: background-color 0.2s ease;
 }
 
-.theme-toggle[aria-checked='true'] .theme-toggle-track {
+.header-toggle[aria-checked='true'] .header-toggle-track {
   background: var(--accent);
 }
 
-.theme-toggle-thumb {
+.header-toggle-thumb {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -57,8 +65,15 @@
   transition: transform 0.2s ease;
 }
 
-.theme-toggle[aria-checked='true'] .theme-toggle-thumb {
+.header-toggle[aria-checked='true'] .header-toggle-thumb {
   transform: translateX(16px);
+}
+
+/* Fixed width so toggling between labels of different lengths ("Sound"/"Muted",
+   "Light"/"Dark") doesn't shift the neighbouring controls around. */
+.header-toggle-label {
+  min-width: 52px;
+  text-align: left;
 }
 
 .explorer-layout {
@@ -544,4 +559,90 @@
   font-family: var(--mono);
   font-size: 13px;
   color: var(--text);
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-left: 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.mode-toggle-button {
+  border: none;
+  background: none;
+  padding: 4px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.mode-toggle-button.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.drill-layout {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.drill-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.drill-progress-results {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.drill-feedback-panel {
+  flex: 1;
+  min-width: 280px;
+}
+
+.drill-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drill-feedback-message {
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.drill-feedback-bad p {
+  color: var(--text-h);
+}
+
+.drill-feedback-similar {
+  font-size: 13px;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.drill-summary {
+  min-width: 280px;
+}
+
+.drill-summary h3 {
+  margin: 0 0 6px 0;
+  color: var(--text-h);
+}
+
+.drill-empty {
+  max-width: 480px;
 }
