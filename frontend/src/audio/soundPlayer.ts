@@ -83,9 +83,6 @@ export class SoundPlayer {
       this.context = context
       this.master = master
     }
-    if (this.context.state === 'suspended') {
-      void this.context.resume()
-    }
     return this.context
   }
 
@@ -220,12 +217,32 @@ export class SoundPlayer {
     })
   }
 
-  /** Nudges a start time just past "now" so scheduling never lands in the past
-   * (which can clip the attack), then hands off to `effect` to schedule voices. */
+  /**
+   * Nudges a start time just past "now" so scheduling never lands in the past
+   * (which can clip the attack), then hands off to `effect` to schedule voices.
+   *
+   * If the context is `suspended` (e.g. a backgrounded tab, or simply not yet
+   * resumed since creation), waits for `resume()` to actually complete before
+   * scheduling anything - `currentTime` doesn't advance while suspended, so
+   * scheduling immediately against it (as this used to do, firing `resume()`
+   * without waiting) could schedule a cue against a clock that wasn't running
+   * yet. This mattered most for cues triggered from a timer rather than
+   * directly inside a click/drag handler (the auto-played opponent reply and
+   * the drill-complete chime), which is likely why those in particular seemed
+   * to play inconsistently.
+   */
   private withContext(effect: (t0: number) => void) {
     const context = this.ensureContext()
     if (!context) return
-    effect(context.currentTime + 0.01)
+    const schedule = () => effect(context.currentTime + 0.01)
+    if (context.state === 'suspended') {
+      context.resume().then(schedule).catch(() => {
+        // Some browsers refuse to resume a context outside a user gesture. Nothing
+        // useful to do here - the next genuinely gesture-triggered cue will retry.
+      })
+      return
+    }
+    schedule()
   }
 
   play(sound: MoveSound) {

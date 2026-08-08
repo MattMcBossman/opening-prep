@@ -4,11 +4,13 @@ import { normalizeFen } from './chessUtils'
 import { START_FEN } from '../hooks/useGame'
 import {
   acknowledgeLineCompletion,
+  advanceAutoPlay,
   applyMoveClassification,
   attemptOwnMove,
   createDrillSession,
   currentTargetLine,
   isSessionComplete,
+  pendingAutoPlayStep,
   retryFailedLines,
   sessionProgress,
   wouldAcceptOwnMove,
@@ -26,6 +28,24 @@ function continuationsFrom(tree: RepertoireTree): (fen: string) => RepertoireMov
   return (fen: string) => tree[normalizeFen(fen)] ?? []
 }
 
+/**
+ * Plays one of the drilling color's own moves, then applies any opponent reply
+ * it triggers - own move and opponent reply are now separate single-ply state
+ * transitions (see `advanceAutoPlay`), so tests that aren't specifically about
+ * that split use this to read as one logical ply, like the pre-split behavior.
+ */
+function playOwnMoveAndAutoReply(
+  state: DrillSessionState,
+  getContinuations: (fen: string) => RepertoireMove[],
+  move: { uci: string; san: string; resultingFen: string },
+): DrillSessionState {
+  let next = attemptOwnMove(state, getContinuations, move)
+  while (pendingAutoPlayStep(next)) {
+    next = advanceAutoPlay(next)
+  }
+  return next
+}
+
 describe('drillSessionLogic - single line', () => {
   const tree: RepertoireTree = {
     [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }],
@@ -38,7 +58,7 @@ describe('drillSessionLogic - single line', () => {
     let state = createDrillSession(lines, ROOT)
     expect(isSessionComplete(state)).toBe(false)
 
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
     expect(state.lastFeedback).toEqual({ kind: 'correct' })
     // The opponent's only saved reply (e5) auto-plays, reaching the leaf and completing the line.
     expect(isSessionComplete(state)).toBe(true)
@@ -53,7 +73,7 @@ describe('drillSessionLogic - single line', () => {
     expect(state.lastFeedback?.kind).toBe('wrong')
     expect(isSessionComplete(state)).toBe(false) // still awaiting the correct move at the same position
 
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
     expect(isSessionComplete(state)).toBe(true)
     expect(sessionProgress(state)).toMatchObject({ perfectCount: 0, failedCount: 1 })
   })
@@ -69,7 +89,7 @@ describe('drillSessionLogic - single line', () => {
   })
 })
 
-describe('drillSessionLogic - lastAppliedSteps', () => {
+describe('drillSessionLogic - single-ply auto-play (lastAppliedSteps)', () => {
   const AFTER_NF3 = 'fen-after-2-Nf3 b - -'
   const tree: RepertoireTree = {
     [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }],
@@ -78,19 +98,29 @@ describe('drillSessionLogic - lastAppliedSteps', () => {
   }
   const getContinuations = continuationsFrom(tree)
 
-  it('reports the accepted move plus the opponent reply auto-played after it', () => {
+  it('reports the accepted own move immediately, and the opponent reply as its own separate step', () => {
     const lines = collectDrillLines('white', getContinuations)
     let state = createDrillSession(lines, ROOT)
 
     state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
-    expect(state.lastAppliedSteps.map((s) => s.san)).toEqual(['e4', 'e5'])
+    // Only the own move has landed on the board so far - the opponent's reply is
+    // queued (see pendingAutoPlayStep) but deliberately not applied in this same
+    // call, so the UI can animate the two plies separately instead of jumping both
+    // at once (see the module doc on `applyStep` in drillSessionLogic.ts).
+    expect(state.lastAppliedSteps.map((s) => s.san)).toEqual(['e4'])
+    expect(pendingAutoPlayStep(state)?.san).toBe('e5')
+    expect(state.currentFen).toBe(AFTER_E4)
+
+    state = advanceAutoPlay(state)
+    expect(state.lastAppliedSteps.map((s) => s.san)).toEqual(['e5'])
+    expect(pendingAutoPlayStep(state)).toBeNull()
   })
 
   it('still reports the move that completed a line, after playedSteps has been reset', () => {
     const lines = collectDrillLines('white', getContinuations)
     let state = createDrillSession(lines, ROOT)
 
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
     state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
     expect(isSessionComplete(state)).toBe(true)
     // The occurrence is over, so playedSteps is back to empty...
@@ -106,6 +136,12 @@ describe('drillSessionLogic - lastAppliedSteps', () => {
     state = attemptOwnMove(state, getContinuations, { uci: 'd2d4', san: 'd4', resultingFen: 'irrelevant' })
     expect(state.lastFeedback?.kind).toBe('wrong')
     expect(state.lastAppliedSteps).toEqual([])
+  })
+
+  it('advanceAutoPlay is a no-op when no opponent reply is pending', () => {
+    const lines = collectDrillLines('white', getContinuations)
+    const state = createDrillSession(lines, ROOT)
+    expect(advanceAutoPlay(state)).toBe(state)
   })
 })
 
@@ -128,6 +164,27 @@ describe('drillSessionLogic - wrong-attempt hint progression', () => {
 
     state = attemptOwnMove(state, getContinuations, wrong)
     expect(state.lastFeedback).toMatchObject({ kind: 'wrong', attemptNumber: 3, hintFrom: 'e2', hintTo: 'e4' })
+  })
+
+  it('tracks originPly so a later best-response line can be numbered correctly', () => {
+    const AFTER_NF3 = 'fen-after-2-Nf3 b - -'
+    const deeperTree: RepertoireTree = {
+      [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }],
+      [AFTER_E4]: [{ san: 'e5', uci: 'e7e5', resultingFen: AFTER_E4_E5 }],
+      [AFTER_E4_E5]: [{ san: 'Nf3', uci: 'g1f3', resultingFen: AFTER_NF3 }],
+    }
+    const deeperContinuations = continuationsFrom(deeperTree)
+    const lines = collectDrillLines('white', deeperContinuations)
+    let state = createDrillSession(lines, ROOT)
+
+    // A wrong move right at the start (0 plies played yet).
+    state = attemptOwnMove(state, deeperContinuations, { uci: 'd2d4', san: 'd4', resultingFen: 'x' })
+    expect(state.lastFeedback).toMatchObject({ kind: 'wrong', originPly: 0 })
+
+    // Play on, then a wrong move 2 plies in (after e4 and its auto-played e5 reply).
+    state = playOwnMoveAndAutoReply(state, deeperContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = attemptOwnMove(state, deeperContinuations, { uci: 'd2d4', san: 'd4', resultingFen: 'x' })
+    expect(state.lastFeedback).toMatchObject({ kind: 'wrong', originPly: 2 })
   })
 })
 
@@ -156,15 +213,15 @@ describe('drillSessionLogic - multiple own-move options', () => {
     expect(targetedFirst).not.toBeNull()
 
     // Play the shared prefix.
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
-    state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
 
     // Play whichever of Bb5/Bc4 was NOT targeted, to force a redirect.
     const targetedFinal = currentTargetLine(state)
     const targetedMove = targetedFinal?.steps[targetedFinal.steps.length - 1]
     const alternate = targetedMove?.san === 'Bb5' ? { uci: 'f1c4', san: 'Bc4', resultingFen: AFTER_BC4 } : { uci: 'f1b5', san: 'Bb5', resultingFen: AFTER_BB5 }
 
-    state = attemptOwnMove(state, getContinuations, alternate)
+    state = playOwnMoveAndAutoReply(state, getContinuations, alternate)
     expect(state.lastFeedback).toEqual({ kind: 'correct' })
     // Redirecting completed exactly one line (not a failure), leaving the other still pending.
     expect(sessionProgress(state)).toMatchObject({ pendingCount: 1, perfectCount: 1, failedCount: 0 })
@@ -173,9 +230,13 @@ describe('drillSessionLogic - multiple own-move options', () => {
     state = acknowledgeLineCompletion(state)
 
     // Finishing the session by completing the remaining (originally targeted) line.
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
-    state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
-    state = attemptOwnMove(state, getContinuations, { uci: targetedMove!.uci, san: targetedMove!.san, resultingFen: targetedMove!.resultingFen })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, {
+      uci: targetedMove!.uci,
+      san: targetedMove!.san,
+      resultingFen: targetedMove!.resultingFen,
+    })
     expect(isSessionComplete(state)).toBe(true)
     expect(sessionProgress(state)).toMatchObject({ totalLines: 2, pendingCount: 0, perfectCount: 2, failedCount: 0 })
   })
@@ -200,8 +261,8 @@ describe('drillSessionLogic - rejecting an already-fully-drilled branch', () => 
   const getContinuations = continuationsFrom(tree)
 
   function playSharedPrefix(state: DrillSessionState): DrillSessionState {
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
-    state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
     return state
   }
 
@@ -211,7 +272,7 @@ describe('drillSessionLogic - rejecting an already-fully-drilled branch', () => 
 
     // Complete the Bb5 branch fully first.
     state = playSharedPrefix(state)
-    state = attemptOwnMove(state, getContinuations, { uci: 'f1b5', san: 'Bb5', resultingFen: AFTER_BB5 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'f1b5', san: 'Bb5', resultingFen: AFTER_BB5 })
     expect(sessionProgress(state)).toMatchObject({ pendingCount: 1, perfectCount: 1 })
     state = acknowledgeLineCompletion(state)
 
@@ -227,7 +288,7 @@ describe('drillSessionLogic - rejecting an already-fully-drilled branch', () => 
 
     // The still-pending option is unaffected and completes the session perfectly.
     expect(wouldAcceptOwnMove(state, getContinuations, 'f1c4')).toBe(true)
-    state = attemptOwnMove(state, getContinuations, { uci: 'f1c4', san: 'Bc4', resultingFen: AFTER_BC4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'f1c4', san: 'Bc4', resultingFen: AFTER_BC4 })
     expect(isSessionComplete(state)).toBe(true)
     expect(sessionProgress(state)).toMatchObject({ totalLines: 2, perfectCount: 2, failedCount: 0 })
   })
@@ -252,7 +313,7 @@ describe('drillSessionLogic - multiple opponent replies', () => {
     for (let i = 0; i < 2; i++) {
       const target = currentTargetLine(state)
       seenReplies.add(target!.steps[1].san)
-      state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+      state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
       // Each e4 completes a line on its own (the opponent's reply is the leaf) -
       // move past the pause so the next iteration's currentTargetLine reflects
       // whichever line is still pending, not the one just finished.
@@ -283,7 +344,7 @@ describe('drillSessionLogic - retryFailedLines', () => {
     // First line: get it wrong once, then right (-> failed).
     state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: 'x' })
     const firstMove = state.playedSteps.length === 0 ? currentTargetLine(state)!.steps[0] : undefined
-    state = attemptOwnMove(state, getContinuations, {
+    state = playOwnMoveAndAutoReply(state, getContinuations, {
       uci: firstMove!.uci,
       san: firstMove!.san,
       resultingFen: firstMove!.resultingFen,
@@ -292,7 +353,7 @@ describe('drillSessionLogic - retryFailedLines', () => {
 
     // Second line: get it right immediately (-> perfect).
     const secondMove = currentTargetLine(state)!.steps[0]
-    state = attemptOwnMove(state, getContinuations, {
+    state = playOwnMoveAndAutoReply(state, getContinuations, {
       uci: secondMove.uci,
       san: secondMove.san,
       resultingFen: secondMove.resultingFen,
@@ -333,11 +394,20 @@ describe('drillSessionLogic - completion pause', () => {
     let state = createDrillSession(lines, ROOT, lines.map((l) => l.id))
 
     state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    // The opponent's reply is queued but not yet applied - own-move attempts are
+    // blocked meanwhile, same as during the post-completion review pause.
+    expect(wouldAcceptOwnMove(state, getContinuations, 'g1f3')).toBe(false)
+    const beforeAutoPlay = state
     state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
-    expect(state.completionPause).toEqual({ lineId: expect.any(String), leafFen: AFTER_NF3 })
-    expect(state.currentFen).toBe(AFTER_NF3) // the true leaf, not the stale pre-move position
+    expect(state).toBe(beforeAutoPlay)
 
-    // Further attempts are ignored while paused.
+    state = advanceAutoPlay(state)
+    state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
+    // Three plies played (e4, e5, Nf3) to reach the leaf.
+    expect(state.completionPause).toEqual({ lineId: expect.any(String), leafFen: AFTER_NF3, leafPly: 3 })
+    expect(state.currentFen).toBe(AFTER_NF3) // the true leaf, not a stale pre-move position
+
+    // Further attempts are ignored while paused for review.
     const beforeIgnoredAttempt = state
     state = attemptOwnMove(state, getContinuations, { uci: 'd2d4', san: 'd4', resultingFen: AFTER_D4 })
     expect(state).toBe(beforeIgnoredAttempt)
@@ -353,7 +423,7 @@ describe('drillSessionLogic - completion pause', () => {
     let state = createDrillSession(lines, ROOT, lines.map((l) => l.id))
     expect(sessionProgress(state)).toMatchObject({ currentDrillNumber: 1, totalLines: 2, isRetryPass: false })
 
-    state = attemptOwnMove(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
+    state = playOwnMoveAndAutoReply(state, getContinuations, { uci: 'e2e4', san: 'e4', resultingFen: AFTER_E4 })
     state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: AFTER_NF3 })
     // Still "drill 1 of 2" while paused reviewing the line that was just finished.
     expect(sessionProgress(state)).toMatchObject({ currentDrillNumber: 1, totalLines: 2 })
@@ -394,7 +464,7 @@ describe('drillSessionLogic - default ordering is shuffled but complete', () => 
     for (let i = 0; i < lines.length; i++) {
       const target = currentTargetLine(state)!
       state = attemptOwnMove(state, getContinuations, { uci: 'g1f3', san: 'Nf3', resultingFen: 'x' })
-      state = attemptOwnMove(state, getContinuations, {
+      state = playOwnMoveAndAutoReply(state, getContinuations, {
         uci: target.steps[0].uci,
         san: target.steps[0].san,
         resultingFen: target.steps[0].resultingFen,

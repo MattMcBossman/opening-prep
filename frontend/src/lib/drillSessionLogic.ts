@@ -26,6 +26,14 @@ export type DrillFeedback =
       playedUci: string
       originFen: string
       resultingFen: string
+      /**
+       * How many plies into the game `originFen` is (0 = White's 1st move, 1 =
+       * Black's 1st move, ...). `originFen`/`resultingFen` are frequently
+       * normalized FENs with no reliable move-number fields of their own (see
+       * `normalizeFen`), so this is tracked explicitly instead - see
+       * `formatMoveListFromPly`, used to number the best-response line correctly.
+       */
+      originPly: number
       /** Filled in once the (async) engine comparison resolves - see useDrillSession. */
       cpLoss?: number
       isBad?: boolean
@@ -45,6 +53,8 @@ export type DrillFeedback =
 export type CompletionPause = {
   lineId: string
   leafFen: string
+  /** How many plies into the game `leafFen` is - see `DrillFeedback.originPly`. */
+  leafPly: number
 }
 
 export type DrillSessionState = {
@@ -182,36 +192,63 @@ function retarget(state: DrillSessionState, playedSteps: DrillStep[]): string | 
 }
 
 /**
- * Advances past however many auto-played opponent replies follow, per the
- * current target line, until either a leaf is reached (occurrence complete) or
- * it's the user's turn again.
- *
- * `applied` accumulates every step this attempt puts on the board, starting with
- * the accepted own move, so it can be recorded on the resulting state even in the
- * completion case, where `playedSteps` is reset back to empty.
+ * Applies exactly one step - either the user's own move (from `attemptOwnMove`)
+ * or the next auto-played opponent reply (from `advanceAutoPlay`) - and settles
+ * into whichever state follows: awaiting the user's next move, awaiting an
+ * auto-played opponent reply (left for the caller to apply separately via
+ * `advanceAutoPlay`), or complete. Deliberately never walks through more than
+ * one ply per call, unlike the single-call multi-ply version this replaced -
+ * that let the board's position jump two plies at once when a line ended right
+ * after an auto-played reply, which animated as an abrupt jump rather than a
+ * smooth per-move slide. See useDrillSession for how the two steps of a single
+ * user move (the move itself, then its auto-played reply) get spaced out in time.
  */
-function advance(state: DrillSessionState, playedSteps: DrillStep[], applied: DrillStep[]): DrillSessionState {
-  const targetLine = state.currentTargetId ? state.linesById.get(state.currentTargetId) : undefined
+function applyStep(state: DrillSessionState, currentTargetId: string | null, step: DrillStep): DrillSessionState {
+  const playedSteps = [...state.playedSteps, step]
+  const base: DrillSessionState = {
+    ...state,
+    currentTargetId,
+    playedSteps,
+    lastAppliedSteps: [step],
+    currentFen: step.resultingFen,
+    wrongAttempts: 0,
+    lastFeedback: { kind: 'correct' },
+  }
+  const targetLine = currentTargetId ? state.linesById.get(currentTargetId) : undefined
   if (!targetLine || playedSteps.length >= targetLine.steps.length) {
-    // The leaf position is whatever the last step actually applied resulted in -
-    // NOT `state.currentFen`, which is only updated below when stopping to await
-    // the user's next own move, and is otherwise stale (still the position from
-    // before this whole attempt) by the time every step has been walked.
-    const leafFen = playedSteps.length > 0 ? playedSteps[playedSteps.length - 1].resultingFen : state.currentFen
-    return completeOccurrence({ ...state, lastAppliedSteps: applied }, state.currentTargetId, leafFen)
+    // playedSteps.length is this occurrence's actual ply count reached so far -
+    // always correct even after a redirect (see `retarget`), unlike relying on
+    // `targetLine.steps.length` (the *originally targeted* line's length).
+    return completeOccurrence(base, currentTargetId, step.resultingFen, playedSteps.length)
   }
-  const nextStep = targetLine.steps[playedSteps.length]
-  if (nextStep.mover === 'own') {
-    return {
-      ...state,
-      playedSteps,
-      lastAppliedSteps: applied,
-      currentFen: nextStep.fen,
-      wrongAttempts: 0,
-      lastFeedback: { kind: 'correct' },
-    }
-  }
-  return advance(state, [...playedSteps, nextStep], [...applied, nextStep])
+  // Otherwise there's more to this line: either the next step is the user's own
+  // move (nothing further to do right now - `currentFen` is already correctly
+  // positioned there, since a step's `resultingFen` is always the next step's
+  // origin `fen`), or it's an opponent reply that `advanceAutoPlay` applies as
+  // its own separate step.
+  return base
+}
+
+/**
+ * The opponent reply queued to be auto-played next, if the current target line
+ * calls for one at this point and the session isn't paused for review - see
+ * `advanceAutoPlay`.
+ */
+export function pendingAutoPlayStep(state: DrillSessionState): DrillStep | null {
+  if (state.completionPause) return null
+  const targetLine = state.currentTargetId ? state.linesById.get(state.currentTargetId) : undefined
+  const nextStep = targetLine?.steps[state.playedSteps.length]
+  return nextStep && nextStep.mover === 'opponent' ? nextStep : null
+}
+
+/**
+ * Applies the opponent reply from `pendingAutoPlayStep`, as its own single-ply
+ * step (see `applyStep`) - a no-op if there's no pending reply right now.
+ */
+export function advanceAutoPlay(state: DrillSessionState): DrillSessionState {
+  const pending = pendingAutoPlayStep(state)
+  if (!pending) return state
+  return applyStep(state, state.currentTargetId, pending)
 }
 
 /**
@@ -221,7 +258,12 @@ function advance(state: DrillSessionState, playedSteps: DrillStep[], applied: Dr
  * layer, the opponent's best untried response) until `acknowledgeLineCompletion`
  * is called.
  */
-function completeOccurrence(state: DrillSessionState, targetId: string | null, leafFen: string): DrillSessionState {
+function completeOccurrence(
+  state: DrillSessionState,
+  targetId: string | null,
+  leafFen: string,
+  leafPly: number,
+): DrillSessionState {
   if (!targetId) return beginNextOccurrence(state)
   const outcome: DrillOutcome = state.hasWrongAttemptThisOccurrence ? 'failed' : 'perfect'
   const pendingIds = new Set(state.pendingIds)
@@ -236,7 +278,7 @@ function completeOccurrence(state: DrillSessionState, targetId: string | null, l
     wrongAttempts: 0,
     hasWrongAttemptThisOccurrence: false,
     lastFeedback: { kind: 'correct' },
-    completionPause: { lineId: targetId, leafFen },
+    completionPause: { lineId: targetId, leafFen, leafPly },
   }
 }
 
@@ -281,9 +323,10 @@ export function attemptOwnMove(
   getContinuations: (fen: string) => RepertoireMove[],
   played: { uci: string; san: string; resultingFen: string },
 ): DrillSessionState {
-  // A line just completed and is paused for review - ignore further attempts
-  // until the user acknowledges it via acknowledgeLineCompletion.
-  if (state.completionPause) return state
+  // A line just completed and is paused for review, or an opponent reply is
+  // queued but not yet applied (see advanceAutoPlay) - ignore further attempts
+  // until the caller settles that first.
+  if (state.completionPause || pendingAutoPlayStep(state)) return state
   if (isSessionComplete(state)) return state
 
   const saved = getContinuations(state.currentFen).find((m) => m.uci === played.uci)
@@ -306,7 +349,7 @@ export function attemptOwnMove(
     }
 
     const currentTargetId = retarget(state, playedSteps)
-    return advance({ ...state, currentTargetId }, playedSteps, [step])
+    return applyStep(state, currentTargetId, step)
   }
 
   const attemptNumber = state.wrongAttempts + 1
@@ -320,6 +363,7 @@ export function attemptOwnMove(
     playedUci: played.uci,
     originFen: state.currentFen,
     resultingFen: played.resultingFen,
+    originPly: state.playedSteps.length,
     hintFrom: attemptNumber >= 2 ? hintMove?.uci.slice(0, 2) : undefined,
     hintTo: attemptNumber >= 3 ? hintMove?.uci.slice(2, 4) : undefined,
   }
@@ -346,7 +390,7 @@ export function wouldAcceptOwnMove(
   getContinuations: (fen: string) => RepertoireMove[],
   uci: string,
 ): boolean {
-  if (state.completionPause) return false
+  if (state.completionPause || pendingAutoPlayStep(state)) return false
   if (isSessionComplete(state)) return false
   const saved = getContinuations(state.currentFen).find((m) => m.uci === uci)
   if (!saved) return false

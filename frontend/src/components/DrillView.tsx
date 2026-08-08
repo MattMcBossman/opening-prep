@@ -41,7 +41,13 @@ const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
  */
 export function DrillView({ repertoire, color, onToggleColor, playMoveSound, playDrillCompleteSound }: Props) {
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
-  const session = useDrillSession({ color, getContinuations })
+  const onStepApplied = useCallback((step: { san: string }) => playMoveSound(step.san), [playMoveSound])
+  const session = useDrillSession({
+    color,
+    getContinuations,
+    onStepApplied,
+    onLineComplete: playDrillCompleteSound,
+  })
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
 
   const { state } = session
@@ -105,19 +111,14 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound, pla
       // genuine mistake and a saved-but-already-drilled rejection both leave the
       // position unchanged, so the piece should snap back in either case.
       const accepted = session.wouldAccept(uci)
-      // Sound only what actually lands on the board: the accepted move plus any
-      // opponent reply auto-played after it. A rejected attempt leaves the position
-      // untouched, so it stays silent and the feedback panel speaks for it.
-      const { steps, completedLine } = session.attemptMove({ uci, san: result.san, resultingFen: trial.fen() })
-      for (const step of steps) {
-        playMoveSound(step.san)
-      }
-      // A distinct chime on top of (not instead of) the last move's own sound, so
-      // finishing a line is unmistakable even if that move was a quiet, plain one.
-      if (completedLine) playDrillCompleteSound()
+      // Sounds (the move itself, its auto-played opponent reply, and the
+      // drill-complete chime) are handled by useDrillSession's onStepApplied/
+      // onLineComplete callbacks, timed to when each ply actually lands on the
+      // board - see AUTO_PLAY_DELAY_MS.
+      session.attemptMove({ uci, san: result.san, resultingFen: trial.fen() })
       return accepted
     },
-    [fen, isOwnTurn, session, isPaused, playMoveSound, playDrillCompleteSound],
+    [fen, isOwnTurn, session, isPaused],
   )
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
@@ -177,6 +178,8 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound, pla
               onSquareClick: handleSquareClick,
               squareStyles,
               arrows,
+              showAnimations: true,
+              animationDurationInMs: 300,
               id: 'opening-prep-drill-board',
             }}
           />
@@ -191,6 +194,7 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound, pla
         {isPaused ? (
           <DrillLineCompletePanel
             evaluation={session.completionEval}
+            leafPly={state.completionPause?.leafPly ?? 0}
             isLastDrill={session.complete}
             onNext={session.acknowledgeCompletion}
           />

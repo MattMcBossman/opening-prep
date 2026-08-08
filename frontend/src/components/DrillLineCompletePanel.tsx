@@ -1,9 +1,16 @@
 import { useMemo } from 'react'
-import { formatMoveList, uciLineToSan } from '../lib/chessUtils'
+import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
 import type { EngineEvaluation } from '../types'
 
 type Props = {
   evaluation: EngineEvaluation | null
+  /**
+   * How many plies into the game the completed line's leaf position is - needed
+   * to number the continuation correctly, since `evaluation.fen` is frequently a
+   * normalized FEN with no reliable move-number fields of its own (see
+   * `DrillFeedback.originPly` in drillSessionLogic.ts for the same issue).
+   */
+  leafPly: number
   /** Whether this was the last pending line - changes the button's label. */
   isLastDrill: boolean
   onNext: () => void
@@ -16,12 +23,12 @@ type Props = {
  * (an arrow on the board, drawn by the caller from the same `evaluation`) is
  * summarized here as text, since the user hasn't prepped a reply to it yet.
  */
-export function DrillLineCompletePanel({ evaluation, isLastDrill, onNext }: Props) {
+export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNext }: Props) {
   const pvText = useMemo(() => {
     if (!evaluation) return ''
     const sanMoves = uciLineToSan(evaluation.fen, evaluation.pvUci)
-    return formatMoveList(evaluation.fen, sanMoves)
-  }, [evaluation])
+    return formatMoveListFromPly(leafPly, sanMoves)
+  }, [evaluation, leafPly])
 
   return (
     <div className="panel drill-line-complete">

@@ -266,6 +266,8 @@ function App() {
                     onPieceDrop: handlePieceDrop,
                     onSquareClick: handleSquareClick,
                     squareStyles,
+                    showAnimations: true,
+                    animationDurationInMs: 300,
                     id: 'opening-prep-explorer-board',
                   }}
                 />

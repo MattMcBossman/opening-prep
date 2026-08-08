@@ -3,10 +3,12 @@ import { collectDrillLines } from '../lib/repertoireDrills'
 import type { DrillStep } from '../lib/repertoireDrills'
 import {
   acknowledgeLineCompletion,
+  advanceAutoPlay,
   applyMoveClassification,
   attemptOwnMove as attemptOwnMoveLogic,
   createDrillSession,
   isSessionComplete,
+  pendingAutoPlayStep,
   retryFailedLines as retryFailedLinesLogic,
   sessionProgress,
   wouldAcceptOwnMove,
@@ -22,12 +24,22 @@ type UseDrillSessionParams = {
   color: RepertoireColor
   getContinuations: (fen: string) => RepertoireMove[]
   rootFen?: string
+  /** Called for every ply actually applied to the board, in the order it happens. */
+  onStepApplied?: (step: DrillStep) => void
+  /** Called once a line is completed (right as the review pause begins). */
+  onLineComplete?: () => void
 }
 
 // How close (by Hamming distance) two positions need to be before surfacing one as
 // a "similar position" hint - conservative, since a large distance stops being a
 // meaningful transposition signal (see the Phase 3 plan's similar-position section).
 const SIMILARITY_MAX_DISTANCE = 6
+
+// react-chessboard's own move animation defaults to 300ms (see its
+// `animationDurationInMs`); auto-playing the opponent's reply this long after the
+// user's own move lets that first slide finish before the second one starts,
+// rather than jumping both plies in one board update - see `advanceAutoPlay`.
+const AUTO_PLAY_DELAY_MS = 320
 
 export type SimilarPositionHint = SimilarPositionMatch & {
   /** Whether the move the user just played is itself saved from the similar position. */
@@ -38,11 +50,19 @@ export type SimilarPositionHint = SimilarPositionMatch & {
  * Drives a drill session: enumerates leaf-path drill lines from the repertoire,
  * owns the pure session state machine (see drillSessionLogic.ts), and layers on
  * the async bits that don't belong in pure logic - engine-based wrong-move
- * classification and similar-position hinting. Kept fully separate from
- * explorer/useGame state so practicing can never mutate the repertoire (see the
- * Phase 3 plan's "Risks and decisions").
+ * classification, similar-position hinting, and timing the opponent's
+ * auto-played reply so it animates as its own move instead of jumping straight
+ * to the post-reply position. Kept fully separate from explorer/useGame state
+ * so practicing can never mutate the repertoire (see the Phase 3 plan's "Risks
+ * and decisions").
  */
-export function useDrillSession({ color, getContinuations, rootFen = START_FEN }: UseDrillSessionParams) {
+export function useDrillSession({
+  color,
+  getContinuations,
+  rootFen = START_FEN,
+  onStepApplied,
+  onLineComplete,
+}: UseDrillSessionParams) {
   const { compare, evaluatePosition } = useEngineComparison()
   const [state, setState] = useState<DrillSessionState>(() =>
     createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen),
@@ -66,9 +86,22 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
     return fens
   }, [state.lines])
 
+  // The one in-flight auto-play timer, if any - cleared whenever a fresh session
+  // starts (color/root change, explicit restart) so a stale timer can't fire
+  // against a session it no longer applies to, and on unmount.
+  const autoPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearPendingAutoPlay = useCallback(() => {
+    if (autoPlayTimeoutRef.current !== null) {
+      clearTimeout(autoPlayTimeoutRef.current)
+      autoPlayTimeoutRef.current = null
+    }
+  }, [])
+  useEffect(() => clearPendingAutoPlay, [clearPendingAutoPlay])
+
   const startNewSession = useCallback(() => {
+    clearPendingAutoPlay()
     setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
-  }, [color, getContinuations, rootFen])
+  }, [color, getContinuations, rootFen, clearPendingAutoPlay])
 
   // Re-collect and restart whenever the drilled color or root position changes -
   // e.g. the user switches from drilling White to drilling Black. Deliberately
@@ -76,6 +109,7 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
   // a fixed snapshot of the repertoire for its duration (see the Phase 3 plan's
   // "Risks and decisions" - drilling must never fight with concurrent editing).
   useEffect(() => {
+    clearPendingAutoPlay()
     setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, rootFen])
@@ -106,17 +140,37 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
     stateRef.current = state
   }, [state])
 
+  /** Schedules the opponent's auto-played reply, if `candidate` is awaiting one, as its own delayed step. */
+  const scheduleAutoPlay = useCallback(
+    (candidate: DrillSessionState) => {
+      if (!pendingAutoPlayStep(candidate)) return
+      autoPlayTimeoutRef.current = setTimeout(() => {
+        autoPlayTimeoutRef.current = null
+        setState((current) => {
+          const next = advanceAutoPlay(current)
+          if (next === current) return current
+          for (const step of next.lastAppliedSteps) onStepApplied?.(step)
+          if (next.completionPause) onLineComplete?.()
+          return next
+        })
+      }, AUTO_PLAY_DELAY_MS)
+    },
+    [onStepApplied, onLineComplete],
+  )
+
   /**
-   * Applies one attempt and returns the steps it actually put on the board (the
-   * accepted move plus any auto-played opponent reply) plus whether it completed
-   * a line, so the caller can react to them imperatively - notably to sound each
-   * move plus a distinct completion chime. `steps` is empty when the attempt was
-   * rejected and the position didn't change.
+   * Attempts one of the drilling color's own moves. Any resulting ply is
+   * reported via `onStepApplied` as it's actually applied - immediately for
+   * the move itself, and again after a short delay for its auto-played
+   * opponent reply (see `scheduleAutoPlay`) - rather than all at once, so the
+   * caller (the board) can animate each ply individually instead of jumping
+   * several plies in one update.
    */
   const attemptMove = useCallback(
-    (played: { uci: string; san: string; resultingFen: string }): { steps: DrillStep[]; completedLine: boolean } => {
+    (played: { uci: string; san: string; resultingFen: string }) => {
       const prev = stateRef.current
       const next = attemptOwnMoveLogic(prev, getContinuations, played)
+      if (next === prev) return
       if (next.lastFeedback?.kind === 'wrong') {
         const token = next.lastFeedback.attemptToken
         compare(prev.currentFen, played.resultingFen, color).then((result) => {
@@ -124,9 +178,11 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
         })
       }
       setState(next)
-      return { steps: next.lastAppliedSteps, completedLine: next.completionPause !== null }
+      for (const step of next.lastAppliedSteps) onStepApplied?.(step)
+      if (next.completionPause) onLineComplete?.()
+      scheduleAutoPlay(next)
     },
-    [getContinuations, compare, color],
+    [getContinuations, compare, color, onStepApplied, onLineComplete, scheduleAutoPlay],
   )
 
   const acknowledgeCompletion = useCallback(() => {
@@ -135,11 +191,15 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
 
   // Synchronous preview for the board layer to decide, at drop time, whether a
   // piece drop will actually change the position (should "stick") or not
-  // (should snap back) - covers both a genuine mistake and the new "saved but
-  // already fully drilled" rejection, which also never changes the position.
+  // (should snap back) - covers a genuine mistake, a saved-but-already-drilled
+  // rejection, and the brief window where an opponent reply is queued but not
+  // yet auto-played, all of which leave the position unchanged.
   const wouldAccept = useCallback((uci: string) => wouldAcceptOwnMove(state, getContinuations, uci), [state, getContinuations])
 
-  const retryFailed = useCallback(() => setState((prev) => retryFailedLinesLogic(prev)), [])
+  const retryFailed = useCallback(() => {
+    clearPendingAutoPlay()
+    setState((prev) => retryFailedLinesLogic(prev))
+  }, [clearPendingAutoPlay])
 
   const similarPosition = useMemo<SimilarPositionHint | null>(() => {
     const feedback = state.lastFeedback

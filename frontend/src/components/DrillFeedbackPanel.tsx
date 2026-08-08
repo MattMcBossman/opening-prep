@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { formatMoveList, uciLineToSan } from '../lib/chessUtils'
+import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
 import type { DrillFeedback } from '../lib/drillSessionLogic'
 import type { SimilarPositionHint } from '../hooks/useDrillSession'
 
@@ -18,7 +18,11 @@ export function DrillFeedbackPanel({ feedback, similarPosition }: Props) {
   const pvText = useMemo(() => {
     if (feedback?.kind !== 'wrong' || !feedback.bestResponseLine) return ''
     const sanMoves = uciLineToSan(feedback.bestResponseLine.fen, feedback.bestResponseLine.pvUci)
-    return formatMoveList(feedback.bestResponseLine.fen, sanMoves)
+    // The best-response line starts right after the wrong move, i.e. one ply
+    // past `originPly` - see the module doc on DrillFeedback.originPly for why
+    // this can't be derived from `bestResponseLine.fen` itself (it's frequently
+    // a normalized FEN with no reliable move-number fields of its own).
+    return formatMoveListFromPly(feedback.originPly + 1, sanMoves)
   }, [feedback])
 
   if (!feedback || feedback.kind === 'correct') {
