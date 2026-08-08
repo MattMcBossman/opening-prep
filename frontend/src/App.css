@@ -167,7 +167,6 @@
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 16px;
   flex: 1;
   min-width: 280px;
 }
@@ -182,11 +181,11 @@
 }
 
 /* Fixed width so it doesn't take more room than the short move notation needs, and so
-   its own width never shifts the explorer panel beside it. Stretches to match the
-   board column's height (via the explorer-layout parent) rather than a guessed pixel
-   value, so it stays aligned regardless of what's in the engine panel below the board. */
+   its own width never shifts the board beside it. Stretches to match the board
+   column's height (via the explorer-layout parent) rather than a guessed pixel value,
+   so it stays aligned regardless of what's in the engine panel below the board. */
 .moves-panel {
-  width: 180px;
+  width: 220px;
   flex-shrink: 0;
   align-self: stretch;
   display: flex;
@@ -284,9 +283,15 @@
 
 .move-row {
   display: grid;
-  grid-template-columns: 24px 1fr 1fr;
+  grid-template-columns: 18px 24px 1fr 1fr 18px;
   align-items: center;
   gap: 4px;
+}
+
+.move-star-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .move-number {
@@ -318,6 +323,50 @@
   background: var(--accent-bg);
   color: var(--accent);
   font-weight: 600;
+}
+
+.move-star {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text);
+  opacity: 0.5;
+}
+
+.move-star:hover {
+  opacity: 1;
+}
+
+.move-star.active {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* A divider between the played line above and the saved-continuation rows below,
+   so the two groups read as visually distinct sections of the list. */
+.move-list-divider {
+  border-top: 1px dashed var(--border);
+  margin: 4px 0;
+}
+
+/* Saved-but-not-yet-played continuations: an accent-tinted dashed border and
+   background make them stand out clearly from the plain, already-played move
+   buttons above them in the same list. */
+.move-button-suggestion {
+  border: 1px dashed var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.move-button-suggestion:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .token-settings {
@@ -413,9 +462,19 @@
   background: var(--surface-2);
 }
 
+.explorer-row-saved {
+  background: var(--accent-bg);
+}
+
 .explorer-row td {
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
+}
+
+.explorer-saved-badge {
+  margin-left: 4px;
+  color: var(--accent);
+  font-size: 11px;
 }
 
 .explorer-games-pct {

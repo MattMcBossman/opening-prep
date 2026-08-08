@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
@@ -10,6 +10,7 @@ import { useEngineEval } from './hooks/useEngineEval'
 import { useLichessToken } from './hooks/useLichessToken'
 import { useTheme } from './hooks/useTheme'
 import { useBoardColor } from './hooks/useBoardColor'
+import { useRepertoire } from './hooks/useRepertoire'
 import { MoveList } from './components/MoveList'
 import { ExplorerStatsTable } from './components/ExplorerStatsTable'
 import { EngineEvalPanel } from './components/EngineEvalPanel'
@@ -18,7 +19,8 @@ import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
 import { ThemeToggle } from './components/ThemeToggle'
 import { BoardColorToggle } from './components/BoardColorToggle'
-import type { ExplorerOpening } from './types'
+import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
+import type { ExplorerOpening, RepertoireMove } from './types'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -39,7 +41,72 @@ function App() {
   const { token, setToken } = useLichessToken()
   const explorer = useExplorerStats(fen, token)
   const evaluation = useEngineEval(fen)
+  const repertoire = useRepertoire()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+
+  const isPlySaved = useCallback(
+    (index: number) => {
+      const entry = moves[index]
+      if (!entry) return false
+      return repertoire.isMoveSaved(boardColor, originFenForPly(moves, index), entry.uci)
+    },
+    [moves, boardColor, repertoire],
+  )
+
+  const onTogglePlySaved = useCallback(
+    (index: number) => {
+      const entry = moves[index]
+      if (!entry) return
+      const originFen = originFenForPly(moves, index)
+      if (repertoire.isMoveSaved(boardColor, originFen, entry.uci)) {
+        repertoire.removeMove(boardColor, originFen, entry.uci)
+        return
+      }
+      // Saving a move also saves every earlier unsaved ply in this line - both the
+      // owner's own moves and the opponent's replies along the way, so the whole path
+      // from the start becomes reachable via saved continuations, not just this one
+      // deep branch. The opponent's plies aren't independently toggleable (see
+      // MoveList), but they're what let a continuation say "here's my response to
+      // this specific opponent move."
+      for (let i = index; i >= 0; i -= 1) {
+        const ancestor = moves[i]
+        if (!ancestor) break
+        const ancestorOriginFen = originFenForPly(moves, i)
+        repertoire.addMove(boardColor, ancestorOriginFen, {
+          san: ancestor.san,
+          uci: ancestor.uci,
+          resultingFen: normalizeFen(ancestor.fenAfter),
+        })
+      }
+    },
+    [moves, boardColor, repertoire],
+  )
+
+  const handleToggleBoardColor = useCallback(() => {
+    toggleBoardColor()
+    reset()
+  }, [toggleBoardColor, reset])
+
+  const continuations = useMemo(
+    () => repertoire.getContinuations(boardColor, fen),
+    [repertoire, boardColor, fen],
+  )
+
+  const playRepertoireMove = useCallback((move: RepertoireMove) => makeMove(move.san), [makeMove])
+  const removeRepertoireMove = useCallback(
+    (move: RepertoireMove) => repertoire.removeMove(boardColor, fen, move.uci),
+    [repertoire, boardColor, fen],
+  )
+
+  const isExplorerMoveSaved = useCallback(
+    (uci: string) => repertoire.isMoveSaved(boardColor, fen, uci),
+    [repertoire, boardColor, fen],
+  )
+
+  // The explorer always lists candidate moves for whoever is to move at the current
+  // position, so this is either "my" turn or the opponent's for every row at once -
+  // used to pick the saved-move badge glyph (star for mine, checkmark for theirs).
+  const isExplorerMyMove = sideToMove(fen) === boardColor
 
   // Remembers the opening name/ECO fetched for every FEN visited along the current
   // line, so a position with no name of its own can fall back to the last known name
@@ -115,17 +182,31 @@ function App() {
     <div className="app-layout">
       <header className="app-header">
         <h1>opening-prep</h1>
-        <p>Opening explorer (Phase 1 MVP)</p>
+        <p>Opening explorer &amp; repertoire builder</p>
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </header>
       <main className="explorer-layout">
+        <section className="panel moves-panel">
+          <h2>Moves</h2>
+          <MoveList
+            moves={moves}
+            pointer={pointer}
+            onSelect={goTo}
+            boardColor={boardColor}
+            isPlySaved={isPlySaved}
+            onTogglePlySaved={onTogglePlySaved}
+            continuations={continuations}
+            onPlayContinuation={playRepertoireMove}
+            onRemoveContinuation={removeRepertoireMove}
+          />
+        </section>
+
         <div className="board-column">
           <div className="board-heading">
             <OpeningName eco={resolvedOpening?.eco ?? null} name={resolvedOpening?.name ?? null} fen={fen} />
-            <BoardColorToggle boardColor={boardColor} onToggle={toggleBoardColor} />
+            <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
           </div>
           <div className="board-with-eval">
-            <EvalBar evaluation={evaluation} boardColor={boardColor} />
             <div className="board-wrapper">
               <Chessboard
                 options={{
@@ -138,6 +219,7 @@ function App() {
                 }}
               />
             </div>
+            <EvalBar evaluation={evaluation} boardColor={boardColor} />
           </div>
           <div className="board-controls">
             <button type="button" onClick={goBack} disabled={pointer === 0}>
@@ -154,11 +236,6 @@ function App() {
         </div>
 
         <div className="side-column">
-          <section className="panel moves-panel">
-            <h2>Moves</h2>
-            <MoveList moves={moves} pointer={pointer} onSelect={goTo} />
-          </section>
-
           <section className="panel explorer-panel">
             <h2>Lichess explorer</h2>
             <LichessTokenSettings token={token} onChange={setToken} />
@@ -167,6 +244,8 @@ function App() {
               loading={explorer.loading}
               error={explorer.error}
               onMoveClick={(san) => makeMove(san)}
+              isMoveSaved={isExplorerMoveSaved}
+              isMyMove={isExplorerMyMove}
             />
           </section>
         </div>

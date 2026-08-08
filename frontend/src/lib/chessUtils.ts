@@ -1,4 +1,29 @@
 import { Chess } from 'chess.js'
+import type { HistoryEntry } from '../hooks/useGame'
+import { START_FEN } from '../hooks/useGame'
+import type { RepertoireColor } from '../types'
+
+/** Origin FEN (position before the move was played) for the ply at `index` in `moves`. */
+export function originFenForPly(moves: HistoryEntry[], index: number): string {
+  return index === 0 ? START_FEN : moves[index - 1].fenAfter
+}
+
+/** Which color is to move in `fen`. */
+export function sideToMove(fen: string): RepertoireColor {
+  return fen.split(' ')[1] === 'b' ? 'black' : 'white'
+}
+
+/**
+ * Normalizes a FEN for use as a repertoire/position-identity key by dropping the
+ * halfmove clock and fullmove number (fields 5 and 6). Two FENs that differ only in
+ * those fields represent the exact same position, typically reached via a different
+ * move order or move count (a transposition) — see AGENTS.md's "position identity via
+ * FEN" decision. The board, side-to-move, castling rights, and en-passant target
+ * (fields 1-4) are kept as-is.
+ */
+export function normalizeFen(fen: string): string {
+  return fen.split(' ').slice(0, 4).join(' ')
+}
 
 /**
  * Formats a sequence of SAN moves starting from `fen` with PGN-style move numbers, e.g.

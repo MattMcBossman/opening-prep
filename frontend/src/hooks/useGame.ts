@@ -3,6 +3,9 @@ import { Chess } from 'chess.js'
 
 export type HistoryEntry = {
   san: string
+  /** UCI notation (e.g. "e2e4") for the move that produced this entry, used as the
+   * repertoire move identity so saved moves don't need to be re-derived from SAN. */
+  uci: string
   fenAfter: string
 }
 
@@ -45,7 +48,8 @@ export function useGame() {
       }
       if (!result) return false
 
-      setMoves((prev) => [...prev.slice(0, pointer), { san: result.san, fenAfter: trial.fen() }])
+      const uci = `${result.from}${result.to}${result.promotion ?? ''}`
+      setMoves((prev) => [...prev.slice(0, pointer), { san: result.san, uci, fenAfter: trial.fen() }])
       setPointer((p) => p + 1)
       return true
     },

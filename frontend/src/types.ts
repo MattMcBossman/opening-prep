@@ -18,6 +18,23 @@ export type ExplorerResponse = {
   opening: ExplorerOpening
 }
 
+export type RepertoireColor = 'white' | 'black'
+
+export type RepertoireMove = {
+  san: string
+  uci: string
+  /** Normalized FEN (see normalizeFen) of the position reached by this move. */
+  resultingFen: string
+}
+
+/** A repertoire tree for one color: normalized origin FEN -> saved moves from that position. */
+export type RepertoireTree = Record<string, RepertoireMove[]>
+
+export type Repertoire = {
+  white: RepertoireTree
+  black: RepertoireTree
+}
+
 export type EngineEvaluation = {
   /** FEN this evaluation was computed for, so consumers can convert the PV to SAN safely. */
   fen: string

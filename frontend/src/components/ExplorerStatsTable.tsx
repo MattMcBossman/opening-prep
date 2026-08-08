@@ -6,6 +6,10 @@ type Props = {
   loading: boolean
   error: string | null
   onMoveClick: (san: string) => void
+  /** Whether the given move (by UCI) is already saved in the active repertoire at the current position. */
+  isMoveSaved: (uci: string) => boolean
+  /** Whether it's the repertoire owner's own turn at the current position (vs. the opponent's). */
+  isMyMove: boolean
 }
 
 function percent(n: number, total: number): number {
@@ -45,7 +49,7 @@ function ResultBar({ move }: { move: ExplorerMoveStat }) {
   )
 }
 
-export function ExplorerStatsTable({ data, loading, error, onMoveClick }: Props) {
+export function ExplorerStatsTable({ data, loading, error, onMoveClick, isMoveSaved, isMyMove }: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
   if (error) return <p className="panel-status error">{error}</p>
   if (!data || data.moves.length === 0) {
@@ -62,21 +66,35 @@ export function ExplorerStatsTable({ data, loading, error, onMoveClick }: Props)
         </tr>
       </thead>
       <tbody>
-        {data.moves.map((move) => (
-          <tr key={move.uci} className="explorer-row" onClick={() => onMoveClick(move.san)}>
-            <td>{move.san}</td>
-            <td className="explorer-games-cell">
-              {formatCompactNumber(move.totalGames)}
-              <span className="explorer-games-pct">
-                {' '}
-                ({Math.round(percent(move.totalGames, data.totalGames))}%)
-              </span>
-            </td>
-            <td>
-              <ResultBar move={move} />
-            </td>
-          </tr>
-        ))}
+        {data.moves.map((move) => {
+          const saved = isMoveSaved(move.uci)
+          return (
+            <tr
+              key={move.uci}
+              className={saved ? 'explorer-row explorer-row-saved' : 'explorer-row'}
+              onClick={() => onMoveClick(move.san)}
+            >
+              <td>
+                {move.san}
+                {saved && (
+                  <span className="explorer-saved-badge" title="In your prep" aria-label="In your prep">
+                    {isMyMove ? '\u2605' : '\u2713'}
+                  </span>
+                )}
+              </td>
+              <td className="explorer-games-cell">
+                {formatCompactNumber(move.totalGames)}
+                <span className="explorer-games-pct">
+                  {' '}
+                  ({Math.round(percent(move.totalGames, data.totalGames))}%)
+                </span>
+              </td>
+              <td>
+                <ResultBar move={move} />
+              </td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )
