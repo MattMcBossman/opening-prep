@@ -1,3 +1,4 @@
+import { ApiError, apiRequest } from './apiClient'
 import type { ExplorerMoveStat, ExplorerResponse } from '../types'
 
 // As of 2026, Lichess requires a personal API token (Bearer auth) on every Opening
@@ -6,9 +7,11 @@ import type { ExplorerMoveStat, ExplorerResponse } from '../types'
 const EXPLORER_URL = 'https://explorer.lichess.org/lichess'
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
-// MVP in-memory cache, keyed by FEN. This is a stand-in for the FEN-keyed
-// PositionStatsCache described in AGENTS.md; a persistent/shared version
-// moves to the Django backend in a later phase.
+// In-memory cache, keyed by FEN (and, for the direct path, by whether a token
+// was used - see `fetchLichessExplorer`). Signed-in requests also hit the
+// backend's own FEN-keyed PositionStatsCache (see API_CONTRACT.md) - this is
+// just the client-side layer on top, avoiding a round trip at all for a FEN
+// already fetched this session.
 const cache = new Map<string, { data: ExplorerResponse; expiresAt: number }>()
 
 type RawExplorerMove = {
@@ -68,6 +71,54 @@ export async function fetchLichessExplorer(
     moves,
     opening: raw.opening ? { eco: raw.opening.eco, name: raw.opening.name } : null,
   }
+
+  cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
+  return data
+}
+
+/**
+ * Chooses the signed-in (backend proxy) or anonymous (direct-to-Lichess) path
+ * and falls back from the former to the latter on a 401 - the explorer proxy's
+ * one hand-built 401 means "no usable Lichess token to call upstream with"
+ * (distinct from DRF's stock 403 for "not authenticated" - see
+ * API_CONTRACT.md), so if the user has also pasted a token, prefer using it
+ * over failing outright. See useExplorerStats.
+ */
+export async function fetchExplorerStats(
+  fen: string,
+  options: { apiToken: string; signedIn: boolean; signal?: AbortSignal },
+): Promise<ExplorerResponse> {
+  if (!options.signedIn) {
+    return fetchLichessExplorer(fen, options.apiToken, options.signal)
+  }
+  try {
+    return await fetchExplorerStatsViaBackend(fen, options.signal)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401 && options.apiToken) {
+      return fetchLichessExplorer(fen, options.apiToken, options.signal)
+    }
+    throw err
+  }
+}
+
+/**
+ * Signed-in path: routes through the backend's caching proxy instead of
+ * calling Lichess directly, so the server-held Lichess token (not a pasted
+ * one) is used and repeated FEN lookups can share the server-side cache across
+ * users. The response shape already matches `ExplorerResponse` (see
+ * API_CONTRACT.md), so no reshaping is needed. Shares the same in-memory
+ * client cache as the anonymous path, under a distinct key prefix so the two
+ * paths never collide if a user signs in/out mid-session.
+ */
+export async function fetchExplorerStatsViaBackend(fen: string, signal?: AbortSignal): Promise<ExplorerResponse> {
+  const cacheKey = `backend:${fen}`
+  const cached = cache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  const params = new URLSearchParams({ fen, moves: '12' })
+  const data = await apiRequest<ExplorerResponse>(`/explorer/stats/?${params.toString()}`, { signal })
 
   cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
   return data

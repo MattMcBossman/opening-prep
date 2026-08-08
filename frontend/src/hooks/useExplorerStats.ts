@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchLichessExplorer } from '../lib/lichessExplorer'
+import { fetchExplorerStats } from '../lib/lichessExplorer'
 import type { ExplorerResponse } from '../types'
 
 /**
@@ -7,8 +7,14 @@ import type { ExplorerResponse } from '../types'
  * wants stats for *some* positions (e.g. drills, which only show them once a
  * line is finished - showing them earlier would hint at the prepared move) skip
  * the request entirely rather than burning an API call per position visited.
+ *
+ * `signedIn` routes through the backend's caching proxy (using the account's
+ * stored Lichess token) instead of the anonymous direct-to-Lichess path with a
+ * pasted `apiToken` - see lichessExplorer.ts's `fetchExplorerStats`. `apiToken`
+ * is otherwise unused while signed in, except as a fallback if the backend
+ * proxy reports it has no usable token of its own.
  */
-export function useExplorerStats(fen: string, apiToken: string, enabled = true) {
+export function useExplorerStats(fen: string, apiToken: string, enabled = true, signedIn = false) {
   const [data, setData] = useState<ExplorerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -24,7 +30,7 @@ export function useExplorerStats(fen: string, apiToken: string, enabled = true) 
       return
     }
 
-    if (!apiToken) {
+    if (!signedIn && !apiToken) {
       setData(null)
       setLoading(false)
       setError('Add a Lichess API token to load explorer stats.')
@@ -35,7 +41,7 @@ export function useExplorerStats(fen: string, apiToken: string, enabled = true) 
     setLoading(true)
     setError(null)
 
-    fetchLichessExplorer(fen, apiToken, controller.signal)
+    fetchExplorerStats(fen, { apiToken, signedIn, signal: controller.signal })
       .then((res) => {
         setData(res)
         setLoading(false)
@@ -47,7 +53,7 @@ export function useExplorerStats(fen: string, apiToken: string, enabled = true) 
       })
 
     return () => controller.abort()
-  }, [fen, apiToken, enabled])
+  }, [fen, apiToken, enabled, signedIn])
 
   return { data, loading, error }
 }
