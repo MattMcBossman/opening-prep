@@ -9,26 +9,26 @@ class DrillSession(models.Model):
     One run through `useDrillSession` (frontend/src/hooks/useDrillSession.ts),
     from "start" to either "finish" or abandonment.
 
-    `repertoire_id` is a plain integer, not a `ForeignKey`: the `Repertoire`
-    model lives in the `repertoire` app, being built in parallel on a
-    different branch, and doesn't exist here yet. Ownership is checked via
-    `drills/repertoire_link.py` instead of a DB constraint for now - see that
-    module. `BigIntegerField` (not `PositiveIntegerField`) so the eventual
-    merge-time swap to a real `ForeignKey` (BigAutoField-backed, per
-    DEFAULT_AUTO_FIELD) is a clean type-compatible column change.
+    Deleting a repertoire takes its drill history with it: these statistics are
+    per-position records of practising *that* repertoire's lines, and are
+    meaningless once the lines are gone. The field is named `repertoire` but
+    still backed by the `repertoire_id` column, so `session.repertoire_id` and
+    `session__repertoire_id` lookups read naturally either way.
     """
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="drill_sessions"
     )
-    repertoire_id = models.BigIntegerField()
+    repertoire = models.ForeignKey(
+        "repertoire.Repertoire", on_delete=models.CASCADE, related_name="drill_sessions"
+    )
     is_retry_pass = models.BooleanField(default=False)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-started_at"]
-        indexes = [models.Index(fields=["user", "repertoire_id"])]
+        indexes = [models.Index(fields=["user", "repertoire"])]
 
     def __str__(self) -> str:
         return f"DrillSession({self.id}) user={self.user_id} repertoire={self.repertoire_id}"

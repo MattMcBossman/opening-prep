@@ -2,33 +2,31 @@
 Resolves and authorizes a client-supplied `repertoireId` against the
 requesting user.
 
-`repertoire.models.Repertoire` is owned by the accounts/repertoire agent,
-built in parallel on a different branch, and doesn't exist here yet (see
-`DrillSession.repertoire_id` in `drills/models.py`). Without *some* ownership
-check here, an authenticated user could attribute a drill session to another
-user's repertoire id just by guessing a number, so this module exists to hold
-that check in exactly one place - the lead fills in the real lookup once both
-apps are on the same branch, rather than a check having to be retrofitted into
-every endpoint that accepts a `repertoireId`.
+Without this check an authenticated user could attribute a drill session to
+someone else's repertoire just by guessing an id, so the rule lives in one
+place rather than being repeated in every endpoint that accepts a
+`repertoireId`.
 """
 
 from django.contrib.auth.models import AbstractBaseUser
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
+
+from repertoire.models import Repertoire
+
+# Deliberately identical for "no such repertoire" and "belongs to someone
+# else": distinguishing them would let a caller probe which ids exist.
+_REJECTION = "No such repertoire."
 
 
 def resolve_repertoire_id(raw_repertoire_id, user: AbstractBaseUser) -> int:
     """
-    Validates `raw_repertoire_id` and, once `repertoire.models.Repertoire`
-    exists, will also confirm it's owned by `user`. Raises DRF's
-    `ValidationError` (400) for a malformed id and `PermissionDenied` (403)
-    for one that exists but belongs to someone else.
+    Returns the id if it is a well-formed reference to a repertoire owned by
+    `user`, and otherwise raises DRF's `ValidationError` (400).
 
-    Interim behaviour (no `repertoire` app models yet): only shape-validates
-    that it's a positive integer. This is intentionally not a full ownership
-    check - it can't be, without the other app's model - so it should not be
-    read as "this is already secure"; the real check lands in the same
-    `try`/`except ImportError` shape as `explorer_cache/lichess_token.py` and
-    the lead fills in `_owned_repertoire_id` at merge time.
+    400 rather than 403/404 because this arrives as a field in a request body,
+    not as a URL path segment - a bad `repertoireId` is a malformed request,
+    and answering every rejection the same way keeps the endpoint from
+    confirming whether a given id exists.
     """
     try:
         repertoire_id = int(raw_repertoire_id)
@@ -37,25 +35,6 @@ def resolve_repertoire_id(raw_repertoire_id, user: AbstractBaseUser) -> int:
     if repertoire_id <= 0:
         raise ValidationError({"repertoireId": "Must be a positive integer."})
 
-    owned_id = _owned_repertoire_id(repertoire_id, user)
-    if owned_id is None:
-        # repertoire.models.Repertoire isn't available yet - fall back to the
-        # shape check above only. See the module docstring.
-        return repertoire_id
-    if owned_id is False:
-        raise PermissionDenied("That repertoire does not belong to you.")
-    return owned_id
-
-
-def _owned_repertoire_id(repertoire_id: int, user: AbstractBaseUser):
-    """
-    Returns the repertoire id if `user` owns it, `False` if it exists but
-    belongs to someone else (or doesn't exist at all), or `None` if the
-    `repertoire` app's model isn't present yet to check against.
-    """
-    try:
-        from repertoire.models import Repertoire
-    except ImportError:
-        return None
-
-    return repertoire_id if Repertoire.objects.filter(id=repertoire_id, owner=user).exists() else False
+    if not Repertoire.objects.filter(id=repertoire_id, owner=user).exists():
+        raise ValidationError({"repertoireId": _REJECTION})
+    return repertoire_id

@@ -18,14 +18,19 @@ def get_lichess_access_token(user: User) -> str | None:
     """
     Returns the decrypted token for `user`, or `None` if there isn't one.
 
-    Both "no linked Lichess account" and "stored ciphertext can't be decrypted"
-    (e.g. `TOKEN_ENCRYPTION_KEY` was rotated) collapse to `None` here rather
-    than raising, so a token problem degrades the explorer proxy for one user
-    instead of surfacing as a 500 from an otherwise-unrelated endpoint.
+    "No linked Lichess account", "not signed in at all", and "stored ciphertext
+    can't be decrypted" (e.g. `TOKEN_ENCRYPTION_KEY` was rotated) all collapse
+    to `None` rather than raising, so a token problem degrades the explorer
+    proxy for one user instead of surfacing as a 500 from an otherwise
+    unrelated endpoint.
     """
     try:
         account = user.lichess_account
     except LichessAccount.DoesNotExist:
+        return None
+    except AttributeError:
+        # An AnonymousUser has no `lichess_account` descriptor at all. The
+        # explorer proxy is AllowAny, so this is a perfectly ordinary call.
         return None
     try:
         return account.access_token
