@@ -1,5 +1,9 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
-import type { PieceDropHandlerArgs } from 'react-chessboard'
+import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
+import { Chess } from 'chess.js'
+import type { Square } from 'chess.js'
 import { useGame } from './hooks/useGame'
 import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
@@ -11,15 +15,71 @@ import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
 import './App.css'
 
+const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
+// Quiet moves get a small center dot.
+const LEGAL_TARGET_STYLE: CSSProperties = {
+  backgroundImage: 'radial-gradient(circle, rgba(0, 0, 0, 0.3) 22%, transparent 24%)',
+}
+// Captures (and en passant) target an occupied square, where a center dot would be
+// hidden behind the piece artwork, so use an inset ring around the square instead.
+const CAPTURE_TARGET_STYLE: CSSProperties = {
+  boxShadow: 'inset 0 0 0 4px rgba(0, 0, 0, 0.35)',
+}
+
 function App() {
   const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset } = useGame()
   const { token, setToken } = useLichessToken()
   const explorer = useExplorerStats(fen, token)
   const evaluation = useEngineEval(fen)
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+
+  // Any position change (drag move, click-to-move, explorer click, history navigation,
+  // reset) invalidates the current selection.
+  useEffect(() => {
+    setSelectedSquare(null)
+  }, [fen])
+
+  const legalMoves = useMemo(() => {
+    if (!selectedSquare) return []
+    try {
+      return new Chess(fen).moves({ square: selectedSquare as Square, verbose: true })
+    } catch {
+      return []
+    }
+  }, [fen, selectedSquare])
+
+  const squareStyles = useMemo(() => {
+    if (!selectedSquare) return undefined
+    const styles: Record<string, CSSProperties> = { [selectedSquare]: SELECTED_SQUARE_STYLE }
+    for (const move of legalMoves) {
+      styles[move.to] = {
+        ...styles[move.to],
+        ...(move.isCapture() ? CAPTURE_TARGET_STYLE : LEGAL_TARGET_STYLE),
+      }
+    }
+    return styles
+  }, [selectedSquare, legalMoves])
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
     if (!targetSquare) return false
     return makeMove({ from: sourceSquare, to: targetSquare, promotion: 'q' })
+  }
+
+  function handleSquareClick({ square, piece }: SquareHandlerArgs) {
+    if (!selectedSquare) {
+      if (piece) setSelectedSquare(square)
+      return
+    }
+    if (square === selectedSquare) {
+      setSelectedSquare(null)
+      return
+    }
+    const moved = makeMove({ from: selectedSquare, to: square, promotion: 'q' })
+    if (!moved) {
+      // Illegal target: if the clicked square holds a piece, select it instead of
+      // just clearing the selection outright.
+      setSelectedSquare(piece ? square : null)
+    }
   }
 
   return (
@@ -40,6 +100,8 @@ function App() {
               options={{
                 position: fen,
                 onPieceDrop: handlePieceDrop,
+                onSquareClick: handleSquareClick,
+                squareStyles,
                 id: 'opening-prep-explorer-board',
               }}
             />

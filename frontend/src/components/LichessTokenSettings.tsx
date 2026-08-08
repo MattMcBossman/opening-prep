@@ -5,8 +5,11 @@ type Props = {
   onChange: (token: string) => void
 }
 
-const CREATE_TOKEN_URL =
-  'https://lichess.org/account/oauth/token/create?scopes=&description=opening-prep'
+// The Opening Explorer's OAuth requirement is `security: [OAuth2: []]` — any valid
+// personal token works, no scope needs to be ticked. Per Lichess's own docs, scopes
+// are pre-filled via repeated `scopes[]=` params (e.g. `scopes[]=puzzle:read`); since
+// none are needed here, we only pre-fill the description.
+const CREATE_TOKEN_URL = 'https://lichess.org/account/oauth/token/create?description=opening-prep'
 
 export function LichessTokenSettings({ token, onChange }: Props) {
   const [draft, setDraft] = useState(token)
