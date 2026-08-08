@@ -28,6 +28,7 @@ export type MoveComparisonResult = {
 export function useEngineComparison() {
   const engineRef = useRef<StockfishEngine | null>(null)
   const cacheRef = useRef(new Map<string, Promise<MoveComparisonResult>>())
+  const evalCacheRef = useRef(new Map<string, Promise<EngineEvaluation>>())
 
   useEffect(() => {
     return () => {
@@ -63,5 +64,21 @@ export function useEngineComparison() {
     [],
   )
 
-  return { compare }
+  /**
+   * A plain one-shot evaluation of a single position - used to show the
+   * opponent's best untried response after a drill line completes, rather than
+   * comparing a before/after pair. Shares the same engine instance and a
+   * separate cache keyed by FEN.
+   */
+  const evaluatePosition = useCallback((fen: string, depth: number = COMPARISON_DEPTH): Promise<EngineEvaluation> => {
+    const cached = evalCacheRef.current.get(fen)
+    if (cached) return cached
+
+    if (!engineRef.current) engineRef.current = new StockfishEngine()
+    const promise = engineRef.current.evaluateOnce(fen, depth)
+    evalCacheRef.current.set(fen, promise)
+    return promise
+  }, [])
+
+  return { compare, evaluatePosition }
 }

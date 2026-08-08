@@ -62,7 +62,7 @@ function App() {
   const explorer = useExplorerStats(fen, token)
   const evaluation = useEngineEval(fen)
   const repertoire = useRepertoire()
-  const { soundEnabled, toggleSound, playMoveSound } = useSound()
+  const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
 
@@ -233,6 +233,7 @@ function App() {
           color={boardColor}
           onToggleColor={handleToggleBoardColor}
           playMoveSound={playMoveSound}
+          playDrillCompleteSound={playDrillCompleteSound}
         />
       ) : (
         <main className="explorer-layout">

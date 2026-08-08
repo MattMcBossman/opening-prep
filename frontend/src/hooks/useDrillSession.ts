@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { collectDrillLines } from '../lib/repertoireDrills'
 import type { DrillStep } from '../lib/repertoireDrills'
 import {
+  acknowledgeLineCompletion,
   applyMoveClassification,
   attemptOwnMove as attemptOwnMoveLogic,
   createDrillSession,
   isSessionComplete,
-  reorderUpcoming,
   retryFailedLines as retryFailedLinesLogic,
   sessionProgress,
   wouldAcceptOwnMove,
@@ -16,7 +16,7 @@ import { useEngineComparison } from './useEngineComparison'
 import { findNearestSimilarPosition } from '../lib/positionSimilarity'
 import type { SimilarPositionMatch } from '../lib/positionSimilarity'
 import { START_FEN } from './useGame'
-import type { RepertoireColor, RepertoireMove } from '../types'
+import type { EngineEvaluation, RepertoireColor, RepertoireMove } from '../types'
 
 type UseDrillSessionParams = {
   color: RepertoireColor
@@ -43,10 +43,14 @@ export type SimilarPositionHint = SimilarPositionMatch & {
  * Phase 3 plan's "Risks and decisions").
  */
 export function useDrillSession({ color, getContinuations, rootFen = START_FEN }: UseDrillSessionParams) {
-  const { compare } = useEngineComparison()
+  const { compare, evaluatePosition } = useEngineComparison()
   const [state, setState] = useState<DrillSessionState>(() =>
     createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen),
   )
+  // The opponent's best untried response from the position where the just-completed
+  // line ends - shown as an arrow/PV during the completion pause. Fetched
+  // whenever `state.completionPause` (newly) appears, cleared once it's gone.
+  const [completionEval, setCompletionEval] = useState<EngineEvaluation | null>(null)
 
   // Positions where it was the drilling color's own turn, across every enumerated
   // line - the candidate pool for "is this wrong move actually saved somewhere
@@ -76,6 +80,22 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, rootFen])
 
+  useEffect(() => {
+    const pause = state.completionPause
+    if (!pause) {
+      setCompletionEval(null)
+      return
+    }
+    let cancelled = false
+    setCompletionEval(null)
+    evaluatePosition(pause.leafFen).then((evaluation) => {
+      if (!cancelled) setCompletionEval(evaluation)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [state.completionPause, evaluatePosition])
+
   // Mirrors the latest committed state so attemptMove can compute its result up
   // front rather than inside a state updater. attemptMove only ever runs from a DOM
   // event handler (never during render), so the ref is never stale by then - and
@@ -88,12 +108,13 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
 
   /**
    * Applies one attempt and returns the steps it actually put on the board (the
-   * accepted move plus any auto-played opponent reply), so the caller can react to
-   * them imperatively - notably to sound each one. Empty when the attempt was
+   * accepted move plus any auto-played opponent reply) plus whether it completed
+   * a line, so the caller can react to them imperatively - notably to sound each
+   * move plus a distinct completion chime. `steps` is empty when the attempt was
    * rejected and the position didn't change.
    */
   const attemptMove = useCallback(
-    (played: { uci: string; san: string; resultingFen: string }): DrillStep[] => {
+    (played: { uci: string; san: string; resultingFen: string }): { steps: DrillStep[]; completedLine: boolean } => {
       const prev = stateRef.current
       const next = attemptOwnMoveLogic(prev, getContinuations, played)
       if (next.lastFeedback?.kind === 'wrong') {
@@ -103,10 +124,14 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
         })
       }
       setState(next)
-      return next.lastAppliedSteps
+      return { steps: next.lastAppliedSteps, completedLine: next.completionPause !== null }
     },
     [getContinuations, compare, color],
   )
+
+  const acknowledgeCompletion = useCallback(() => {
+    setState((prev) => acknowledgeLineCompletion(prev))
+  }, [])
 
   // Synchronous preview for the board layer to decide, at drop time, whether a
   // piece drop will actually change the position (should "stick") or not
@@ -115,17 +140,6 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
   const wouldAccept = useCallback((uci: string) => wouldAcceptOwnMove(state, getContinuations, uci), [state, getContinuations])
 
   const retryFailed = useCallback(() => setState((prev) => retryFailedLinesLogic(prev)), [])
-
-  const shuffleOrder = useCallback(() => {
-    setState((prev) => {
-      const shuffled = [...prev.order]
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
-        ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-      }
-      return reorderUpcoming(prev, shuffled)
-    })
-  }, [])
 
   const similarPosition = useMemo<SimilarPositionHint | null>(() => {
     const feedback = state.lastFeedback
@@ -143,8 +157,9 @@ export function useDrillSession({ color, getContinuations, rootFen = START_FEN }
     attemptMove,
     wouldAccept,
     retryFailed,
-    shuffleOrder,
     startNewSession,
     similarPosition,
+    completionEval,
+    acknowledgeCompletion,
   }
 }

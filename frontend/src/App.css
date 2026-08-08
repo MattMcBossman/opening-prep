@@ -643,6 +643,15 @@
   color: var(--text-h);
 }
 
+.drill-line-complete {
+  min-width: 280px;
+}
+
+.drill-line-complete h3 {
+  margin: 0 0 6px 0;
+  color: var(--text-h);
+}
+
 .drill-empty {
   max-width: 480px;
 }

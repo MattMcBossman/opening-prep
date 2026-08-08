@@ -47,5 +47,11 @@ export function useSound() {
     [soundEnabled],
   )
 
-  return { soundEnabled, setSoundEnabled, toggleSound, playMoveSound }
+  /** Plays the distinct "drill complete" chime (see SoundPlayer.playDrillComplete), or nothing if sound is off. */
+  const playDrillCompleteSound = useCallback(() => {
+    if (!soundEnabled) return
+    getSoundPlayer().playDrillComplete()
+  }, [soundEnabled])
+
+  return { soundEnabled, setSoundEnabled, toggleSound, playMoveSound, playDrillCompleteSound }
 }

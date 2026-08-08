@@ -36,14 +36,36 @@ export type DrillFeedback =
       hintTo?: string
     }
 
+/**
+ * Set once a line is completed (a leaf is reached), and cleared only by
+ * `acknowledgeLineCompletion` - the session pauses here, showing the final
+ * position, until the user explicitly moves on. See the Phase 3 plan addendum
+ * on pausing after each completed drill.
+ */
+export type CompletionPause = {
+  lineId: string
+  leafFen: string
+}
+
 export type DrillSessionState = {
   lines: DrillLine[]
   linesById: Map<string, DrillLine>
-  /** Presentation order of line ids - reshuffleable via shuffleUpcoming(). */
+  /**
+   * Presentation order of line ids. Randomized whenever a pass begins (see
+   * `createDrillSession`/`retryFailedLines`) so drills aren't always practiced
+   * in the same sequence; an explicit `order` can be passed to `createDrillSession`
+   * to opt out (used by tests that need a deterministic sequence).
+   */
   order: string[]
   pendingIds: Set<string>
   results: Record<string, DrillOutcome>
   rootFen: string
+  /** How many lines are in the *current pass* - `lines.length` normally, or the
+   * failed-line count when this is a retry pass (see `retryFailedLines`). Used
+   * for the "Drill X of Y" / "Retrying failed drill X of Y" progress readout. */
+  passTotal: number
+  /** True once `retryFailedLines` has been used to start a retry-only pass. */
+  isRetryPass: boolean
   /** The line this occurrence nominally aims to complete - see "targeting" in the Phase 3 plan. */
   currentTargetId: string | null
   currentFen: string
@@ -65,6 +87,7 @@ export type DrillSessionState = {
   hasWrongAttemptThisOccurrence: boolean
   lastFeedback: DrillFeedback | null
   nextAttemptToken: number
+  completionPause: CompletionPause | null
 }
 
 export function isSessionComplete(state: DrillSessionState): boolean {
@@ -75,8 +98,18 @@ export function currentTargetLine(state: DrillSessionState): DrillLine | null {
   return state.currentTargetId ? state.linesById.get(state.currentTargetId) ?? null : null
 }
 
+/** Fisher-Yates shuffle; returns a new array, leaving `items` untouched. */
+function shuffled<T>(items: T[]): T[] {
+  const result = [...items]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
 export function createDrillSession(lines: DrillLine[], rootFen: string, order?: string[]): DrillSessionState {
-  const resolvedOrder = order ?? lines.map((l) => l.id)
+  const resolvedOrder = order ?? shuffled(lines.map((l) => l.id))
   const base: DrillSessionState = {
     lines,
     linesById: new Map(lines.map((l) => [l.id, l])),
@@ -84,6 +117,8 @@ export function createDrillSession(lines: DrillLine[], rootFen: string, order?: 
     pendingIds: new Set(resolvedOrder),
     results: {},
     rootFen,
+    passTotal: lines.length,
+    isRetryPass: false,
     currentTargetId: null,
     currentFen: rootFen,
     playedSteps: [],
@@ -92,6 +127,7 @@ export function createDrillSession(lines: DrillLine[], rootFen: string, order?: 
     hasWrongAttemptThisOccurrence: false,
     lastFeedback: null,
     nextAttemptToken: 0,
+    completionPause: null,
   }
   return beginNextOccurrence(base)
 }
@@ -106,6 +142,7 @@ function beginNextOccurrence(state: DrillSessionState): DrillSessionState {
     wrongAttempts: 0,
     hasWrongAttemptThisOccurrence: false,
     lastFeedback: null,
+    completionPause: null,
   }
 }
 
@@ -156,7 +193,12 @@ function retarget(state: DrillSessionState, playedSteps: DrillStep[]): string | 
 function advance(state: DrillSessionState, playedSteps: DrillStep[], applied: DrillStep[]): DrillSessionState {
   const targetLine = state.currentTargetId ? state.linesById.get(state.currentTargetId) : undefined
   if (!targetLine || playedSteps.length >= targetLine.steps.length) {
-    return completeOccurrence({ ...state, lastAppliedSteps: applied }, state.currentTargetId)
+    // The leaf position is whatever the last step actually applied resulted in -
+    // NOT `state.currentFen`, which is only updated below when stopping to await
+    // the user's next own move, and is otherwise stale (still the position from
+    // before this whole attempt) by the time every step has been walked.
+    const leafFen = playedSteps.length > 0 ? playedSteps[playedSteps.length - 1].resultingFen : state.currentFen
+    return completeOccurrence({ ...state, lastAppliedSteps: applied }, state.currentTargetId, leafFen)
   }
   const nextStep = targetLine.steps[playedSteps.length]
   if (nextStep.mover === 'own') {
@@ -172,17 +214,40 @@ function advance(state: DrillSessionState, playedSteps: DrillStep[], applied: Dr
   return advance(state, [...playedSteps, nextStep], [...applied, nextStep])
 }
 
-function completeOccurrence(state: DrillSessionState, targetId: string | null): DrillSessionState {
+/**
+ * Records the outcome of the line that was just completed and pauses the
+ * session there (see `CompletionPause`) rather than immediately starting the
+ * next occurrence - the caller shows the final position (plus, in the UI
+ * layer, the opponent's best untried response) until `acknowledgeLineCompletion`
+ * is called.
+ */
+function completeOccurrence(state: DrillSessionState, targetId: string | null, leafFen: string): DrillSessionState {
   if (!targetId) return beginNextOccurrence(state)
   const outcome: DrillOutcome = state.hasWrongAttemptThisOccurrence ? 'failed' : 'perfect'
   const pendingIds = new Set(state.pendingIds)
   pendingIds.delete(targetId)
   const results = { ...state.results, [targetId]: outcome }
-  const next = beginNextOccurrence({ ...state, pendingIds, results })
-  // beginNextOccurrence resets lastFeedback for the *new* occurrence it sets up, but
-  // the move that just got us here was itself correct - preserve that so callers see
-  // positive feedback for the move that completed the line, not a blank slate.
-  return { ...next, lastFeedback: { kind: 'correct' } }
+  return {
+    ...state,
+    pendingIds,
+    results,
+    currentFen: leafFen,
+    playedSteps: [],
+    wrongAttempts: 0,
+    hasWrongAttemptThisOccurrence: false,
+    lastFeedback: { kind: 'correct' },
+    completionPause: { lineId: targetId, leafFen },
+  }
+}
+
+/**
+ * Moves on from a just-completed line's pause, starting the next occurrence (or
+ * settling into the fully-complete state if none remain). A no-op if the
+ * session isn't currently paused.
+ */
+export function acknowledgeLineCompletion(state: DrillSessionState): DrillSessionState {
+  if (!state.completionPause) return state
+  return beginNextOccurrence(state)
 }
 
 function hintMoveFor(
@@ -216,6 +281,9 @@ export function attemptOwnMove(
   getContinuations: (fen: string) => RepertoireMove[],
   played: { uci: string; san: string; resultingFen: string },
 ): DrillSessionState {
+  // A line just completed and is paused for review - ignore further attempts
+  // until the user acknowledges it via acknowledgeLineCompletion.
+  if (state.completionPause) return state
   if (isSessionComplete(state)) return state
 
   const saved = getContinuations(state.currentFen).find((m) => m.uci === played.uci)
@@ -278,6 +346,7 @@ export function wouldAcceptOwnMove(
   getContinuations: (fen: string) => RepertoireMove[],
   uci: string,
 ): boolean {
+  if (state.completionPause) return false
   if (isSessionComplete(state)) return false
   const saved = getContinuations(state.currentFen).find((m) => m.uci === uci)
   if (!saved) return false
@@ -303,30 +372,47 @@ export function applyMoveClassification(
  * Requeues only the failed lines from the just-finished session as a fresh set
  * of pending drills, with a clean results slate for this new retry pass (see
  * the Phase 3 plan's Mistake tracking section: results are session-scoped).
+ * `passTotal`/`isRetryPass` are updated too, so progress reporting reflects only
+ * this retry pass (e.g. "Retrying failed drill 1 of 3"), not the original
+ * session's full line count. `order` is reshuffled too, same as a fresh session.
  */
 export function retryFailedLines(state: DrillSessionState): DrillSessionState {
   const failedIds = state.order.filter((id) => state.results[id] === 'failed')
-  return beginNextOccurrence({ ...state, pendingIds: new Set(failedIds), results: {} })
-}
-
-/** Reorders upcoming (not yet attempted) presentation order - see the Phase 3 plan's "Shuffle order" control. */
-export function reorderUpcoming(state: DrillSessionState, order: string[]): DrillSessionState {
-  return { ...state, order }
+  return beginNextOccurrence({
+    ...state,
+    order: shuffled(state.order),
+    pendingIds: new Set(failedIds),
+    results: {},
+    passTotal: failedIds.length,
+    isRetryPass: true,
+  })
 }
 
 export type DrillSessionProgress = {
+  /** Number of lines in the current pass (see `passTotal`), not necessarily the whole repertoire. */
   totalLines: number
   pendingCount: number
   perfectCount: number
   failedCount: number
+  /**
+   * 1-based index of the drill currently being attempted, or - while paused on
+   * `completionPause` - the one just finished, for a "Drill X of Y" /
+   * "Retrying failed drill X of Y" readout.
+   */
+  currentDrillNumber: number
+  isRetryPass: boolean
 }
 
 export function sessionProgress(state: DrillSessionState): DrillSessionProgress {
   const outcomes = Object.values(state.results)
+  const completedCount = state.passTotal - state.pendingIds.size
+  const currentDrillNumber = Math.min(state.passTotal, Math.max(0, completedCount + (state.completionPause ? 0 : 1)))
   return {
-    totalLines: state.lines.length,
+    totalLines: state.passTotal,
     pendingCount: state.pendingIds.size,
     perfectCount: outcomes.filter((o) => o === 'perfect').length,
     failedCount: outcomes.filter((o) => o === 'failed').length,
+    currentDrillNumber,
+    isRetryPass: state.isRetryPass,
   }
 }

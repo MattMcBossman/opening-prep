@@ -3,9 +3,11 @@ import type { MoveSound } from '../types'
 /**
  * Overall output level for every cue, so individual recipes below can use gains
  * relative to each other (a capture *should* be louder than a quiet move) without
- * any of them being loud in absolute terms.
+ * any of them being loud in absolute terms. Raised from an earlier, too-quiet 0.35
+ * after the move/capture cues turned out to be barely audible in practice - see
+ * playMove/playCapture below for the per-cue fix.
  */
-const MASTER_VOLUME = 0.35
+const MASTER_VOLUME = 0.5
 
 /**
  * Exponential gain ramps can't reach exactly zero, so envelopes decay to this instead.
@@ -138,39 +140,47 @@ export class SoundPlayer {
     source.stop(startTime + duration)
   }
 
-  /** Wooden "thock": a bright click transient over a fast downward pitch drop. */
+  /**
+   * Wooden "thock": a bright click transient over a fast downward pitch drop.
+   * Louder and a touch longer than the original recipe - at the old levels
+   * (noise 0.35/20ms, tone peak 0.9/100ms) this was reported as inaudible.
+   */
   private playMove(t0: number) {
-    this.noise({ startTime: t0, duration: 0.02, peakGain: 0.35, filterFrequency: 2200 })
+    this.noise({ startTime: t0, duration: 0.04, peakGain: 0.7, filterFrequency: 2600 })
     this.tone({
       startTime: t0,
-      duration: 0.1,
+      duration: 0.13,
       type: 'triangle',
-      fromFrequency: 320,
-      toFrequency: 150,
-      peakGain: 0.9,
-    })
-  }
-
-  /** Same gesture as a move but heavier and grittier - a longer, lower crunch over a deeper thud. */
-  private playCapture(t0: number) {
-    this.noise({ startTime: t0, duration: 0.14, peakGain: 0.6, filterFrequency: 900 })
-    this.tone({
-      startTime: t0,
-      duration: 0.18,
-      type: 'sawtooth',
-      fromFrequency: 220,
-      toFrequency: 80,
-      peakGain: 0.7,
+      fromFrequency: 380,
+      toFrequency: 170,
+      peakGain: 1,
     })
   }
 
   /**
-   * Rising two-tone alert, pitched well above the move/capture thuds so it reads as a
-   * warning about the position rather than more board percussion.
+   * Same gesture as a move but heavier and grittier - a longer, lower crunch over
+   * a deeper thud. Also boosted - "barely audible" at the old 0.6/0.7 peak gains.
+   */
+  private playCapture(t0: number) {
+    this.noise({ startTime: t0, duration: 0.17, peakGain: 0.95, filterFrequency: 850 })
+    this.tone({
+      startTime: t0,
+      duration: 0.2,
+      type: 'sawtooth',
+      fromFrequency: 220,
+      toFrequency: 75,
+      peakGain: 0.95,
+    })
+  }
+
+  /**
+   * A single warm "ding" - a sine fundamental plus a quiet octave-and-a-half
+   * overtone, decaying together. Replaces an earlier rising two-tone alert that
+   * read as more of an alarm than a notification.
    */
   private playCheck(t0: number) {
-    this.tone({ startTime: t0, duration: 0.1, type: 'sine', fromFrequency: 988, peakGain: 0.5 })
-    this.tone({ startTime: t0 + 0.09, duration: 0.18, type: 'sine', fromFrequency: 1319, peakGain: 0.5 })
+    this.tone({ startTime: t0, duration: 0.24, type: 'sine', fromFrequency: 880, peakGain: 0.55 })
+    this.tone({ startTime: t0, duration: 0.16, type: 'sine', fromFrequency: 1760, peakGain: 0.16 })
   }
 
   /**
@@ -191,26 +201,55 @@ export class SoundPlayer {
     })
   }
 
-  play(sound: MoveSound) {
+  /**
+   * Bright ascending major triad (C5-E5-G5) - a distinct "success" chime for
+   * finishing a whole drill line, deliberately the mirror image of
+   * checkmate's descending minor phrase so the two are never confused.
+   */
+  private playDrillCompleteChime(t0: number) {
+    const notes = [523.25, 659.25, 783.99]
+    notes.forEach((frequency, i) => {
+      const isLast = i === notes.length - 1
+      this.tone({
+        startTime: t0 + i * 0.09,
+        duration: isLast ? 0.4 : 0.14,
+        type: 'triangle',
+        fromFrequency: frequency,
+        peakGain: isLast ? 0.65 : 0.45,
+      })
+    })
+  }
+
+  /** Nudges a start time just past "now" so scheduling never lands in the past
+   * (which can clip the attack), then hands off to `effect` to schedule voices. */
+  private withContext(effect: (t0: number) => void) {
     const context = this.ensureContext()
     if (!context) return
-    // Nudge every voice just past "now" so scheduled start times are never already in
-    // the past by the time the graph is wired up, which can clip the attack.
-    const t0 = context.currentTime + 0.01
-    switch (sound) {
-      case 'checkmate':
-        this.playCheckmate(t0)
-        break
-      case 'check':
-        this.playCheck(t0)
-        break
-      case 'capture':
-        this.playCapture(t0)
-        break
-      case 'move':
-        this.playMove(t0)
-        break
-    }
+    effect(context.currentTime + 0.01)
+  }
+
+  play(sound: MoveSound) {
+    this.withContext((t0) => {
+      switch (sound) {
+        case 'checkmate':
+          this.playCheckmate(t0)
+          break
+        case 'check':
+          this.playCheck(t0)
+          break
+        case 'capture':
+          this.playCapture(t0)
+          break
+        case 'move':
+          this.playMove(t0)
+          break
+      }
+    })
+  }
+
+  /** See playDrillCompleteChime - a distinct cue for finishing a drill line, not tied to any move's SAN. */
+  playDrillComplete() {
+    this.withContext((t0) => this.playDrillCompleteChime(t0))
   }
 }
 

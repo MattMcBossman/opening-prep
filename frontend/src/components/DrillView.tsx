@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
-import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
+import type { Arrow, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useDrillSession } from '../hooks/useDrillSession'
@@ -9,6 +9,7 @@ import { useRepertoire } from '../hooks/useRepertoire'
 import { sideToMove } from '../lib/chessUtils'
 import type { RepertoireColor } from '../types'
 import { DrillFeedbackPanel } from './DrillFeedbackPanel'
+import { DrillLineCompletePanel } from './DrillLineCompletePanel'
 import { DrillSummary } from './DrillSummary'
 import { BoardColorToggle } from './BoardColorToggle'
 
@@ -18,6 +19,8 @@ type Props = {
   onToggleColor: () => void
   /** Plays the audio cue for a move, given its SAN. Owned by App so the mute toggle is shared. */
   playMoveSound: (san: string) => void
+  /** Plays the distinct "drill complete" chime, independent of any move's own cue. */
+  playDrillCompleteSound: () => void
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -27,13 +30,16 @@ const LEGAL_TARGET_STYLE: CSSProperties = {
 const CAPTURE_TARGET_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(0, 0, 0, 0.35)' }
 // Progressive wrong-attempt hints (2nd attempt: origin square, 3rd+: origin + destination).
 const HINT_SQUARE_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(76, 175, 80, 0.65)' }
+// Distinct from the green save-hint squares above - this is a warning about an
+// unprepped opponent try, not a hint about the user's own next move.
+const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
 
 /**
  * Drill mode: practices saved repertoire lines for `color`, isolated from the
  * explorer's own `useGame`/board state (see the Phase 3 plan's "Risks and
  * decisions" - drilling must never mutate the repertoire).
  */
-export function DrillView({ repertoire, color, onToggleColor, playMoveSound }: Props) {
+export function DrillView({ repertoire, color, onToggleColor, playMoveSound, playDrillCompleteSound }: Props) {
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
   const session = useDrillSession({ color, getContinuations })
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
@@ -42,6 +48,7 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound }: P
   const fen = state.currentFen
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
+  const isPaused = state.completionPause !== null
 
   const legalMoves = useMemo(() => {
     if (!selectedSquare) return []
@@ -67,9 +74,23 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound }: P
     return styles
   }, [selectedSquare, legalMoves, feedback])
 
+  // Drawn only while paused after completing a line - the opponent's best try
+  // in a position the user hasn't prepped a reply to yet (see DrillLineCompletePanel).
+  const arrows = useMemo<Arrow[]>(() => {
+    const bestMoveUci = isPaused ? session.completionEval?.bestMoveUci : null
+    if (!bestMoveUci) return []
+    return [
+      {
+        startSquare: bestMoveUci.slice(0, 2),
+        endSquare: bestMoveUci.slice(2, 4),
+        color: BEST_RESPONSE_ARROW_COLOR,
+      },
+    ]
+  }, [isPaused, session.completionEval])
+
   const tryMove = useCallback(
     (candidate: { from: string; to: string; promotion?: string }): boolean => {
-      if (!isOwnTurn || session.complete) return false
+      if (!isOwnTurn || session.complete || isPaused) return false
       const trial = new Chess(fen)
       let result
       try {
@@ -87,12 +108,16 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound }: P
       // Sound only what actually lands on the board: the accepted move plus any
       // opponent reply auto-played after it. A rejected attempt leaves the position
       // untouched, so it stays silent and the feedback panel speaks for it.
-      for (const step of session.attemptMove({ uci, san: result.san, resultingFen: trial.fen() })) {
+      const { steps, completedLine } = session.attemptMove({ uci, san: result.san, resultingFen: trial.fen() })
+      for (const step of steps) {
         playMoveSound(step.san)
       }
+      // A distinct chime on top of (not instead of) the last move's own sound, so
+      // finishing a line is unmistakable even if that move was a quiet, plain one.
+      if (completedLine) playDrillCompleteSound()
       return accepted
     },
-    [fen, isOwnTurn, session, playMoveSound],
+    [fen, isOwnTurn, session, isPaused, playMoveSound, playDrillCompleteSound],
   )
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
@@ -127,14 +152,15 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound }: P
     )
   }
 
+  const progressLabel = session.progress.isRetryPass ? 'Retrying failed drill' : 'Drill'
+
   return (
     <div className="drill-layout">
       <div className="board-column">
         <div className="board-heading">
           <div className="drill-progress">
             <span>
-              {session.progress.pendingCount} of {session.progress.totalLines} line
-              {session.progress.totalLines === 1 ? '' : 's'} remaining
+              {progressLabel} {session.progress.currentDrillNumber} of {session.progress.totalLines}
             </span>
             <span className="drill-progress-results">
               {session.progress.perfectCount} perfect · {session.progress.failedCount} failed
@@ -150,21 +176,25 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound }: P
               onPieceDrop: handlePieceDrop,
               onSquareClick: handleSquareClick,
               squareStyles,
+              arrows,
               id: 'opening-prep-drill-board',
             }}
           />
         </div>
         <div className="board-controls">
-          <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>
-            Shuffle order
-          </button>
           <button type="button" onClick={session.startNewSession}>
             Restart session
           </button>
         </div>
       </div>
       <div className="side-column">
-        {session.complete ? (
+        {isPaused ? (
+          <DrillLineCompletePanel
+            evaluation={session.completionEval}
+            isLastDrill={session.complete}
+            onNext={session.acknowledgeCompletion}
+          />
+        ) : session.complete ? (
           <DrillSummary
             progress={session.progress}
             onRetryFailed={session.retryFailed}
