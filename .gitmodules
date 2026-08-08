@@ -1,0 +1,3 @@
+[submodule "openingtree"]
+	path = openingtree
+	url = git@github.com:MattMcBossman/openingtree.git
