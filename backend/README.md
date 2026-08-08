@@ -1,0 +1,77 @@
+# opening-prep backend
+
+Django + Django REST Framework + PostgreSQL. Provides user accounts (Lichess
+OAuth), server-side repertoire storage, a caching Lichess explorer proxy, and
+persistent drill statistics. See [../AGENTS.md](../AGENTS.md) for the wider
+project reference and [API_CONTRACT.md](API_CONTRACT.md) for the endpoints.
+
+## Requirements
+
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- PostgreSQL 16, either installed on the host or via `docker compose up -d`
+  (the Compose service publishes on **5433** so it can coexist with a host
+  PostgreSQL on 5432)
+
+## Setup
+
+Create the role and database once:
+
+```bash
+sudo -u postgres psql -c "CREATE ROLE opening_prep LOGIN PASSWORD 'devpassword' CREATEDB;"
+sudo -u postgres createdb -O opening_prep opening_prep
+```
+
+`CREATEDB` matters: the test suite creates and drops its own database.
+
+Then:
+
+```bash
+cp .env.example .env
+uv run python -c "from django.core.management.utils import get_random_secret_key as g; print(g())"          # DJANGO_SECRET_KEY
+uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"            # TOKEN_ENCRYPTION_KEY
+uv sync
+uv run manage.py migrate
+uv run manage.py createsuperuser   # optional, for the admin
+uv run manage.py runserver
+```
+
+The frontend's Vite dev server proxies `/api` here, so run both and browse to the
+Vite URL (http://localhost:5173) rather than to Django directly — that keeps the
+session cookie first-party and avoids any CORS setup.
+
+## Commands
+
+```bash
+uv run manage.py runserver     # dev server on :8000
+uv run manage.py migrate       # apply migrations
+uv run manage.py makemigrations
+uv run pytest                  # tests
+uv run ruff check .            # lint
+uv run ruff format .           # format
+uv run manage.py spectacular --file schema.yml   # dump the OpenAPI schema
+```
+
+Interactive API docs are served at http://localhost:8000/api/v1/docs/ while the
+dev server is running.
+
+## Layout
+
+- `opening_prep/` — project settings, root URL conf. Every app is registered in
+  `INSTALLED_APPS` and included in `urls.py` from the outset, so adding an
+  endpoint never means touching these shared files.
+- `common/` — helpers shared across apps, notably `fen.py`, a direct port of the
+  frontend's `chessUtils.ts` normalization. The two must not drift: the
+  repertoire is keyed by normalized FEN on both sides of the wire.
+- `accounts/` — custom `User`, Lichess OAuth (PKCE), encrypted token storage.
+- `repertoire/` — repertoire trees and their cascade-delete semantics.
+- `explorer_cache/` — FEN-keyed Lichess explorer cache and engine-eval cache.
+- `drills/` — drill sessions, per-attempt history, weakness aggregates.
+
+## Notes
+
+- **Lichess OAuth** is a public-client PKCE flow: no client secret, and no scopes
+  at all — the Opening Explorer only requires that a token exists. Access tokens
+  are encrypted at rest and never leave the server.
+- **Docker**: `Dockerfile` builds the production image. Development deliberately
+  runs Django on the host instead, for a faster edit/reload/debug loop; Compose
+  only provides PostgreSQL.

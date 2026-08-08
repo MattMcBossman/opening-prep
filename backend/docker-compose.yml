@@ -1,0 +1,27 @@
+# Optional disposable PostgreSQL for local development, for anyone who would
+# rather not install PostgreSQL on the host. It listens on 5433 so it can coexist
+# with a host PostgreSQL already using the default 5432.
+#
+# Django itself is deliberately not containerised here: development runs it on
+# the host through `uv run`, which keeps the edit/reload/debug loop fast. The
+# production image is built from `Dockerfile`.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: opening_prep
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: opening_prep
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opening_prep"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

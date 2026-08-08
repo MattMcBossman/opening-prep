@@ -1,0 +1,165 @@
+"""
+Django settings for the opening-prep backend.
+
+Configuration comes from the environment (see `.env.example`), read via
+django-environ. Day-to-day development runs this on the host against a local or
+Compose-managed PostgreSQL; `Dockerfile` builds the same code for production.
+"""
+
+from pathlib import Path
+
+import environ
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+env = environ.Env(
+    DJANGO_DEBUG=(bool, False),
+    DJANGO_ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
+    DJANGO_CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:5173"]),
+    FRONTEND_URL=(str, "http://localhost:5173"),
+    LICHESS_HOST=(str, "https://lichess.org"),
+    LICHESS_EXPLORER_URL=(str, "https://explorer.lichess.org/lichess"),
+    LICHESS_CLIENT_ID=(str, "opening-prep-local"),
+    EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 60 * 24),
+)
+
+# Read backend/.env when present. Deployments may instead inject real env vars.
+env_file = BASE_DIR / ".env"
+if env_file.exists():
+    env.read_env(env_file)
+
+SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-secret-key")
+DEBUG = env("DJANGO_DEBUG")
+ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
+
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "drf_spectacular",
+    # Project apps. All four are registered up front, before any of them have
+    # models, so that work on them can proceed in parallel without every change
+    # touching this shared file.
+    "accounts",
+    "repertoire",
+    "explorer_cache",
+    "drills",
+]
+
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+ROOT_URLCONF = "opening_prep.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = "opening_prep.wsgi.application"
+
+DATABASES = {
+    "default": env.db_url(
+        "DATABASE_URL",
+        default="postgres://opening_prep:devpassword@localhost:5432/opening_prep",
+    )
+}
+
+# Set from the very first migration onwards: swapping the user model in later is
+# a painful, migration-rewriting exercise.
+AUTH_USER_MODEL = "accounts.User"
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+LANGUAGE_CODE = "en-us"
+TIME_ZONE = "UTC"
+USE_I18N = True
+USE_TZ = True
+
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- Session / CSRF -------------------------------------------------------
+# The SPA authenticates with a session cookie rather than a bearer token, so the
+# Lichess access token never reaches the browser. In development Vite proxies
+# `/api` to this server (see frontend/vite.config.ts), which keeps the cookie
+# first-party and means no CORS configuration is needed at all.
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_HTTPONLY = False  # the SPA reads it to send the X-CSRFToken header
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_TRUSTED_ORIGINS = env("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    # Authenticated by default; endpoints that are usable anonymously (the
+    # explorer proxy) opt out explicitly.
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_RATES": {
+        # Guards the Lichess proxy so one client can't burn the shared upstream
+        # rate limit for everyone.
+        "explorer": "120/min",
+    },
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "opening-prep API",
+    "DESCRIPTION": "Accounts, repertoire storage, explorer caching, and drill statistics.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SCHEMA_PATH_PREFIX": "/api/v1",
+}
+
+# --- Lichess integration --------------------------------------------------
+# Lichess is a public OAuth client: there is no client secret, `LICHESS_CLIENT_ID`
+# is just an identifying string (conventionally the app URL), and the Opening
+# Explorer needs no scopes at all - only that a token exists.
+LICHESS_HOST = env("LICHESS_HOST")
+LICHESS_EXPLORER_URL = env("LICHESS_EXPLORER_URL")
+LICHESS_CLIENT_ID = env("LICHESS_CLIENT_ID")
+LICHESS_REDIRECT_URI = env(
+    "LICHESS_REDIRECT_URI",
+    default="http://localhost:5173/api/v1/auth/lichess/callback",
+)
+FRONTEND_URL = env("FRONTEND_URL")
+
+# Fernet key used to encrypt stored Lichess access tokens at rest. Generate with:
+#   uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TOKEN_ENCRYPTION_KEY = env("TOKEN_ENCRYPTION_KEY", default="")
+
+EXPLORER_CACHE_TTL_SECONDS = env("EXPLORER_CACHE_TTL_SECONDS")
