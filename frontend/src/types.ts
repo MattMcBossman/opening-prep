@@ -29,4 +29,10 @@ export type EngineEvaluation = {
   pvUci: string[]
   /** True while the engine is still searching (more `info` lines may arrive); false once `bestmove` is received. */
   thinking: boolean
+  /**
+   * True only when `fen` is already checkmate (no engine search happened — see
+   * useEngineEval). Distinguishes "the game is already over" from a `mate` score
+   * reported by the engine mid-search, which means "forced mate in N more plies".
+   */
+  terminal?: boolean
 }

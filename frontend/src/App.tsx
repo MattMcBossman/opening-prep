@@ -8,11 +8,14 @@ import { useGame, START_FEN } from './hooks/useGame'
 import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
 import { useLichessToken } from './hooks/useLichessToken'
+import { useTheme } from './hooks/useTheme'
 import { MoveList } from './components/MoveList'
 import { ExplorerStatsTable } from './components/ExplorerStatsTable'
 import { EngineEvalPanel } from './components/EngineEvalPanel'
+import { EvalBar } from './components/EvalBar'
 import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
+import { ThemeToggle } from './components/ThemeToggle'
 import type { ExplorerOpening } from './types'
 import './App.css'
 
@@ -29,6 +32,7 @@ const CAPTURE_TARGET_STYLE: CSSProperties = {
 
 function App() {
   const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset } = useGame()
+  const { theme, toggleTheme } = useTheme()
   const { token, setToken } = useLichessToken()
   const explorer = useExplorerStats(fen, token)
   const evaluation = useEngineEval(fen)
@@ -109,20 +113,24 @@ function App() {
       <header className="app-header">
         <h1>opening-prep</h1>
         <p>Opening explorer (Phase 1 MVP)</p>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </header>
       <main className="explorer-layout">
         <div className="board-column">
           <OpeningName eco={resolvedOpening?.eco ?? null} name={resolvedOpening?.name ?? null} fen={fen} />
-          <div className="board-wrapper">
-            <Chessboard
-              options={{
-                position: fen,
-                onPieceDrop: handlePieceDrop,
-                onSquareClick: handleSquareClick,
-                squareStyles,
-                id: 'opening-prep-explorer-board',
-              }}
-            />
+          <div className="board-with-eval">
+            <EvalBar evaluation={evaluation} />
+            <div className="board-wrapper">
+              <Chessboard
+                options={{
+                  position: fen,
+                  onPieceDrop: handlePieceDrop,
+                  onSquareClick: handleSquareClick,
+                  squareStyles,
+                  id: 'opening-prep-explorer-board',
+                }}
+              />
+            </div>
           </div>
           <div className="board-controls">
             <button type="button" onClick={goBack} disabled={pointer === 0}>

@@ -1,3 +1,4 @@
+import { formatCompactNumber } from '../lib/formatNumber'
 import type { ExplorerMoveStat, ExplorerResponse } from '../types'
 
 type Props = {
@@ -25,9 +26,9 @@ function ResultBar({ move }: { move: ExplorerMoveStat }) {
   const title = `White ${whitePct.toFixed(1)}% (${move.white}) \u00b7 Draw ${drawPct.toFixed(1)}% (${move.draws}) \u00b7 Black ${blackPct.toFixed(1)}% (${move.black})`
 
   const useCounts = move.totalGames <= RAW_COUNT_THRESHOLD
-  const whiteLabel = useCounts ? move.white.toLocaleString() : `${Math.round(whitePct)}%`
-  const drawLabel = useCounts ? move.draws.toLocaleString() : `${Math.round(drawPct)}%`
-  const blackLabel = useCounts ? move.black.toLocaleString() : `${Math.round(blackPct)}%`
+  const whiteLabel = useCounts ? formatCompactNumber(move.white) : `${Math.round(whitePct)}%`
+  const drawLabel = useCounts ? formatCompactNumber(move.draws) : `${Math.round(drawPct)}%`
+  const blackLabel = useCounts ? formatCompactNumber(move.black) : `${Math.round(blackPct)}%`
 
   return (
     <div className="result-bar" title={title}>
@@ -64,8 +65,8 @@ export function ExplorerStatsTable({ data, loading, error, onMoveClick }: Props)
         {data.moves.map((move) => (
           <tr key={move.uci} className="explorer-row" onClick={() => onMoveClick(move.san)}>
             <td>{move.san}</td>
-            <td>
-              {move.totalGames.toLocaleString()}
+            <td className="explorer-games-cell">
+              {formatCompactNumber(move.totalGames)}
               <span className="explorer-games-pct">
                 {' '}
                 ({Math.round(percent(move.totalGames, data.totalGames))}%)
