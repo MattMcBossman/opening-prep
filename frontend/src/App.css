@@ -349,7 +349,7 @@
 /* A divider between the played line above and the saved-continuation rows below,
    so the two groups read as visually distinct sections of the list. */
 .move-list-divider {
-  border-top: 1px dashed var(--border);
+  border-top: 2px solid var(--border);
   margin: 4px 0;
 }
 
