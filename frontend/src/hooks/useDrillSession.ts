@@ -86,22 +86,9 @@ export function useDrillSession({
     return fens
   }, [state.lines])
 
-  // The one in-flight auto-play timer, if any - cleared whenever a fresh session
-  // starts (color/root change, explicit restart) so a stale timer can't fire
-  // against a session it no longer applies to, and on unmount.
-  const autoPlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const clearPendingAutoPlay = useCallback(() => {
-    if (autoPlayTimeoutRef.current !== null) {
-      clearTimeout(autoPlayTimeoutRef.current)
-      autoPlayTimeoutRef.current = null
-    }
-  }, [])
-  useEffect(() => clearPendingAutoPlay, [clearPendingAutoPlay])
-
   const startNewSession = useCallback(() => {
-    clearPendingAutoPlay()
     setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
-  }, [color, getContinuations, rootFen, clearPendingAutoPlay])
+  }, [color, getContinuations, rootFen])
 
   // Re-collect and restart whenever the drilled color or root position changes -
   // e.g. the user switches from drilling White to drilling Black. Deliberately
@@ -109,7 +96,6 @@ export function useDrillSession({
   // a fixed snapshot of the repertoire for its duration (see the Phase 3 plan's
   // "Risks and decisions" - drilling must never fight with concurrent editing).
   useEffect(() => {
-    clearPendingAutoPlay()
     setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, rootFen])
@@ -140,29 +126,38 @@ export function useDrillSession({
     stateRef.current = state
   }, [state])
 
-  /** Schedules the opponent's auto-played reply, if `candidate` is awaiting one, as its own delayed step. */
-  const scheduleAutoPlay = useCallback(
-    (candidate: DrillSessionState) => {
-      if (!pendingAutoPlayStep(candidate)) return
-      autoPlayTimeoutRef.current = setTimeout(() => {
-        autoPlayTimeoutRef.current = null
-        setState((current) => {
-          const next = advanceAutoPlay(current)
-          if (next === current) return current
-          for (const step of next.lastAppliedSteps) onStepApplied?.(step)
-          if (next.completionPause) onLineComplete?.()
-          return next
-        })
-      }, AUTO_PLAY_DELAY_MS)
-    },
-    [onStepApplied, onLineComplete],
-  )
+  /**
+   * Whenever the current position is awaiting an opponent auto-play (see
+   * `pendingAutoPlayStep`), schedules it as its own delayed step - reacting to
+   * `state` itself, rather than only being kicked off right after the user's
+   * own move, is what makes this also fire when an occurrence *starts* with
+   * the opponent to move (every occurrence when drilling Black, since the game
+   * always begins with White to move) - previously nothing ever triggered that
+   * first reply, so drilling Black looked stuck until White's move was made
+   * some other way. The effect's cleanup (on the next state change, or
+   * unmount) cancels a timer that hasn't fired yet, so at most one is ever
+   * in flight, however state got here (a session start/restart/retry, an
+   * acknowledged completion, or the user's own move).
+   */
+  useEffect(() => {
+    if (!pendingAutoPlayStep(state)) return
+    const timeoutId = setTimeout(() => {
+      setState((current) => {
+        const next = advanceAutoPlay(current)
+        if (next === current) return current
+        for (const step of next.lastAppliedSteps) onStepApplied?.(step)
+        if (next.completionPause) onLineComplete?.()
+        return next
+      })
+    }, AUTO_PLAY_DELAY_MS)
+    return () => clearTimeout(timeoutId)
+  }, [state, onStepApplied, onLineComplete])
 
   /**
    * Attempts one of the drilling color's own moves. Any resulting ply is
    * reported via `onStepApplied` as it's actually applied - immediately for
    * the move itself, and again after a short delay for its auto-played
-   * opponent reply (see `scheduleAutoPlay`) - rather than all at once, so the
+   * opponent reply (see the effect above) - rather than all at once, so the
    * caller (the board) can animate each ply individually instead of jumping
    * several plies in one update.
    */
@@ -180,9 +175,8 @@ export function useDrillSession({
       setState(next)
       for (const step of next.lastAppliedSteps) onStepApplied?.(step)
       if (next.completionPause) onLineComplete?.()
-      scheduleAutoPlay(next)
     },
-    [getContinuations, compare, color, onStepApplied, onLineComplete, scheduleAutoPlay],
+    [getContinuations, compare, color, onStepApplied, onLineComplete],
   )
 
   const acknowledgeCompletion = useCallback(() => {
@@ -196,10 +190,7 @@ export function useDrillSession({
   // yet auto-played, all of which leave the position unchanged.
   const wouldAccept = useCallback((uci: string) => wouldAcceptOwnMove(state, getContinuations, uci), [state, getContinuations])
 
-  const retryFailed = useCallback(() => {
-    clearPendingAutoPlay()
-    setState((prev) => retryFailedLinesLogic(prev))
-  }, [clearPendingAutoPlay])
+  const retryFailed = useCallback(() => setState((prev) => retryFailedLinesLogic(prev)), [])
 
   const similarPosition = useMemo<SimilarPositionHint | null>(() => {
     const feedback = state.lastFeedback
