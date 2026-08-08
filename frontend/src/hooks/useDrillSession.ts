@@ -19,6 +19,7 @@ import { denormalizeFen } from '../lib/chessUtils'
 import { findNearestSimilarPosition } from '../lib/positionSimilarity'
 import type { SimilarPositionMatch } from '../lib/positionSimilarity'
 import { START_FEN } from './useGame'
+import type { DrillSessionRecording } from './useDrillSessionRecording'
 import type { EngineEvaluation, RepertoireColor, RepertoireMove } from '../types'
 
 type UseDrillSessionParams = {
@@ -29,6 +30,12 @@ type UseDrillSessionParams = {
   onStepApplied?: (step: DrillStep) => void
   /** Called once a line is completed (right as the review pause begins). */
   onLineComplete?: () => void
+  /**
+   * Optional best-effort recording of the session for the backend (see
+   * useDrillSessionRecording) - purely observational, never consulted for any
+   * decision the pure state machine (drillSessionLogic.ts) makes.
+   */
+  recording?: DrillSessionRecording
 }
 
 // How close (by Hamming distance) two positions need to be before surfacing one as
@@ -63,11 +70,18 @@ export function useDrillSession({
   rootFen = START_FEN,
   onStepApplied,
   onLineComplete,
+  recording,
 }: UseDrillSessionParams) {
   const { compare, evaluatePosition } = useEngineComparison()
   const [state, setState] = useState<DrillSessionState>(() =>
     createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen),
   )
+  // A recording-only correlation id, independent of drillSessionLogic's own
+  // `nextAttemptToken` (which only increments on wrong attempts and exists to
+  // match an async classification back to in-flight feedback) - every recorded
+  // attempt, correct or wrong, needs its own unique key so the recorder's
+  // buffer never conflates two attempts (see useDrillSessionRecording).
+  const recordingTokenRef = useRef(0)
   // The opponent's best untried response from the position where the just-completed
   // line ends - shown as an arrow/PV during the completion pause. Fetched
   // whenever `state.completionPause` (newly) appears, cleared once it's gone.
@@ -97,8 +111,10 @@ export function useDrillSession({
   }, [state.lines])
 
   const startNewSession = useCallback(() => {
-    setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
-  }, [color, getContinuations, rootFen])
+    const next = createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen)
+    setState(next)
+    recording?.onSessionStart(next.isRetryPass)
+  }, [color, getContinuations, rootFen, recording])
 
   // Re-collect and restart whenever the drilled color or root position changes -
   // e.g. the user switches from drilling White to drilling Black. Deliberately
@@ -106,7 +122,9 @@ export function useDrillSession({
   // a fixed snapshot of the repertoire for its duration (see the Phase 3 plan's
   // "Risks and decisions" - drilling must never fight with concurrent editing).
   useEffect(() => {
-    setState(createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen))
+    const next = createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen)
+    setState(next)
+    recording?.onSessionStart(next.isRetryPass)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, rootFen])
 
@@ -150,17 +168,27 @@ export function useDrillSession({
    */
   useEffect(() => {
     if (!pendingAutoPlayStep(state)) return
+    // Computed from the closed-over `state` (fresh: this effect re-runs and
+    // cancels any not-yet-fired timer whenever `state` changes) and applied via
+    // a plain `setState(next)` rather than an updater function - an updater can
+    // run twice under StrictMode, and `recording.onSessionFinish` has a real
+    // side effect that must not fire twice (see the same reasoning on
+    // `attemptMove`/`retryFailed`).
     const timeoutId = setTimeout(() => {
-      setState((current) => {
-        const next = advanceAutoPlay(current)
-        if (next === current) return current
-        for (const step of next.lastAppliedSteps) onStepApplied?.(step)
-        if (next.completionPause) onLineComplete?.()
-        return next
-      })
+      const next = advanceAutoPlay(state)
+      if (next === state) return
+      setState(next)
+      for (const step of next.lastAppliedSteps) onStepApplied?.(step)
+      if (next.completionPause) onLineComplete?.()
+      // A line can also complete via the opponent's auto-played reply (e.g. a
+      // one-ply line where the reply itself is the leaf) - see the matching
+      // check in attemptMove for the own-move case.
+      if (isSessionComplete(next) && !isSessionComplete(state)) {
+        recording?.onSessionFinish(Object.entries(next.results).map(([lineId, outcome]) => ({ lineId, outcome })))
+      }
     }, AUTO_PLAY_DELAY_MS)
     return () => clearTimeout(timeoutId)
-  }, [state, onStepApplied, onLineComplete])
+  }, [state, onStepApplied, onLineComplete, recording])
 
   /**
    * Attempts one of the drilling color's own moves. Any resulting ply is
@@ -175,17 +203,47 @@ export function useDrillSession({
       const prev = stateRef.current
       const next = attemptOwnMoveLogic(prev, getContinuations, played)
       if (next === prev) return
+
+      const lineId = next.currentTargetId ?? prev.currentTargetId ?? ''
       if (next.lastFeedback?.kind === 'wrong') {
-        const token = next.lastFeedback.attemptToken
+        const feedback = next.lastFeedback
+        const classificationToken = feedback.attemptToken
+        const recordingToken = recordingTokenRef.current++
+        recording?.onAttempt({
+          attemptToken: recordingToken,
+          originFen: feedback.originFen,
+          playedUci: played.uci,
+          isCorrect: false,
+          attemptNumber: feedback.attemptNumber,
+          lineId,
+        })
         compare(prev.currentFen, played.resultingFen, color).then((result) => {
-          setState((current) => applyMoveClassification(current, token, result))
+          setState((current) => applyMoveClassification(current, classificationToken, result))
+          recording?.onAttemptClassified({ attemptToken: recordingToken, cpLoss: result.cpLoss, isBad: result.isBad })
+        })
+      } else if (next.lastFeedback?.kind === 'correct' && next.lastAppliedSteps.length > 0) {
+        // Reaching `applyStep` via attemptOwnMove (as opposed to advanceAutoPlay,
+        // handled separately above) unambiguously means the drilling color's own
+        // move was accepted - never the opponent's auto-played reply.
+        recording?.onAttempt({
+          attemptToken: recordingTokenRef.current++,
+          originFen: prev.currentFen,
+          playedUci: played.uci,
+          isCorrect: true,
+          attemptNumber: prev.wrongAttempts + 1,
+          lineId,
         })
       }
+
+      if (isSessionComplete(next) && !isSessionComplete(prev)) {
+        recording?.onSessionFinish(Object.entries(next.results).map(([id, outcome]) => ({ lineId: id, outcome })))
+      }
+
       setState(next)
       for (const step of next.lastAppliedSteps) onStepApplied?.(step)
       if (next.completionPause) onLineComplete?.()
     },
-    [getContinuations, compare, color, onStepApplied, onLineComplete],
+    [getContinuations, compare, color, onStepApplied, onLineComplete, recording],
   )
 
   const acknowledgeCompletion = useCallback(() => {
@@ -199,7 +257,15 @@ export function useDrillSession({
   // yet auto-played, all of which leave the position unchanged.
   const wouldAccept = useCallback((uci: string) => wouldAcceptOwnMove(state, getContinuations, uci), [state, getContinuations])
 
-  const retryFailed = useCallback(() => setState((prev) => retryFailedLinesLogic(prev)), [])
+  const retryFailed = useCallback(() => {
+    // Computed from `stateRef` and applied outside the updater, same reasoning
+    // as `attemptMove`: a setState updater can run twice under StrictMode, and
+    // `recording.onSessionStart` has a real side effect (creating a session
+    // record), which must not fire twice for one retry.
+    const next = retryFailedLinesLogic(stateRef.current)
+    setState(next)
+    recording?.onSessionStart(next.isRetryPass)
+  }, [recording])
 
   const similarPosition = useMemo<SimilarPositionHint | null>(() => {
     const feedback = state.lastFeedback

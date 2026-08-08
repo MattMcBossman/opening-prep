@@ -5,9 +5,11 @@ import type { Arrow, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chess
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useDrillSession } from '../hooks/useDrillSession'
+import { useDrillSessionRecording } from '../hooks/useDrillSessionRecording'
 import { useExplorerStats } from '../hooks/useExplorerStats'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { sideToMove } from '../lib/chessUtils'
+import type { AuthUser } from '../lib/authApi'
 import type { RepertoireColor } from '../types'
 import { DrillFeedbackPanel } from './DrillFeedbackPanel'
 import { DrillLineCompletePanel } from './DrillLineCompletePanel'
@@ -24,8 +26,12 @@ type Props = {
   playMoveSound: (san: string) => void
   /** Plays the distinct "drill complete" chime, independent of any move's own cue. */
   playDrillCompleteSound: () => void
-  /** Lichess API token, used only for the end-of-line review stats (see below). */
+  /** Lichess API token, used only for the end-of-line review stats (see below) when signed out. */
   lichessToken: string
+  /** Signed-in user, if any - drives both the review stats' backend routing and drill session recording. */
+  user: AuthUser | null
+  /** The signed-in user's server-side repertoire id for `color`, if known - see useDrillSessionRecording. */
+  repertoireId: number | null
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -51,14 +57,18 @@ export function DrillView({
   playMoveSound,
   playDrillCompleteSound,
   lichessToken,
+  user,
+  repertoireId,
 }: Props) {
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
   const onStepApplied = useCallback((step: { san: string }) => playMoveSound(step.san), [playMoveSound])
+  const recording = useDrillSessionRecording(user !== null && repertoireId !== null, repertoireId)
   const session = useDrillSession({
     color,
     getContinuations,
     onStepApplied,
     onLineComplete: playDrillCompleteSound,
+    recording,
   })
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
 
@@ -72,7 +82,7 @@ export function DrillView({
   // while paused there: during the drill itself they'd both spoil the prepared
   // move and cost an API call for every position walked through.
   const reviewFen = session.completionFen
-  const reviewExplorer = useExplorerStats(reviewFen ?? '', lichessToken, isPaused)
+  const reviewExplorer = useExplorerStats(reviewFen ?? '', lichessToken, isPaused, user !== null)
   const isReviewMoveSaved = useCallback(
     (uci: string) => (reviewFen ? repertoire.isMoveSaved(color, reviewFen, uci) : false),
     [repertoire, color, reviewFen],

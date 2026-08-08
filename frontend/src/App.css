@@ -685,3 +685,44 @@
 .drill-empty {
   max-width: 480px;
 }
+
+.auth-control {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: var(--surface-2);
+}
+
+.auth-control-signed-in {
+  gap: 10px;
+}
+
+.auth-control-signout {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+.auth-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-error-banner button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-h);
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.import-prompt {
+  max-width: 480px;
+}

@@ -6,6 +6,7 @@ import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useGame, START_FEN } from './hooks/useGame'
 import type { MoveInput } from './hooks/useGame'
+import { useAuth } from './hooks/useAuth'
 import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
 import { useLichessToken } from './hooks/useLichessToken'
@@ -20,6 +21,8 @@ import { EngineEvalPanel } from './components/EngineEvalPanel'
 import { EvalBar } from './components/EvalBar'
 import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
+import { AuthControl } from './components/AuthControl'
+import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
 import { BoardColorToggle } from './components/BoardColorToggle'
@@ -60,9 +63,11 @@ function App() {
   const { theme, toggleTheme } = useTheme()
   const { boardColor, toggleBoardColor } = useBoardColor()
   const { token, setToken } = useLichessToken()
-  const explorer = useExplorerStats(fen, token)
+  const auth = useAuth()
+  const isSignedIn = auth.user !== null
+  const explorer = useExplorerStats(fen, token, true, isSignedIn)
   const evaluation = useEngineEval(fen)
-  const repertoire = useRepertoire()
+  const repertoire = useRepertoire(auth.user)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
@@ -230,8 +235,24 @@ function App() {
         <div className="header-controls">
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          <AuthControl user={auth.user} loading={auth.loading} onLogin={() => auth.login()} onLogout={auth.logout} />
         </div>
       </header>
+      {auth.authError && (
+        <p className="panel-status error auth-error-banner">
+          {auth.authError}{' '}
+          <button type="button" onClick={auth.dismissAuthError}>
+            Dismiss
+          </button>
+        </p>
+      )}
+      <ImportRepertoirePrompt
+        phase={repertoire.importPrompt.phase}
+        counts={repertoire.importPrompt.counts}
+        onConfirm={repertoire.importPrompt.confirm}
+        onDismiss={repertoire.importPrompt.dismiss}
+        onClose={repertoire.importPrompt.close}
+      />
       {mode === 'drill' ? (
         <DrillView
           repertoire={repertoire}
@@ -240,6 +261,8 @@ function App() {
           playMoveSound={playMoveSound}
           playDrillCompleteSound={playDrillCompleteSound}
           lichessToken={token}
+          user={auth.user}
+          repertoireId={repertoire.repertoireIds[boardColor] ?? null}
         />
       ) : (
         <main className="explorer-layout">
@@ -302,7 +325,7 @@ function App() {
           <div className="side-column">
             <section className="panel explorer-panel">
               <h2>Lichess explorer</h2>
-              <LichessTokenSettings token={token} onChange={setToken} />
+              {!isSignedIn && <LichessTokenSettings token={token} onChange={setToken} />}
               <ExplorerStatsTable
                 data={explorer.data}
                 loading={explorer.loading}
