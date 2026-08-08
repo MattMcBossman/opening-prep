@@ -8,7 +8,7 @@ export type HistoryEntry = {
 
 export type MoveInput = string | { from: string; to: string; promotion?: string }
 
-const START_FEN = new Chess().fen()
+export const START_FEN = new Chess().fen()
 
 /**
  * Tracks a single line of moves (the position tree/repertoire nodes come in Phase 2)

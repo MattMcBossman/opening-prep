@@ -5,6 +5,8 @@ A web app for building and drilling a personal chess opening repertoire. Primari
 
 This file is the persistent project reference for Warp/agent-assisted development. Keep it up to date as scope, architecture, and decisions evolve.
 
+Whenever a change in this repo would make `README.md` inaccurate or incomplete (setup steps, scripts, project layout, or overall status/roadmap), update `README.md` in the same change — don't wait to be asked.
+
 ## Inspiration source: `openingtree/` submodule
 `openingtree/` is a pre-existing React app (CRA-style, React 16, custom webpack scripts) that already implements:
 - Lichess and Chess.com API iterators for pulling a player's game history (`src/app/iterator/LichessIterator.js`, `ChessComIterator.js`, `BaseLichessIterator.js`).
@@ -49,7 +51,7 @@ Treat this submodule as a **reference implementation only**: port the API integr
 
 ## Additional Features (Approved)
 - **Position identity via FEN, not move order** — key node identity by normalized FEN (+ side to move/castling/ep rights) so transpositions are recognized as the same repertoire node regardless of move order.
-- **ECO/opening-name lookup** — resolve line/variation names from an ECO database instead of hand-entry, with manual override.
+- **ECO/opening-name lookup** — resolve line/variation names from an ECO database instead of hand-entry, with manual override. The override input was prototyped in the explorer in Phase 1 but removed as noise there (no repertoire to attach an override to yet); re-add it in the repertoire viewer (Phase 2), where overrides can be persisted per repertoire node.
 - **Rating-band-aware statistics** — Lichess/Chess.com explorer stats vary a lot by rating bucket; let users filter stats to a relevant rating range rather than only all-time/all-rating aggregates.
 - **Repertoire coverage dashboard** — a single view summarizing, per color, % of opponent replies (weighted by real-world frequency) that are covered by a prepared response, not just a raw gap list.
 - **Spaced-repetition drilling** — prioritize weak/incorrect lines more often in drill sessions (Anki-style scheduling) instead of uniform random selection.
@@ -70,7 +72,7 @@ Treat this submodule as a **reference implementation only**: port the API integr
 Tracks implementation progress. Check off a phase once it has shipped; update sub-items as needed. Decision: keep Phases 3-5 as single phases for now, revisit splitting after Phase 1-2 ship.
 
 - [ ] **Phase 0 — Project setup**: scaffold the frontend app, minimal backend/DB schema, chess.js + board wiring.
-- [x] **Phase 1 — Opening explorer (MVP)**: line browser, Lichess explorer stats (cached by FEN, requires a user-supplied Lichess API token), Stockfish WASM evaluation (iterative deepening), opening name from Lichess explorer response + manual override. Chess.com explorer stats not yet integrated (Lichess-only for now).
+- [x] **Phase 1 — Opening explorer (MVP)**: line browser, Lichess explorer stats (cached by FEN, requires a user-supplied Lichess API token), Stockfish WASM evaluation (iterative deepening), opening name from Lichess explorer response (no manual override here — see "ECO/opening-name lookup" above). Chess.com explorer stats not yet integrated (Lichess-only for now).
 - [ ] **Phase 2 — Repertoire builder**: FEN-keyed repertoire tree per color, add-from-explorer with conflict detection, repertoire viewer, persistence.
 - [ ] **Phase 3 — Drills (Chessly-style)**: drill sessions on a repertoire subtree, wrong-move handling (bad-move explanation, off-book notice, transposition check via Hamming-distance similarity), mistake tracking.
 - [ ] **Phase 4 — Player data via `openingtree`**: port Lichess/Chess.com game iterators + PGN parsing, time-range filters, GM-inspiration browsing and own-game deviation analysis.

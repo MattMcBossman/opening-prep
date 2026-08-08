@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { START_FEN } from '../hooks/useGame'
 
 type Props = {
   eco: string | null
@@ -8,36 +8,26 @@ type Props = {
 
 /**
  * MVP opening-name lookup: uses the "opening" field Lichess's explorer API already
- * returns for known positions, plus a manual override text input (session-only for
- * now; persisting overrides moves to the Django backend alongside the repertoire in
- * Phase 2). See AGENTS.md "ECO/opening-name lookup".
+ * returns for known positions. See AGENTS.md "ECO/opening-name lookup" for the manual
+ * override, which is deferred to the repertoire view (Phase 2).
  */
 export function OpeningName({ eco, name, fen }: Props) {
-  const [override, setOverride] = useState('')
-
-  // Overrides are per-position; clear the input when the position changes.
-  useEffect(() => {
-    setOverride('')
-  }, [fen])
-
-  const displayName = override || name
+  // The starting position has no opening of its own; showing "Unnamed position" there
+  // is just noise, so render an (empty, height-reserving) placeholder instead.
+  if (!name && fen === START_FEN) {
+    return <div className="opening-name" />
+  }
 
   return (
     <div className="opening-name">
-      {displayName ? (
+      {name ? (
         <span className="opening-name-text">
-          {eco && !override ? `${eco} · ` : ''}
-          {displayName}
+          {eco ? `${eco} · ` : ''}
+          {name}
         </span>
       ) : (
         <span className="opening-name-text opening-name-empty">Unnamed position</span>
       )}
-      <input
-        className="opening-name-override"
-        placeholder="Override name…"
-        value={override}
-        onChange={(e) => setOverride(e.target.value)}
-      />
     </div>
   )
 }

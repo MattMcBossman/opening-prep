@@ -9,7 +9,7 @@
 
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
@@ -20,11 +20,52 @@
   font-size: 14px;
 }
 
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.theme-toggle-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background-color 0.2s ease;
+}
+
+.theme-toggle[aria-checked='true'] .theme-toggle-track {
+  background: var(--accent);
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease;
+}
+
+.theme-toggle[aria-checked='true'] .theme-toggle-thumb {
+  transform: translateX(16px);
+}
+
 .explorer-layout {
   display: flex;
   gap: 24px;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   text-align: left;
 }
 
@@ -36,8 +77,59 @@
   flex-shrink: 0;
 }
 
+.board-with-eval {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .board-wrapper {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+}
+
+.eval-bar {
+  width: 46px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.eval-bar-black,
+.eval-bar-white {
+  display: flex;
+  justify-content: center;
+  transition: height 0.3s ease-out;
+}
+
+.eval-bar-black {
+  background: #2b2b2b;
+  align-items: flex-end;
+}
+
+.eval-bar-white {
+  /* Slightly darker than pure white/off-white surfaces so it's still visibly distinct
+     from the light-mode page/panel backgrounds, not just from the black segment. */
+  background: #dcdde0;
+  align-items: flex-start;
+}
+
+.eval-bar-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 0;
+  white-space: nowrap;
+}
+
+.eval-bar-label-on-dark {
+  color: #f0f0f0;
+}
+
+.eval-bar-label-on-light {
+  color: #222;
 }
 
 .board-controls {
@@ -50,9 +142,15 @@
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text-h);
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.board-controls button:hover:not(:disabled) {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 
 .board-controls button:disabled {
@@ -62,8 +160,9 @@
 
 .side-column {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
   flex: 1;
   min-width: 280px;
 }
@@ -72,6 +171,26 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
+  box-sizing: border-box;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+/* Fixed width so it doesn't take more room than the short move notation needs, and so
+   its own width never shifts the explorer panel beside it. Stretches to match the
+   board column's height (via the explorer-layout parent) rather than a guessed pixel
+   value, so it stays aligned regardless of what's in the engine panel below the board. */
+.moves-panel {
+  width: 180px;
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+
+.explorer-panel {
+  flex: 1;
+  min-width: 420px;
 }
 
 .panel-status {
@@ -87,6 +206,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 1.4em;
 }
 
 .opening-name-text {
@@ -99,17 +219,9 @@
   font-style: italic;
 }
 
-.opening-name-override {
-  font-size: 12px;
-  padding: 4px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-h);
-}
-
 .move-list {
-  max-height: 220px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -117,18 +229,21 @@
 }
 
 .move-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 24px 1fr 1fr;
   align-items: center;
   gap: 4px;
 }
 
 .move-number {
   color: var(--text);
-  width: 28px;
   font-size: 13px;
 }
 
 .move-button {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
   border: none;
   background: none;
   padding: 3px 8px;
@@ -136,10 +251,13 @@
   cursor: pointer;
   color: var(--text-h);
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .move-button:hover {
-  background: var(--accent-bg);
+  background: var(--surface-2);
 }
 
 .move-button.active {
@@ -172,7 +290,7 @@
   padding: 5px 8px;
   border-radius: 4px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface-2);
   color: var(--text-h);
 }
 
@@ -180,9 +298,15 @@
   padding: 5px 12px;
   border-radius: 4px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface-2);
   color: var(--text-h);
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.token-settings-row button:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 
 .token-settings-hint {
@@ -194,6 +318,7 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  table-layout: fixed;
 }
 
 .explorer-table th {
@@ -202,6 +327,28 @@
   font-weight: 500;
   border-bottom: 1px solid var(--border);
   padding: 4px 6px;
+  background: var(--surface-2);
+}
+
+/* Fixed widths (with table-layout: fixed) so columns don't resize as move/game-count
+   text length changes from position to position; the result column takes the rest. */
+.explorer-table th:nth-child(1),
+.explorer-table td:nth-child(1) {
+  width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explorer-table th:nth-child(2),
+.explorer-table td:nth-child(2) {
+  width: 100px;
+}
+
+.explorer-games-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .explorer-row {
@@ -209,12 +356,59 @@
 }
 
 .explorer-row:hover {
-  background: var(--accent-bg);
+  background: var(--surface-2);
 }
 
 .explorer-row td {
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
+}
+
+.explorer-games-pct {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.result-bar {
+  display: flex;
+  width: 100%;
+  min-width: 160px;
+  height: 20px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.result-bar-white,
+.result-bar-draw,
+.result-bar-black {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.result-bar-white {
+  background: #f0f0f0;
+  color: #222;
+}
+
+.result-bar-draw {
+  background: #9aa0a6;
+  color: #1a1a1a;
+}
+
+.result-bar-black {
+  background: #2b2b2b;
+  color: #f0f0f0;
+}
+
+.result-bar-label {
+  padding: 0 2px;
 }
 
 .engine-panel {
@@ -224,19 +418,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.engine-score {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.score-value {
-  font-family: var(--mono);
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-h);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .score-label {
