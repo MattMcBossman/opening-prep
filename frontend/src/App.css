@@ -117,6 +117,13 @@
   overflow: hidden;
 }
 
+/* Reserves the eval bar's width while it isn't rendered (drills only show it during
+   the end-of-line review pause), so the board beside it keeps a constant size. */
+.eval-bar-placeholder {
+  width: 46px;
+  flex-shrink: 0;
+}
+
 .eval-bar-black,
 .eval-bar-white {
   display: flex;
@@ -477,6 +484,15 @@
   background: var(--surface-2);
 }
 
+/* Read-only rows (the drill review table) aren't clickable, so they get neither the
+   pointer cursor nor the hover highlight. Deliberately ordered before
+   .explorer-row-saved so a saved row still keeps its accent tint. */
+.explorer-row-static,
+.explorer-row-static:hover {
+  cursor: default;
+  background: none;
+}
+
 .explorer-row-saved {
   background: var(--accent-bg);
 }
@@ -643,8 +659,22 @@
   color: var(--text-h);
 }
 
+/* End-of-line review: the completion panel stacked above this position's Lichess
+   stats, sharing the side column the feedback panel normally occupies. */
+.drill-review {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-width: 280px;
+}
+
 .drill-line-complete {
   min-width: 280px;
+}
+
+.drill-line-complete-eval {
+  color: var(--text-h);
 }
 
 .drill-line-complete h3 {

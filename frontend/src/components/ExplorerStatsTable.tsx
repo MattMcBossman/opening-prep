@@ -5,7 +5,12 @@ type Props = {
   data: ExplorerResponse | null
   loading: boolean
   error: string | null
-  onMoveClick: (san: string) => void
+  /**
+   * Plays the clicked move. Omit to render the table read-only - used by the
+   * drill review panel, where the board is paused at a finished line and
+   * shouldn't be moved on.
+   */
+  onMoveClick?: (san: string) => void
   /** Whether the given move (by UCI) is already saved in the active repertoire at the current position. */
   isMoveSaved: (uci: string) => boolean
   /** Whether it's the repertoire owner's own turn at the current position (vs. the opponent's). */
@@ -68,11 +73,14 @@ export function ExplorerStatsTable({ data, loading, error, onMoveClick, isMoveSa
       <tbody>
         {data.moves.map((move) => {
           const saved = isMoveSaved(move.uci)
+          const classNames = ['explorer-row']
+          if (!onMoveClick) classNames.push('explorer-row-static')
+          if (saved) classNames.push('explorer-row-saved')
           return (
             <tr
               key={move.uci}
-              className={saved ? 'explorer-row explorer-row-saved' : 'explorer-row'}
-              onClick={() => onMoveClick(move.san)}
+              className={classNames.join(' ')}
+              onClick={onMoveClick ? () => onMoveClick(move.san) : undefined}
             >
               <td>
                 {move.san}

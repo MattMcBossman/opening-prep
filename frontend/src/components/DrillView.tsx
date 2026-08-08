@@ -5,6 +5,7 @@ import type { Arrow, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chess
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useDrillSession } from '../hooks/useDrillSession'
+import { useExplorerStats } from '../hooks/useExplorerStats'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { sideToMove } from '../lib/chessUtils'
 import type { RepertoireColor } from '../types'
@@ -12,6 +13,8 @@ import { DrillFeedbackPanel } from './DrillFeedbackPanel'
 import { DrillLineCompletePanel } from './DrillLineCompletePanel'
 import { DrillSummary } from './DrillSummary'
 import { BoardColorToggle } from './BoardColorToggle'
+import { EvalBar } from './EvalBar'
+import { ExplorerStatsTable } from './ExplorerStatsTable'
 
 type Props = {
   repertoire: ReturnType<typeof useRepertoire>
@@ -21,6 +24,8 @@ type Props = {
   playMoveSound: (san: string) => void
   /** Plays the distinct "drill complete" chime, independent of any move's own cue. */
   playDrillCompleteSound: () => void
+  /** Lichess API token, used only for the end-of-line review stats (see below). */
+  lichessToken: string
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -39,7 +44,14 @@ const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
  * explorer's own `useGame`/board state (see the Phase 3 plan's "Risks and
  * decisions" - drilling must never mutate the repertoire).
  */
-export function DrillView({ repertoire, color, onToggleColor, playMoveSound, playDrillCompleteSound }: Props) {
+export function DrillView({
+  repertoire,
+  color,
+  onToggleColor,
+  playMoveSound,
+  playDrillCompleteSound,
+  lichessToken,
+}: Props) {
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
   const onStepApplied = useCallback((step: { san: string }) => playMoveSound(step.san), [playMoveSound])
   const session = useDrillSession({
@@ -55,6 +67,16 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound, pla
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
+
+  // Real-world stats for the position a completed line ends in, fetched only
+  // while paused there: during the drill itself they'd both spoil the prepared
+  // move and cost an API call for every position walked through.
+  const reviewFen = session.completionFen
+  const reviewExplorer = useExplorerStats(reviewFen ?? '', lichessToken, isPaused)
+  const isReviewMoveSaved = useCallback(
+    (uci: string) => (reviewFen ? repertoire.isMoveSaved(color, reviewFen, uci) : false),
+    [repertoire, color, reviewFen],
+  )
 
   const legalMoves = useMemo(() => {
     if (!selectedSquare) return []
@@ -169,20 +191,31 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound, pla
           </div>
           <BoardColorToggle boardColor={color} onToggle={onToggleColor} />
         </div>
-        <div className="board-wrapper">
-          <Chessboard
-            options={{
-              position: fen,
-              boardOrientation: color,
-              onPieceDrop: handlePieceDrop,
-              onSquareClick: handleSquareClick,
-              squareStyles,
-              arrows,
-              showAnimations: true,
-              animationDurationInMs: 300,
-              id: 'opening-prep-drill-board',
-            }}
-          />
+        <div className="board-with-eval">
+          <div className="board-wrapper">
+            <Chessboard
+              options={{
+                position: fen,
+                boardOrientation: color,
+                onPieceDrop: handlePieceDrop,
+                onSquareClick: handleSquareClick,
+                squareStyles,
+                arrows,
+                showAnimations: true,
+                animationDurationInMs: 300,
+                id: 'opening-prep-drill-board',
+              }}
+            />
+          </div>
+          {/* Only shown once a line is finished - a live eval bar mid-drill would
+              give away whether the move just played was the prepared one. The
+              placeholder reserves the same width, so the board doesn't resize
+              when the review pause starts and ends. */}
+          {isPaused ? (
+            <EvalBar evaluation={session.completionEval} boardColor={color} />
+          ) : (
+            <div className="eval-bar-placeholder" aria-hidden="true" />
+          )}
         </div>
         <div className="board-controls">
           <button type="button" onClick={session.startNewSession}>
@@ -192,12 +225,24 @@ export function DrillView({ repertoire, color, onToggleColor, playMoveSound, pla
       </div>
       <div className="side-column">
         {isPaused ? (
-          <DrillLineCompletePanel
-            evaluation={session.completionEval}
-            leafPly={state.completionPause?.leafPly ?? 0}
-            isLastDrill={session.complete}
-            onNext={session.acknowledgeCompletion}
-          />
+          <div className="drill-review">
+            <DrillLineCompletePanel
+              evaluation={session.completionEval}
+              leafPly={state.completionPause?.leafPly ?? 0}
+              isLastDrill={session.complete}
+              onNext={session.acknowledgeCompletion}
+            />
+            <section className="panel explorer-panel">
+              <h2>Lichess explorer</h2>
+              <ExplorerStatsTable
+                data={reviewExplorer.data}
+                loading={reviewExplorer.loading}
+                error={reviewExplorer.error}
+                isMoveSaved={isReviewMoveSaved}
+                isMyMove={reviewFen ? sideToMove(reviewFen) === color : false}
+              />
+            </section>
+          </div>
         ) : session.complete ? (
           <DrillSummary
             progress={session.progress}

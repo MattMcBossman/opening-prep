@@ -11,6 +11,7 @@ import { useEngineEval } from './hooks/useEngineEval'
 import { useLichessToken } from './hooks/useLichessToken'
 import { useTheme } from './hooks/useTheme'
 import { useBoardColor } from './hooks/useBoardColor'
+import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
 import { useRepertoire } from './hooks/useRepertoire'
 import { useSound } from './hooks/useSound'
 import { MoveList } from './components/MoveList'
@@ -65,6 +66,10 @@ function App() {
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
+
+  // ←/→ step through the current line, mirroring the Back/Forward buttons below the
+  // board. Only in the explorer - the drill view has no move history to navigate.
+  useHistoryKeyboardNav(goBack, goForward, mode === 'explorer')
 
   // Single entry point for playing a move in the explorer, so every route into the
   // board - drag, click-to-move, an explorer row, a saved continuation - sounds the
@@ -234,6 +239,7 @@ function App() {
           onToggleColor={handleToggleBoardColor}
           playMoveSound={playMoveSound}
           playDrillCompleteSound={playDrillCompleteSound}
+          lichessToken={token}
         />
       ) : (
         <main className="explorer-layout">
@@ -275,10 +281,15 @@ function App() {
               <EvalBar evaluation={evaluation} boardColor={boardColor} />
             </div>
             <div className="board-controls">
-              <button type="button" onClick={goBack} disabled={pointer === 0}>
+              <button type="button" onClick={goBack} disabled={pointer === 0} title="Back (left arrow key)">
                 ← Back
               </button>
-              <button type="button" onClick={goForward} disabled={pointer === moves.length}>
+              <button
+                type="button"
+                onClick={goForward}
+                disabled={pointer === moves.length}
+                title="Forward (right arrow key)"
+              >
                 Forward →
               </button>
               <button type="button" onClick={reset} disabled={moves.length === 0}>

@@ -15,6 +15,7 @@ import {
 } from '../lib/drillSessionLogic'
 import type { DrillSessionState } from '../lib/drillSessionLogic'
 import { useEngineComparison } from './useEngineComparison'
+import { denormalizeFen } from '../lib/chessUtils'
 import { findNearestSimilarPosition } from '../lib/positionSimilarity'
 import type { SimilarPositionMatch } from '../lib/positionSimilarity'
 import { START_FEN } from './useGame'
@@ -72,6 +73,15 @@ export function useDrillSession({
   // whenever `state.completionPause` (newly) appears, cleared once it's gone.
   const [completionEval, setCompletionEval] = useState<EngineEvaluation | null>(null)
 
+  // The paused-at position as a complete FEN. `completionPause.leafFen` is a
+  // normalized repertoire key (see normalizeFen), which isn't a well-formed FEN
+  // for consumers that parse all six fields - the engine and the Lichess
+  // explorer both get this instead.
+  const completionFen = useMemo(
+    () => (state.completionPause ? denormalizeFen(state.completionPause.leafFen, state.completionPause.leafPly) : null),
+    [state.completionPause],
+  )
+
   // Positions where it was the drilling color's own turn, across every enumerated
   // line - the candidate pool for "is this wrong move actually saved somewhere
   // similar-looking?" (see similarPosition below). Own-turn positions only, since
@@ -101,20 +111,19 @@ export function useDrillSession({
   }, [color, rootFen])
 
   useEffect(() => {
-    const pause = state.completionPause
-    if (!pause) {
+    if (!completionFen) {
       setCompletionEval(null)
       return
     }
     let cancelled = false
     setCompletionEval(null)
-    evaluatePosition(pause.leafFen).then((evaluation) => {
+    evaluatePosition(completionFen).then((evaluation) => {
       if (!cancelled) setCompletionEval(evaluation)
     })
     return () => {
       cancelled = true
     }
-  }, [state.completionPause, evaluatePosition])
+  }, [completionFen, evaluatePosition])
 
   // Mirrors the latest committed state so attemptMove can compute its result up
   // front rather than inside a state updater. attemptMove only ever runs from a DOM
@@ -210,6 +219,7 @@ export function useDrillSession({
     retryFailed,
     startNewSession,
     similarPosition,
+    completionFen,
     completionEval,
     acknowledgeCompletion,
   }

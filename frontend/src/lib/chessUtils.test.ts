@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { formatMoveList, formatMoveListFromPly } from './chessUtils'
+import { denormalizeFen, formatMoveList, formatMoveListFromPly } from './chessUtils'
+
+describe('denormalizeFen', () => {
+  it('restores the move counters a normalized FEN dropped, from a ply count', () => {
+    // 4 plies played = both sides have made 2 moves, so it's White to move on move 3.
+    expect(denormalizeFen('8/8/8/8/8/8/8/8 w - -', 4)).toBe('8/8/8/8/8/8/8/8 w - - 0 3')
+    // 5 plies played = White has also made its 3rd move, so it's Black to move on move 3.
+    expect(denormalizeFen('8/8/8/8/8/8/8/8 b - -', 5)).toBe('8/8/8/8/8/8/8/8 b - - 0 3')
+  })
+
+  it('leaves an already-complete FEN untouched', () => {
+    const fen = '8/8/8/8/8/8/8/8 w - - 7 15'
+    expect(denormalizeFen(fen, 4)).toBe(fen)
+  })
+})
 
 describe('formatMoveListFromPly', () => {
   it('numbers a line starting on White', () => {

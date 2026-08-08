@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
+import { formatScore } from '../lib/formatScore'
 import type { EngineEvaluation } from '../types'
 
 type Props = {
@@ -21,7 +22,10 @@ type Props = {
  * position until the user acknowledges it - see the Phase 3 plan's "pause
  * after each completed drill" addendum. The opponent's best untried response
  * (an arrow on the board, drawn by the caller from the same `evaluation`) is
- * summarized here as text, since the user hasn't prepped a reply to it yet.
+ * summarized here as text, since the user hasn't prepped a reply to it yet,
+ * alongside the engine's verdict on the position the line ends in. The
+ * real-world stats for that same position are rendered separately by the caller
+ * (see DrillView), next to this panel.
  */
 export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNext }: Props) {
   const pvText = useMemo(() => {
@@ -35,6 +39,10 @@ export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNex
       <h3>Line complete!</h3>
       {evaluation ? (
         <>
+          <p className="drill-line-complete-eval">
+            Engine: <strong>{formatScore(evaluation)}</strong>{' '}
+            <span className="score-label">(depth {evaluation.depth})</span>
+          </p>
           <p className="panel-status">
             You haven&apos;t prepped a reply here yet - the engine&apos;s best try for the opponent is shown with an
             arrow on the board.

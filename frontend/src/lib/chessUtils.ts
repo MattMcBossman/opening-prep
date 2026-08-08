@@ -26,6 +26,21 @@ export function normalizeFen(fen: string): string {
 }
 
 /**
+ * Restores the halfmove-clock and fullmove-number fields that `normalizeFen`
+ * drops, so a repertoire/drill position key can be handed to consumers that
+ * expect a complete FEN (Stockfish's `position fen`, the Lichess explorer's
+ * `fen` parameter). The move number comes from an explicit ply count, since a
+ * normalized FEN has no record of it (see `formatMoveListFromPly`); the halfmove
+ * clock isn't recoverable at all and is reported as 0, which is harmless for
+ * opening positions - nothing here depends on the 50-move rule.
+ */
+export function denormalizeFen(fen: string, ply: number): string {
+  const parts = fen.split(' ')
+  if (parts.length >= 6) return fen
+  return [...parts.slice(0, 4), parts[4] ?? '0', String(Math.floor(ply / 2) + 1)].join(' ')
+}
+
+/**
  * Formats a sequence of SAN moves, starting `startPly` half-moves into the game
  * (0 = White's 1st move, 1 = Black's 1st move, 2 = White's 2nd move, ...), with
  * PGN-style move numbers, e.g. "15. c4 Nxc4 16. d4" (starting on White) or
