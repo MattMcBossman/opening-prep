@@ -49,3 +49,18 @@ class ImportSerializer(serializers.Serializer):
 
     white = serializers.DictField(child=TreeEdgeSerializer(many=True), required=False, default=dict)
     black = serializers.DictField(child=TreeEdgeSerializer(many=True), required=False, default=dict)
+
+
+class ImportCountsSerializer(serializers.Serializer):
+    """Documentation-only: one color's entry in `POST /repertoires/import/`'s response."""
+
+    imported = serializers.IntegerField()
+    skipped = serializers.IntegerField()
+
+
+class ImportResponseSerializer(serializers.Serializer):
+    """Documentation-only: `import_tree`/the view build this dict by hand rather
+    than via a serializer, so this exists purely to describe it to drf-spectacular."""
+
+    white = ImportCountsSerializer()
+    black = ImportCountsSerializer()

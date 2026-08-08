@@ -10,13 +10,14 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import oauth
 from .models import LichessAccount, User
-from .serializers import UserSerializer
+from .serializers import SessionSerializer, UserSerializer
 
 # Session key the PKCE verifier/state pair (and the recorded `next` redirect
 # path) are stashed under between `lichess_start` and `lichess_callback`.
@@ -54,6 +55,11 @@ class SessionView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Bootstrap call: current auth state, and sets the CSRF cookie.",
+        request=None,
+        responses={200: SessionSerializer},
+    )
     @method_decorator(ensure_csrf_cookie)
     def get(self, request):
         if request.user.is_authenticated:
@@ -61,6 +67,7 @@ class SessionView(APIView):
         return Response({"authenticated": False, "user": None})
 
 
+@extend_schema(exclude=True)  # browser redirect, not a JSON API - see the docstring below
 @require_GET
 def lichess_start(request):
     """
@@ -80,6 +87,7 @@ def lichess_start(request):
     return HttpResponseRedirect(oauth.build_authorize_url(state=state, code_challenge=pkce.challenge))
 
 
+@extend_schema(exclude=True)  # browser redirect, not a JSON API - see the docstring below
 @require_GET
 def lichess_callback(request):
     """
@@ -137,6 +145,7 @@ def lichess_callback(request):
 class LogoutView(APIView):
     """`POST /api/v1/auth/logout/` - flushes the session. `204 No Content`."""
 
+    @extend_schema(summary="Log out.", request=None, responses={204: None})
     def post(self, request):
         logout(request)
         return Response(status=204)

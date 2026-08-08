@@ -21,3 +21,15 @@ class UserSerializer(serializers.ModelSerializer):
     def get_lichessUsername(self, obj: User) -> str | None:
         account = getattr(obj, "lichess_account", None)
         return account.lichess_username if account else None
+
+
+class SessionSerializer(serializers.Serializer):
+    """
+    Documentation-only: `SessionView.get` builds this shape by hand rather than
+    via a serializer (there's no model instance to serialize - `user` is `None`
+    when signed out), so this exists purely so drf-spectacular can describe
+    `GET /auth/session/`'s response.
+    """
+
+    authenticated = serializers.BooleanField()
+    user = UserSerializer(allow_null=True)
