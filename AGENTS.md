@@ -71,7 +71,7 @@ Treat this submodule as a **reference implementation only**: port the API integr
 ## Development Roadmap
 Tracks implementation progress. Check off a phase once it has shipped; update sub-items as needed. Decision: keep Phases 3-5 as single phases for now, revisit splitting after Phase 1-2 ship.
 
-- [ ] **Phase 0 — Project setup**: scaffold the frontend app, minimal backend/DB schema, chess.js + board wiring.
+- [X] **Phase 0 — Project setup**: scaffold the frontend app, minimal backend/DB schema, chess.js + board wiring.
 - [x] **Phase 1 — Opening explorer (MVP)**: line browser, Lichess explorer stats (cached by FEN, requires a user-supplied Lichess API token), Stockfish WASM evaluation (iterative deepening), opening name from Lichess explorer response (no manual override here — see "ECO/opening-name lookup" above). Chess.com explorer stats not yet integrated (Lichess-only for now).
 - [ ] **Phase 2 — Repertoire builder**: FEN-keyed repertoire tree per color, add-from-explorer with conflict detection, repertoire viewer, persistence.
 - [ ] **Phase 3 — Drills (Chessly-style)**: drill sessions on a repertoire subtree, wrong-move handling (bad-move explanation, off-book notice, transposition check via Hamming-distance similarity), mistake tracking.

@@ -1,8 +1,10 @@
 import { formatScore } from '../lib/formatScore'
+import type { BoardColor } from '../hooks/useBoardColor'
 import type { EngineEvaluation } from '../types'
 
 type Props = {
   evaluation: EngineEvaluation | null
+  boardColor: BoardColor
 }
 
 const SQUARES_PER_SIDE = 8
@@ -33,19 +35,44 @@ function whiteFractionFor(evaluation: EngineEvaluation | null): number {
  * top, split proportionally to the evaluation. The +/- score sits just inside whichever
  * side is currently ahead, near the boundary between the two colors.
  */
-export function EvalBar({ evaluation }: Props) {
+export function EvalBar({ evaluation, boardColor }: Props) {
   const whiteFraction = whiteFractionFor(evaluation)
   const whiteLeading = !evaluation || evaluation.scoreValue >= 0
   const label = evaluation ? formatScore(evaluation) : ''
+  const segments =
+    boardColor === 'white'
+      ? [
+          {
+            color: 'black' as const,
+            height: (1 - whiteFraction) * 100,
+            showLabel: !whiteLeading,
+          },
+          { color: 'white' as const, height: whiteFraction * 100, showLabel: whiteLeading },
+        ]
+      : [
+          { color: 'white' as const, height: whiteFraction * 100, showLabel: whiteLeading },
+          {
+            color: 'black' as const,
+            height: (1 - whiteFraction) * 100,
+            showLabel: !whiteLeading,
+          },
+        ]
 
   return (
     <div className="eval-bar" title={label ? `Evaluation: ${label}` : 'Starting engine…'}>
-      <div className="eval-bar-black" style={{ height: `${(1 - whiteFraction) * 100}%` }}>
-        {!whiteLeading && <span className="eval-bar-label eval-bar-label-on-dark">{label}</span>}
-      </div>
-      <div className="eval-bar-white" style={{ height: `${whiteFraction * 100}%` }}>
-        {whiteLeading && <span className="eval-bar-label eval-bar-label-on-light">{label}</span>}
-      </div>
+      {segments.map(({ color, height, showLabel }) => (
+        <div key={color} className={`eval-bar-${color}`} style={{ height: `${height}%` }}>
+          {showLabel && (
+            <span
+              className={`eval-bar-label ${
+                color === 'white' ? 'eval-bar-label-on-light' : 'eval-bar-label-on-dark'
+              }`}
+            >
+              {label}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

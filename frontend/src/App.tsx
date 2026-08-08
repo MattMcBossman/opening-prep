@@ -9,6 +9,7 @@ import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
 import { useLichessToken } from './hooks/useLichessToken'
 import { useTheme } from './hooks/useTheme'
+import { useBoardColor } from './hooks/useBoardColor'
 import { MoveList } from './components/MoveList'
 import { ExplorerStatsTable } from './components/ExplorerStatsTable'
 import { EngineEvalPanel } from './components/EngineEvalPanel'
@@ -16,6 +17,7 @@ import { EvalBar } from './components/EvalBar'
 import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
 import { ThemeToggle } from './components/ThemeToggle'
+import { BoardColorToggle } from './components/BoardColorToggle'
 import type { ExplorerOpening } from './types'
 import './App.css'
 
@@ -33,6 +35,7 @@ const CAPTURE_TARGET_STYLE: CSSProperties = {
 function App() {
   const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset } = useGame()
   const { theme, toggleTheme } = useTheme()
+  const { boardColor, toggleBoardColor } = useBoardColor()
   const { token, setToken } = useLichessToken()
   const explorer = useExplorerStats(fen, token)
   const evaluation = useEngineEval(fen)
@@ -117,13 +120,17 @@ function App() {
       </header>
       <main className="explorer-layout">
         <div className="board-column">
-          <OpeningName eco={resolvedOpening?.eco ?? null} name={resolvedOpening?.name ?? null} fen={fen} />
+          <div className="board-heading">
+            <OpeningName eco={resolvedOpening?.eco ?? null} name={resolvedOpening?.name ?? null} fen={fen} />
+            <BoardColorToggle boardColor={boardColor} onToggle={toggleBoardColor} />
+          </div>
           <div className="board-with-eval">
-            <EvalBar evaluation={evaluation} />
+            <EvalBar evaluation={evaluation} boardColor={boardColor} />
             <div className="board-wrapper">
               <Chessboard
                 options={{
                   position: fen,
+                  boardOrientation: boardColor,
                   onPieceDrop: handlePieceDrop,
                   onSquareClick: handleSquareClick,
                   squareStyles,
