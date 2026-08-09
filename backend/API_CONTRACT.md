@@ -140,6 +140,17 @@ required — the frontend then keeps using its existing direct-to-Lichess path.
 Upstream `429` is surfaced as `429` with `Retry-After` passed through. Concurrent
 requests for the same key should not produce duplicate upstream calls.
 
+### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12`
+**Authenticated only** — there's no anonymous path, since this always needs the
+caller's own linked Lichess account. Live proxy for Lichess's player-scoped
+opening explorer (the signed-in user's own games), **never cached** unlike
+`/explorer/stats/`. `color` is the color the signed-in user played (matching
+the app's White/Black repertoire toggle), not whose turn it is at `fen`.
+Response shape is `ExplorerResponse` plus an optional `stillIndexing: true`
+when Lichess hadn't finished processing the account's games within the
+server's wait budget — a best-effort partial result, not an error. `401` when
+no Lichess account is linked.
+
 ### `GET /api/v1/explorer/evals/?fen=<fen>`
 Cached engine evaluation, or `404` when nothing is cached. Shape matches
 `EngineEvaluation` minus the client-only `thinking`/`terminal` flags:

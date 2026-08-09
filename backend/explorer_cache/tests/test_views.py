@@ -4,7 +4,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from accounts.models import User
-from explorer_cache import cache, views
+from explorer_cache import cache, player_stats, views
 from explorer_cache.models import EngineLineCache
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -141,3 +141,60 @@ def test_evals_put_keeps_deepest_across_requests(api_client, user):
     assert response.status_code == 200
     assert response.data["depth"] == 20
     assert response.data["scoreValue"] == 10
+
+
+# --- /explorer/my-games/ -----------------------------------------------------
+
+
+def test_my_games_requires_authentication(api_client):
+    response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
+    assert response.status_code == 403
+
+
+def test_my_games_rejects_an_invalid_color(api_client, user):
+    api_client.force_authenticate(user=user)
+    response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "purple"})
+    assert response.status_code == 400
+
+
+def test_my_games_no_linked_account_returns_401_with_detail(api_client, user):
+    api_client.force_authenticate(user=user)
+    response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
+    assert response.status_code == 401
+    assert "detail" in response.data
+
+
+def test_my_games_success_matches_explorer_response_shape_plus_still_indexing(api_client, user, monkeypatch):
+    canned = {
+        "totalGames": 5,
+        "moves": [{"san": "e4", "uci": "e2e4", "white": 5, "draws": 0, "black": 0, "totalGames": 5}],
+        "opening": None,
+        "stillIndexing": True,
+    }
+    monkeypatch.setattr(player_stats, "fetch_player_stats", lambda *a, **k: canned)
+
+    api_client.force_authenticate(user=user)
+    response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
+    assert response.status_code == 200
+    assert response.data == canned
+
+
+def test_my_games_rate_limited_passes_through_status_and_retry_after(api_client, user, monkeypatch):
+    monkeypatch.setattr(
+        player_stats,
+        "fetch_player_stats",
+        lambda *a, **k: (_ for _ in ()).throw(cache.UpstreamRateLimited(retry_after="5")),
+    )
+    api_client.force_authenticate(user=user)
+    response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "5"
+
+
+def test_my_games_upstream_unavailable_returns_502_not_500(api_client, user, monkeypatch):
+    monkeypatch.setattr(
+        player_stats, "fetch_player_stats", lambda *a, **k: (_ for _ in ()).throw(cache.UpstreamUnavailable())
+    )
+    api_client.force_authenticate(user=user)
+    response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
+    assert response.status_code == 502

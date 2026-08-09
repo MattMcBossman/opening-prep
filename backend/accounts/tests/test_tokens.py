@@ -1,10 +1,10 @@
-"""Tests for `accounts.tokens.get_lichess_access_token`, the one supported way
-for other apps (the explorer proxy) to read a user's decrypted token."""
+"""Tests for `accounts.tokens`, the one supported way for other apps (the
+explorer proxies) to read a user's decrypted token and linked username."""
 
 from django.contrib.auth import get_user_model
 
 from accounts.models import LichessAccount
-from accounts.tokens import get_lichess_access_token
+from accounts.tokens import get_lichess_access_token, get_lichess_username
 
 User = get_user_model()
 
@@ -34,3 +34,16 @@ def test_returns_none_rather_than_raising_when_ciphertext_is_undecryptable(db):
     )
 
     assert get_lichess_access_token(user) is None
+
+
+def test_get_lichess_username_returns_none_for_a_user_with_no_linked_account(db):
+    user = User.objects.create_user(username="no-lichess")
+
+    assert get_lichess_username(user) is None
+
+
+def test_get_lichess_username_returns_the_linked_username(db):
+    user = User.objects.create_user(username="has-lichess")
+    LichessAccount.objects.create(user=user, lichess_id="1", lichess_username="DrNykterstein")
+
+    assert get_lichess_username(user) == "DrNykterstein"

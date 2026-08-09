@@ -14,6 +14,17 @@ from .models import LichessAccount, User
 logger = logging.getLogger(__name__)
 
 
+def _lichess_account(user: User) -> LichessAccount | None:
+    try:
+        return user.lichess_account
+    except LichessAccount.DoesNotExist:
+        return None
+    except AttributeError:
+        # An AnonymousUser has no `lichess_account` descriptor at all. The
+        # explorer proxy is AllowAny, so this is a perfectly ordinary call.
+        return None
+
+
 def get_lichess_access_token(user: User) -> str | None:
     """
     Returns the decrypted token for `user`, or `None` if there isn't one.
@@ -24,16 +35,23 @@ def get_lichess_access_token(user: User) -> str | None:
     proxy for one user instead of surfacing as a 500 from an otherwise
     unrelated endpoint.
     """
-    try:
-        account = user.lichess_account
-    except LichessAccount.DoesNotExist:
-        return None
-    except AttributeError:
-        # An AnonymousUser has no `lichess_account` descriptor at all. The
-        # explorer proxy is AllowAny, so this is a perfectly ordinary call.
+    account = _lichess_account(user)
+    if account is None:
         return None
     try:
         return account.access_token
     except InvalidToken:
         logger.warning("Could not decrypt stored Lichess token for user id=%s", user.pk)
         return None
+
+
+def get_lichess_username(user: User) -> str | None:
+    """
+    Returns the linked Lichess username for `user`, or `None` if there isn't
+    one - same collapsed "no linked account"/"not signed in" cases as
+    `get_lichess_access_token`, for the same reason (e.g. the my-games
+    explorer proxy in `explorer_cache/player_stats.py`, which needs the
+    username to query Lichess's player-scoped opening explorer).
+    """
+    account = _lichess_account(user)
+    return account.lichess_username if account else None

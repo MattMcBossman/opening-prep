@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchExplorerStats, fetchExplorerStatsViaBackend, fetchLichessExplorer } from './lichessExplorer'
+import {
+  fetchExplorerStats,
+  fetchExplorerStatsViaBackend,
+  fetchLichessExplorer,
+  fetchMyGamesExplorerStats,
+} from './lichessExplorer'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -105,6 +110,39 @@ describe('fetchExplorerStats (chooses signed-in vs anonymous, with 401 fallback)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ detail: 'No Lichess token available.' }, { status: 401 })))
 
     await expect(fetchExplorerStats('d-fen w KQkq -', { apiToken: '', signedIn: true })).rejects.toMatchObject({
+      status: 401,
+    })
+  })
+})
+
+describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
+  it('requests the my-games backend endpoint with the color and same-origin credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchMyGamesExplorerStats('my-games-fen w KQkq -', 'white')
+
+    expect(result).toEqual(EXPECTED_RESPONSE)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/explorer/my-games/?fen=my-games-fen+w+KQkq+-&moves=12&color=white')
+    expect(init.credentials).toBe('same-origin')
+  })
+
+  it('passes through stillIndexing when the backend reports one', async () => {
+    const indexing = { ...EXPECTED_RESPONSE, stillIndexing: true }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(indexing)))
+
+    const result = await fetchMyGamesExplorerStats('another-my-games-fen w KQkq -', 'black')
+    expect(result.stillIndexing).toBe(true)
+  })
+
+  it('surfaces a 401 (no linked Lichess account) as an ApiError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ detail: 'Link your Lichess account.' }, { status: 401 })),
+    )
+
+    await expect(fetchMyGamesExplorerStats('yet-another-fen w KQkq -', 'white')).rejects.toMatchObject({
       status: 401,
     })
   })

@@ -17,6 +17,7 @@ from common.fen import denormalize_fen, normalize_fen
 
 from .lichess_token import token_for_user
 from .models import EngineLineCache, PositionStatsCache
+from .response_shape import to_explorer_response as _to_explorer_response
 
 UPSTREAM_TIMEOUT_SECONDS = 8
 
@@ -140,36 +141,6 @@ def _fetch_upstream(normalized_fen: str, moves: int, token: str) -> dict:
         return response.json()
     except ValueError as exc:
         raise UpstreamUnavailable() from exc
-
-
-def _to_explorer_response(raw: dict) -> dict:
-    """
-    Reshapes a raw Lichess payload into `ExplorerResponse`
-    (`frontend/src/types.ts`), mirroring the transform `fetchLichessExplorer`
-    does client-side today (`frontend/src/lib/lichessExplorer.ts`) so the
-    shape means the same thing regardless of which path produced it.
-    """
-    moves = []
-    for m in raw.get("moves") or []:
-        white = m.get("white") or 0
-        draws = m.get("draws") or 0
-        black = m.get("black") or 0
-        moves.append(
-            {
-                "san": m.get("san"),
-                "uci": m.get("uci"),
-                "white": white,
-                "draws": draws,
-                "black": black,
-                "totalGames": white + draws + black,
-            }
-        )
-    opening = raw.get("opening")
-    return {
-        "totalGames": (raw.get("white") or 0) + (raw.get("draws") or 0) + (raw.get("black") or 0),
-        "moves": moves,
-        "opening": {"eco": opening["eco"], "name": opening["name"]} if opening else None,
-    }
 
 
 def get_cached_eval(fen: str) -> EngineLineCache | None:

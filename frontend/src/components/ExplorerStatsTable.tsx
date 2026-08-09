@@ -58,52 +58,64 @@ export function ExplorerStatsTable({ data, loading, error, onMoveClick, isMoveSa
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
   if (error) return <p className="panel-status error">{error}</p>
   if (!data || data.moves.length === 0) {
-    return <p className="panel-status">No Lichess game data for this position.</p>
+    return (
+      <>
+        {data?.stillIndexing && (
+          <p className="panel-status">Still indexing your games on Lichess — try again shortly.</p>
+        )}
+        <p className="panel-status">No Lichess game data for this position.</p>
+      </>
+    )
   }
 
   return (
-    <table className="explorer-table">
-      <thead>
-        <tr>
-          <th>Move</th>
-          <th>Games</th>
-          <th>Result (W / D / B)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.moves.map((move) => {
-          const saved = isMoveSaved(move.uci)
-          const classNames = ['explorer-row']
-          if (!onMoveClick) classNames.push('explorer-row-static')
-          if (saved) classNames.push('explorer-row-saved')
-          return (
-            <tr
-              key={move.uci}
-              className={classNames.join(' ')}
-              onClick={onMoveClick ? () => onMoveClick(move.san) : undefined}
-            >
-              <td>
-                {move.san}
-                {saved && (
-                  <span className="explorer-saved-badge" title="In your prep" aria-label="In your prep">
-                    {isMyMove ? '\u2605' : '\u2713'}
+    <>
+      {data.stillIndexing && (
+        <p className="panel-status">Still indexing your games on Lichess — results may be incomplete.</p>
+      )}
+      <table className="explorer-table">
+        <thead>
+          <tr>
+            <th>Move</th>
+            <th>Games</th>
+            <th>Result (W / D / B)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.moves.map((move) => {
+            const saved = isMoveSaved(move.uci)
+            const classNames = ['explorer-row']
+            if (!onMoveClick) classNames.push('explorer-row-static')
+            if (saved) classNames.push('explorer-row-saved')
+            return (
+              <tr
+                key={move.uci}
+                className={classNames.join(' ')}
+                onClick={onMoveClick ? () => onMoveClick(move.san) : undefined}
+              >
+                <td>
+                  {move.san}
+                  {saved && (
+                    <span className="explorer-saved-badge" title="In your prep" aria-label="In your prep">
+                      {isMyMove ? '\u2605' : '\u2713'}
+                    </span>
+                  )}
+                </td>
+                <td className="explorer-games-cell">
+                  {formatCompactNumber(move.totalGames)}
+                  <span className="explorer-games-pct">
+                    {' '}
+                    ({Math.round(percent(move.totalGames, data.totalGames))}%)
                   </span>
-                )}
-              </td>
-              <td className="explorer-games-cell">
-                {formatCompactNumber(move.totalGames)}
-                <span className="explorer-games-pct">
-                  {' '}
-                  ({Math.round(percent(move.totalGames, data.totalGames))}%)
-                </span>
-              </td>
-              <td>
-                <ResultBar move={move} />
-              </td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+                </td>
+                <td>
+                  <ResultBar move={move} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </>
   )
 }

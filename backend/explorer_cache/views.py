@@ -6,12 +6,14 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from . import cache
+from . import cache, player_stats
 from .serializers import (
     EngineEvalQuerySerializer,
     EngineEvaluationSerializer,
     ExplorerResponseSerializer,
     ExplorerStatsQuerySerializer,
+    MyGamesExplorerQuerySerializer,
+    MyGamesExplorerResponseSerializer,
 )
 
 # DRF's default `{"detail": "..."}` error body, shared by every non-2xx response below.
@@ -70,6 +72,56 @@ class ExplorerStatsView(APIView):
             return Response({"detail": "The Lichess explorer is currently unavailable."}, status=502)
 
         return Response(ExplorerResponseSerializer(data).data)
+
+
+class MyGamesExplorerView(APIView):
+    """`GET /explorer/my-games/?fen=...&color=...&moves=...` - see API_CONTRACT.md.
+
+    Authenticated (the default): unlike `/explorer/stats/`, this always needs
+    the caller's own linked Lichess account (both to know which player to
+    query and to authenticate the request), so there is no anonymous path.
+    Deliberately uncached - see player_stats.py.
+    """
+
+    @extend_schema(
+        summary="Opening-tree stats from the signed-in user's own Lichess games.",
+        description=(
+            "Live proxy for Lichess's player-scoped opening explorer - never cached, since this is "
+            "per-user data. `color` is the color the signed-in user played (matching the app's "
+            "White/Black repertoire toggle), not whose turn it is at `fen`. May return "
+            "`stillIndexing: true` with a best-effort partial result if Lichess hasn't finished "
+            "processing the account's games yet."
+        ),
+        parameters=[MyGamesExplorerQuerySerializer],
+        responses={
+            200: MyGamesExplorerResponseSerializer,
+            401: NO_TOKEN_RESPONSE,
+            429: RATE_LIMITED_RESPONSE,
+            502: UPSTREAM_UNAVAILABLE_RESPONSE,
+        },
+    )
+    def get(self, request):
+        query = MyGamesExplorerQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        try:
+            data = player_stats.fetch_player_stats(
+                request.user,
+                query.validated_data["fen"],
+                query.validated_data["moves"],
+                query.validated_data["color"],
+            )
+        except cache.TokenRequired:
+            return Response(
+                {"detail": "Link your Lichess account to see stats from your own games."}, status=401
+            )
+        except cache.UpstreamRateLimited as exc:
+            headers = {"Retry-After": exc.retry_after} if exc.retry_after else {}
+            return Response({"detail": "Lichess rate-limited this request."}, status=429, headers=headers)
+        except cache.UpstreamUnavailable:
+            return Response({"detail": "The Lichess explorer is currently unavailable."}, status=502)
+
+        return Response(MyGamesExplorerResponseSerializer(data).data)
 
 
 class EngineEvalView(APIView):

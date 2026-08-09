@@ -13,6 +13,7 @@ import { useLichessToken } from './hooks/useLichessToken'
 import { useTheme } from './hooks/useTheme'
 import { useBoardColor } from './hooks/useBoardColor'
 import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
+import type { ExplorerSource } from './hooks/useExplorerStats'
 import { useRepertoire } from './hooks/useRepertoire'
 import { useSound } from './hooks/useSound'
 import { installAudioUnlock } from './audio/soundPlayer'
@@ -27,6 +28,7 @@ import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
 import { PgnImportExportPanel } from './components/PgnImportExportPanel'
+import { ExplorerSourceToggle } from './components/ExplorerSourceToggle'
 import { BoardColorToggle } from './components/BoardColorToggle'
 import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
@@ -67,7 +69,10 @@ function App() {
   const { token, setToken } = useLichessToken()
   const auth = useAuth()
   const isSignedIn = auth.user !== null
-  const explorer = useExplorerStats(fen, token, true, isSignedIn)
+  const [explorerSource, setExplorerSource] = useState<ExplorerSource>('lichess')
+  // Signed-out users have no "my games" source at all - always show the public database.
+  const effectiveExplorerSource = isSignedIn ? explorerSource : 'lichess'
+  const explorer = useExplorerStats(fen, token, true, isSignedIn, effectiveExplorerSource, boardColor)
   const evaluation = useEngineEval(fen)
   const repertoire = useRepertoire(auth.user)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
@@ -335,6 +340,7 @@ function App() {
           <div className="side-column">
             <section className="panel explorer-panel">
               <h2>Lichess explorer</h2>
+              {isSignedIn && <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />}
               {!isSignedIn && <LichessTokenSettings token={token} onChange={setToken} />}
               <ExplorerStatsTable
                 data={explorer.data}

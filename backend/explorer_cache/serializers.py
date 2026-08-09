@@ -52,6 +52,24 @@ class ExplorerResponseSerializer(serializers.Serializer):
     opening = ExplorerOpeningSerializer(allow_null=True)
 
 
+class MyGamesExplorerResponseSerializer(ExplorerResponseSerializer):
+    """
+    `ExplorerResponse` plus `stillIndexing` - only ever `True`, and only from
+    `GET /explorer/my-games/` (see player_stats.py's ND-JSON draining), so this
+    is never present at all on the shared `/explorer/stats/` response.
+    """
+
+    stillIndexing = serializers.BooleanField(required=False, default=False)
+
+
+class MyGamesExplorerQuerySerializer(serializers.Serializer):
+    """Query params for `GET /explorer/my-games/`."""
+
+    fen = serializers.CharField(validators=[validate_fen])
+    moves = serializers.IntegerField(required=False, default=12, min_value=1, max_value=30)
+    color = serializers.ChoiceField(choices=["white", "black"])
+
+
 class EngineEvalQuerySerializer(serializers.Serializer):
     """Query params for `GET /explorer/evals/`."""
 

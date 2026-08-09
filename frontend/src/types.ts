@@ -16,6 +16,8 @@ export type ExplorerResponse = {
   totalGames: number
   moves: ExplorerMoveStat[]
   opening: ExplorerOpening
+  /** Only ever set (and `true`) by the "my games" source - see fetchMyGamesExplorerStats. */
+  stillIndexing?: boolean
 }
 
 export type RepertoireColor = 'white' | 'black'

@@ -1,5 +1,5 @@
 import { ApiError, apiRequest } from './apiClient'
-import type { ExplorerMoveStat, ExplorerResponse } from '../types'
+import type { ExplorerMoveStat, ExplorerResponse, RepertoireColor } from '../types'
 
 // As of 2026, Lichess requires a personal API token (Bearer auth) on every Opening
 // Explorer request, and the endpoint moved from explorer.lichess.ovh to explorer.lichess.org.
@@ -119,6 +119,33 @@ export async function fetchExplorerStatsViaBackend(fen: string, signal?: AbortSi
 
   const params = new URLSearchParams({ fen, moves: '12' })
   const data = await apiRequest<ExplorerResponse>(`/explorer/stats/?${params.toString()}`, { signal })
+
+  cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
+  return data
+}
+
+/**
+ * Opening-tree stats built from the signed-in user's own Lichess games (see
+ * API_CONTRACT.md's `/explorer/my-games/`), for `color` (the color the user
+ * played, matching the app's repertoire toggle - not whose turn it is at
+ * `fen`). Always authenticated server-side; there is no anonymous fallback,
+ * unlike `fetchExplorerStats`. A short-lived in-memory cache mirrors the
+ * other paths above, keyed by color as well as FEN since the two colors'
+ * results are unrelated.
+ */
+export async function fetchMyGamesExplorerStats(
+  fen: string,
+  color: RepertoireColor,
+  signal?: AbortSignal,
+): Promise<ExplorerResponse> {
+  const cacheKey = `my-games:${color}:${fen}`
+  const cached = cache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  const params = new URLSearchParams({ fen, moves: '12', color })
+  const data = await apiRequest<ExplorerResponse>(`/explorer/my-games/?${params.toString()}`, { signal })
 
   cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
   return data

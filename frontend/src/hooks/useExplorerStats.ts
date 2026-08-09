@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { fetchExplorerStats } from '../lib/lichessExplorer'
-import type { ExplorerResponse } from '../types'
+import { fetchExplorerStats, fetchMyGamesExplorerStats } from '../lib/lichessExplorer'
+import type { ExplorerResponse, RepertoireColor } from '../types'
+
+export type ExplorerSource = 'lichess' | 'my-games'
 
 /**
  * Fetches Lichess explorer stats for `fen`. `enabled` lets a caller that only
@@ -13,8 +15,20 @@ import type { ExplorerResponse } from '../types'
  * pasted `apiToken` - see lichessExplorer.ts's `fetchExplorerStats`. `apiToken`
  * is otherwise unused while signed in, except as a fallback if the backend
  * proxy reports it has no usable token of its own.
+ *
+ * `source: 'my-games'` switches to the signed-in user's own Lichess games
+ * instead of the public database (see `fetchMyGamesExplorerStats`) - this
+ * path is always backend-only (no anonymous/token fallback) and needs
+ * `myGamesColor` to know which of the user's colors to scope to.
  */
-export function useExplorerStats(fen: string, apiToken: string, enabled = true, signedIn = false) {
+export function useExplorerStats(
+  fen: string,
+  apiToken: string,
+  enabled = true,
+  signedIn = false,
+  source: ExplorerSource = 'lichess',
+  myGamesColor: RepertoireColor = 'white',
+) {
   const [data, setData] = useState<ExplorerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -30,10 +44,17 @@ export function useExplorerStats(fen: string, apiToken: string, enabled = true, 
       return
     }
 
-    if (!signedIn && !apiToken) {
+    if (source === 'lichess' && !signedIn && !apiToken) {
       setData(null)
       setLoading(false)
       setError('Add a Lichess API token to load explorer stats.')
+      return
+    }
+
+    if (source === 'my-games' && !signedIn) {
+      setData(null)
+      setLoading(false)
+      setError('Sign in with Lichess to see stats from your own games.')
       return
     }
 
@@ -41,7 +62,12 @@ export function useExplorerStats(fen: string, apiToken: string, enabled = true, 
     setLoading(true)
     setError(null)
 
-    fetchExplorerStats(fen, { apiToken, signedIn, signal: controller.signal })
+    const request =
+      source === 'my-games'
+        ? fetchMyGamesExplorerStats(fen, myGamesColor, controller.signal)
+        : fetchExplorerStats(fen, { apiToken, signedIn, signal: controller.signal })
+
+    request
       .then((res) => {
         setData(res)
         setLoading(false)
@@ -53,7 +79,7 @@ export function useExplorerStats(fen: string, apiToken: string, enabled = true, 
       })
 
     return () => controller.abort()
-  }, [fen, apiToken, enabled, signedIn])
+  }, [fen, apiToken, enabled, signedIn, source, myGamesColor])
 
   return { data, loading, error }
 }

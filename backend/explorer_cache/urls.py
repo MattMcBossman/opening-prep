@@ -10,5 +10,6 @@ from . import views
 
 urlpatterns = [
     path("stats/", views.ExplorerStatsView.as_view(), name="explorer-stats"),
+    path("my-games/", views.MyGamesExplorerView.as_view(), name="explorer-my-games"),
     path("evals/", views.EngineEvalView.as_view(), name="explorer-evals"),
 ]
