@@ -3,6 +3,7 @@
 from django.db.models import Count, Max, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -20,6 +21,16 @@ from .serializers import (
     PositionStatSerializer,
 )
 
+# DRF's default bodies, shared by the responses below.
+NOT_FOUND_RESPONSE = OpenApiResponse(
+    response={"type": "object", "properties": {"detail": {"type": "string"}}, "required": ["detail"]},
+    description="No such drill session for the caller.",
+)
+VALIDATION_ERROR_RESPONSE = OpenApiResponse(
+    response={"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+    description="Per-field validation error, e.g. an unowned or malformed `repertoireId`.",
+)
+
 
 def _with_outcome_counts(queryset):
     """Annotates `perfect`/`failed` line-result counts, shared by the list and finish responses."""
@@ -32,10 +43,20 @@ def _with_outcome_counts(queryset):
 class DrillSessionListCreateView(APIView):
     """`GET`/`POST /drills/sessions/` - see API_CONTRACT.md."""
 
+    @extend_schema(
+        summary="List the caller's drill sessions, most recent first.",
+        request=None,
+        responses={200: DrillSessionSummarySerializer(many=True)},
+    )
     def get(self, request):
         sessions = _with_outcome_counts(DrillSession.objects.filter(user=request.user))
         return Response(DrillSessionSummarySerializer(sessions, many=True).data)
 
+    @extend_schema(
+        summary="Start a new drill session against one of the caller's own repertoires.",
+        request=DrillSessionCreateSerializer,
+        responses={201: DrillSessionCreatedSerializer, 400: VALIDATION_ERROR_RESPONSE},
+    )
     def post(self, request):
         body = DrillSessionCreateSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -52,6 +73,12 @@ class DrillSessionListCreateView(APIView):
 class DrillAttemptsView(APIView):
     """`POST /drills/sessions/{id}/attempts/` - see API_CONTRACT.md."""
 
+    @extend_schema(
+        summary="Record a batch of drill attempts for a session.",
+        description="Write-only: always returns an empty 204 body, so nothing round-trips.",
+        request=DrillAttemptsBatchSerializer,
+        responses={204: None, 400: VALIDATION_ERROR_RESPONSE, 404: NOT_FOUND_RESPONSE},
+    )
     def post(self, request, session_id):
         session = get_object_or_404(DrillSession, id=session_id, user=request.user)
 
@@ -77,6 +104,18 @@ class DrillAttemptsView(APIView):
 class DrillFinishView(APIView):
     """`POST /drills/sessions/{id}/finish/` - see API_CONTRACT.md."""
 
+    @extend_schema(
+        summary="Finish a drill session, recording per-line perfect/failed outcomes.",
+        description=(
+            "Idempotent: a retried call after a lost response returns the already-recorded summary as-is."
+        ),
+        request=DrillFinishSerializer,
+        responses={
+            200: DrillSessionSummarySerializer,
+            400: VALIDATION_ERROR_RESPONSE,
+            404: NOT_FOUND_RESPONSE,
+        },
+    )
     def post(self, request, session_id):
         session = get_object_or_404(DrillSession, id=session_id, user=request.user)
 
@@ -103,6 +142,14 @@ class DrillFinishView(APIView):
 class DrillStatsView(APIView):
     """`GET /drills/stats/?repertoire=<id>` - see API_CONTRACT.md."""
 
+    @extend_schema(
+        summary="Per-position mistake-weighted weakness aggregates across the caller's drill attempts.",
+        description=(
+            "Optionally scoped to one repertoire; otherwise aggregated across all of the caller's own."
+        ),
+        parameters=[DrillStatsQuerySerializer],
+        responses={200: PositionStatSerializer(many=True)},
+    )
     def get(self, request):
         query = DrillStatsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
