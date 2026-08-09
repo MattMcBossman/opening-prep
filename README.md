@@ -8,18 +8,32 @@ Phase 1 (opening explorer MVP) is implemented: move-by-move line browser (step t
 
 Phase 2 (repertoire builder) is implemented: a FEN-keyed repertoire tree per color, built directly into the explorer page — save/remove any played move via a toggle in the move list, browse saved continuations from the current position, and see which Lichess-explorer moves are already part of your prep.
 
-Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints (best-response line, then origin square, then origin+destination square) on repeated wrong attempts at the same position, plus a similar/transposed-position hint when a near-identical position elsewhere in the repertoire has the played move saved. Finishing a line pauses there for review, showing the engine's take on the final position (eval bar, score/depth, and the best opponent try) next to the Lichess statistics for that same position, until you move on to the next drill. A session ends with a perfect/failed summary and a "Retry failed" option. Player-data import and gap-detection phases are not yet started — see the roadmap in [AGENTS.md](AGENTS.md#development-roadmap).
+Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints (best-response line, then origin square, then origin+destination square) on repeated wrong attempts at the same position, plus a similar/transposed-position hint when a near-identical position elsewhere in the repertoire has the played move saved. Finishing a line pauses there for review, showing the engine's take on the final position (eval bar, score/depth, and the best opponent try) next to the Lichess statistics for that same position, until you move on to the next drill. A session ends with a perfect/failed summary and a "Retry failed" option.
 
-Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference.
+Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference. These sounds are still a work in progress — the synthesized cues need more tuning before they're final.
 
-There is no backend yet; everything currently runs client-side in the `frontend/` app, including repertoire storage (`localStorage`).
+Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Lichess account sign-in (OAuth), server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Signing in is optional — signed-out users keep the Phase 1-3 client-only experience (repertoire in `localStorage`, a personal Lichess token pasted into the explorer panel), and an existing local repertoire is imported into the backend the first time you sign in. Player-data import and gap-detection phases are not yet started — see the roadmap in [AGENTS.md](AGENTS.md#development-roadmap).
 
 ## Project layout
 
 - `frontend/` — React + TypeScript + Vite app. See [frontend/README.md](frontend/README.md) for template-specific notes (this will likely be replaced with app-specific docs as the project grows).
+- `backend/` — Django + DRF + PostgreSQL app (accounts/Lichess OAuth, repertoire persistence, explorer/engine-eval cache, drill statistics). See [backend/README.md](backend/README.md) for setup and [backend/API_CONTRACT.md](backend/API_CONTRACT.md) for the endpoint contract.
 - `openingtree/` — git submodule; a pre-existing React app used as a **reference implementation only** for Lichess/Chess.com game-history iteration and PGN parsing (see [AGENTS.md](AGENTS.md#inspiration-source-openingtree-submodule)). Not built or run directly as part of this app.
 
 ## Getting started
+
+Backend (see [backend/README.md](backend/README.md) for full setup, including the one-time database role/key creation):
+
+```bash
+cd backend
+cp .env.example .env   # then fill in DJANGO_SECRET_KEY / TOKEN_ENCRYPTION_KEY, see backend/README.md
+docker compose up -d   # optional disposable PostgreSQL on :5433
+uv sync
+uv run manage.py migrate
+uv run manage.py runserver
+```
+
+Frontend, in another terminal:
 
 ```bash
 git submodule update --init --recursive
@@ -28,7 +42,11 @@ npm install
 npm run dev
 ```
 
-Open the app and paste a personal Lichess API token into the "Lichess explorer" panel — Opening Explorer stats require it (see [AGENTS.md](AGENTS.md#data-sources)).
+Browse to the Vite URL (http://localhost:5173), not directly to Django — its dev
+server proxies `/api` to the backend, which keeps the session cookie first-party.
+Sign in with Lichess from the header, or paste a personal Lichess API token into
+the "Lichess explorer" panel to use the explorer signed-out (see
+[AGENTS.md](AGENTS.md#data-sources)).
 
 Other useful commands (run from `frontend/`):
 
