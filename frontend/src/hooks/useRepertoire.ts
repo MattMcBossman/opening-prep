@@ -10,7 +10,7 @@ import {
 } from '../lib/repertoireApi'
 import type { ImportSummary, MoveEdge } from '../lib/repertoireApi'
 import type { AuthUser } from '../lib/authApi'
-import type { Repertoire, RepertoireColor, RepertoireMove } from '../types'
+import type { Repertoire, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
 
 const STORAGE_KEY = 'opening-prep:repertoire'
 const IMPORT_STATUS_KEY_PREFIX = 'opening-prep:repertoire-import-status:'
@@ -314,12 +314,23 @@ export function useRepertoire(user: AuthUser | null) {
   const importPrompt = useImportPrompt(user, local.repertoire, api.status === 'ready', api.refresh)
 
   const active = isAuthenticated ? api : local
+  // Normalizes the two stores' differently-named whole-tree fields
+  // (`repertoire` for local, `tree` for the API store) into one lookup, for
+  // consumers that need the full tree rather than a single position's
+  // continuations - currently just PGN export (see pgnExport.ts).
+  const activeRepertoire: Repertoire = isAuthenticated ? api.tree : local.repertoire
+
+  const getTree = useCallback(
+    (color: RepertoireColor): RepertoireTree => activeRepertoire[color],
+    [activeRepertoire],
+  )
 
   return {
     getContinuations: active.getContinuations,
     isMoveSaved: active.isMoveSaved,
     addMove: active.addMove,
     removeMove: active.removeMove,
+    getTree,
     isSignedIn: isAuthenticated,
     isSyncing: isAuthenticated && api.status === 'loading',
     syncError: isAuthenticated ? api.error : null,

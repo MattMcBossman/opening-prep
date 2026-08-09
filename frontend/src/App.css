@@ -400,6 +400,31 @@
   border-bottom: 1px solid var(--border);
 }
 
+.pgn-panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pgn-import {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pgn-import-row textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-h);
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
 .token-settings label {
   font-size: 12px;
   color: var(--text);

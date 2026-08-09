@@ -26,6 +26,7 @@ import { AuthControl } from './components/AuthControl'
 import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
+import { PgnImportExportPanel } from './components/PgnImportExportPanel'
 import { BoardColorToggle } from './components/BoardColorToggle'
 import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
@@ -342,6 +343,15 @@ function App() {
                 onMoveClick={(san) => playMove(san)}
                 isMoveSaved={isExplorerMoveSaved}
                 isMyMove={isExplorerMyMove}
+              />
+            </section>
+            <section className="panel">
+              <h2>PGN</h2>
+              <PgnImportExportPanel
+                color={boardColor}
+                getTree={repertoire.getTree}
+                isMoveSaved={repertoire.isMoveSaved}
+                addMove={repertoire.addMove}
               />
             </section>
           </div>
