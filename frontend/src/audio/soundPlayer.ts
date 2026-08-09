@@ -26,6 +26,12 @@ type ToneOptions = {
   /** Swept to over `duration`; defaults to a steady pitch. */
   toFrequency?: number
   peakGain: number
+  /**
+   * Rounds off the oscillator's upper harmonics for a warmer, more "wooden"
+   * body tone instead of a bright synth one. Omit for cues that should stay
+   * bright/ringing (check, checkmate, the drill-complete chime).
+   */
+  lowpassFrequency?: number
 }
 
 type NoiseOptions = {
@@ -79,11 +85,37 @@ export class SoundPlayer {
       }
       const master = context.createGain()
       master.gain.value = MASTER_VOLUME
-      master.connect(context.destination)
+      // A soft limiter, not a creative effect: keeps brief overlaps (e.g. a fast
+      // double move, or a move's cue firing while the previous one's tail is
+      // still decaying) from summing past 0dB into harsh digital clipping - which
+      // reads to the ear as a quieter/thinner hit than a normal, unclipped one.
+      // A single voice played on its own stays well under the threshold and is
+      // untouched.
+      const limiter = context.createDynamicsCompressor()
+      limiter.threshold.value = -12
+      limiter.knee.value = 6
+      limiter.ratio.value = 8
+      limiter.attack.value = 0.003
+      limiter.release.value = 0.15
+      master.connect(limiter)
+      limiter.connect(context.destination)
       this.context = context
       this.master = master
     }
     return this.context
+  }
+
+  /**
+   * Warms up the shared context from a genuine user gesture, without playing
+   * anything - see `installAudioUnlock` below for why this needs to exist.
+   */
+  primeFromGesture() {
+    const context = this.ensureContext()
+    if (context && context.state === 'suspended') {
+      context.resume().catch(() => {
+        // Nothing useful to do here - a future gesture will retry.
+      })
+    }
   }
 
   /** White noise, generated once per context and shared by every percussive cue. */
@@ -111,7 +143,7 @@ export class SoundPlayer {
     return gain
   }
 
-  private tone({ startTime, duration, type, fromFrequency, toFrequency, peakGain }: ToneOptions) {
+  private tone({ startTime, duration, type, fromFrequency, toFrequency, peakGain, lowpassFrequency }: ToneOptions) {
     const context = this.context as AudioContext
     const oscillator = context.createOscillator()
     oscillator.type = type
@@ -119,7 +151,16 @@ export class SoundPlayer {
     if (toFrequency !== undefined && toFrequency !== fromFrequency) {
       oscillator.frequency.exponentialRampToValueAtTime(toFrequency, startTime + duration)
     }
-    oscillator.connect(this.envelope(startTime, duration, peakGain))
+    const envelope = this.envelope(startTime, duration, peakGain)
+    if (lowpassFrequency !== undefined) {
+      const filter = context.createBiquadFilter()
+      filter.type = 'lowpass'
+      filter.frequency.value = lowpassFrequency
+      oscillator.connect(filter)
+      filter.connect(envelope)
+    } else {
+      oscillator.connect(envelope)
+    }
     oscillator.start(startTime)
     oscillator.stop(startTime + duration)
   }
@@ -138,35 +179,40 @@ export class SoundPlayer {
   }
 
   /**
-   * Wooden "thock": a bright click transient over a fast downward pitch drop.
-   * Louder and a touch longer than the original recipe - at the old levels
-   * (noise 0.35/20ms, tone peak 0.9/100ms) this was reported as inaudible.
+   * Short, wooden "tap": a brief filtered-noise click with almost no tail, plus a
+   * quiet body tone at a near-fixed pitch (a small downward nudge rather than a
+   * long audible glide) rounded off by a lowpass. This reads as a single
+   * percussive hit - closer to how other chess apps' move sound lands - rather
+   * than the longer, more synth-like downward sweep this used to be.
    */
   private playMove(t0: number) {
-    this.noise({ startTime: t0, duration: 0.04, peakGain: 0.7, filterFrequency: 2600 })
+    this.noise({ startTime: t0, duration: 0.02, peakGain: 0.55, filterFrequency: 2200 })
     this.tone({
       startTime: t0,
-      duration: 0.13,
+      duration: 0.045,
       type: 'triangle',
-      fromFrequency: 380,
-      toFrequency: 170,
-      peakGain: 1,
+      fromFrequency: 260,
+      toFrequency: 220,
+      peakGain: 0.65,
+      lowpassFrequency: 1100,
     })
   }
 
   /**
-   * Same gesture as a move but heavier and grittier - a longer, lower crunch over
-   * a deeper thud. Also boosted - "barely audible" at the old 0.6/0.7 peak gains.
+   * Same shape as a move but heavier and lower: a broader, slightly longer noise
+   * thud and a deeper body tone, so a capture reads as a bigger impact without
+   * the old sweep's synth-y length.
    */
   private playCapture(t0: number) {
-    this.noise({ startTime: t0, duration: 0.17, peakGain: 0.95, filterFrequency: 850 })
+    this.noise({ startTime: t0, duration: 0.035, peakGain: 0.85, filterFrequency: 650 })
     this.tone({
       startTime: t0,
-      duration: 0.2,
-      type: 'sawtooth',
-      fromFrequency: 220,
-      toFrequency: 75,
-      peakGain: 0.95,
+      duration: 0.07,
+      type: 'triangle',
+      fromFrequency: 150,
+      toFrequency: 100,
+      peakGain: 0.8,
+      lowpassFrequency: 800,
     })
   }
 
@@ -280,4 +326,34 @@ let sharedPlayer: SoundPlayer | null = null
 export function getSoundPlayer(): SoundPlayer {
   if (!sharedPlayer) sharedPlayer = new SoundPlayer()
   return sharedPlayer
+}
+
+let unlockInstalled = false
+
+/**
+ * Installs a one-time listener that primes the shared AudioContext (creates and
+ * resumes it) on the page's very first pointer/keyboard interaction, whatever it
+ * is - not necessarily a move.
+ *
+ * Why this exists: not every cue is played from directly inside a gesture
+ * handler. Drills auto-play the opponent's reply from a timer (see
+ * `AUTO_PLAY_DELAY_MS` in `useDrillSession`), and when drilling Black that timer
+ * can fire before the user has made any move of their own at all - the very
+ * first cue of the session. Browsers only let a *suspended* AudioContext be
+ * resumed from within a real gesture, so without priming it on some earlier,
+ * unrelated interaction first (e.g. clicking the mode toggle to get to Drills),
+ * that first auto-played cue could silently never play, however long `withContext`
+ * is willing to wait for `resume()`.
+ *
+ * Safe to call more than once (e.g. React StrictMode's double-invoked effects) -
+ * only the first call installs anything, and the listeners remove themselves
+ * after firing once.
+ */
+export function installAudioUnlock() {
+  if (unlockInstalled || typeof window === 'undefined') return
+  unlockInstalled = true
+  const prime = () => getSoundPlayer().primeFromGesture()
+  window.addEventListener('pointerdown', prime, { once: true, passive: true })
+  window.addEventListener('keydown', prime, { once: true })
+  window.addEventListener('touchstart', prime, { once: true, passive: true })
 }

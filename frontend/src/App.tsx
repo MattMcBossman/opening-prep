@@ -15,6 +15,7 @@ import { useBoardColor } from './hooks/useBoardColor'
 import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
 import { useRepertoire } from './hooks/useRepertoire'
 import { useSound } from './hooks/useSound'
+import { installAudioUnlock } from './audio/soundPlayer'
 import { MoveList } from './components/MoveList'
 import { ExplorerStatsTable } from './components/ExplorerStatsTable'
 import { EngineEvalPanel } from './components/EngineEvalPanel'
@@ -71,6 +72,14 @@ function App() {
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
+
+  // Primes the shared AudioContext on the page's first interaction, whatever it is -
+  // see installAudioUnlock's docstring for why a move-triggered resume alone isn't
+  // always enough (drilling Black can auto-play its first sound from a timer, before
+  // the user has made a move of their own to resume the context from).
+  useEffect(() => {
+    installAudioUnlock()
+  }, [])
 
   // ←/→ step through the current line, mirroring the Back/Forward buttons below the
   // board. Only in the explorer - the drill view has no move history to navigate.
