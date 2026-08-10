@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { StockfishEngine } from '../engine/stockfishEngine'
 import type { EngineEvaluation } from '../types'
+import {
+  fetchCachedEngineEvaluation,
+  getRememberedEngineEvaluation,
+  persistEngineEvaluation,
+  rememberEngineEvaluation,
+} from '../lib/engineEvaluationCache'
+import { recordClientCacheMetric } from '../lib/cacheMetrics'
 
 const MAX_DEPTH = 20
 // Last-resort safety net: a fresh evaluation should produce its first `info depth`
@@ -14,7 +21,7 @@ const WATCHDOG_TIMEOUT_MS = 8000
 // "done" update always flushes immediately regardless of this).
 const UPDATE_THROTTLE_MS = 150
 
-export function useEngineEval(fen: string) {
+export function useEngineEval(fen: string, signedIn = false) {
   const engineRef = useRef<StockfishEngine | null>(null)
   const [evaluation, setEvaluation] = useState<EngineEvaluation | null>(null)
   // Bumped whenever the engine is (re)created, so effects from a stale engine
@@ -52,6 +59,12 @@ export function useEngineEval(fen: string) {
       return
     }
 
+    const remembered = getRememberedEngineEvaluation(fen, MAX_DEPTH)
+    if (remembered) {
+      setEvaluation(remembered)
+      return
+    }
+
     // Deliberately not resetting evaluation to null here: doing so made the eval bar
     // flash back to neutral (50/50) on every move, before the new search's first
     // result arrived. Keeping the previous value displayed until it's superseded
@@ -61,23 +74,33 @@ export function useEngineEval(fen: string) {
     let lastFlushedAt = 0
     let pendingUpdate: EngineEvaluation | undefined
     let pendingTimeout: ReturnType<typeof setTimeout> | undefined
+    let analysisCompleted = false
 
-    const watchdog = setTimeout(() => {
-      if (!cancelled) {
-        // No response from the engine in time — replace it rather than stay stuck.
-        setEngineGeneration((n) => n + 1)
-      }
-    }, WATCHDOG_TIMEOUT_MS)
+    let watchdog: ReturnType<typeof setTimeout> | undefined
 
     const flush = (update: EngineEvaluation) => {
       lastFlushedAt = Date.now()
       pendingUpdate = undefined
-      clearTimeout(watchdog)
+      if (watchdog) clearTimeout(watchdog)
       setEvaluation(update)
     }
 
-    engineRef.current
-      ?.evaluate(fen, {
+    const startAnalysis = async () => {
+      if (signedIn) {
+        const server = await fetchCachedEngineEvaluation(fen).catch(() => null)
+        if (cancelled) return
+        if (server) {
+          setEvaluation(server)
+          if (server.depth >= MAX_DEPTH) return
+        }
+      }
+
+      recordClientCacheMetric('engineAnalysisStarted')
+      watchdog = setTimeout(() => {
+        if (!cancelled) setEngineGeneration((n) => n + 1)
+      }, WATCHDOG_TIMEOUT_MS)
+
+      const stopFn = await engineRef.current?.evaluate(fen, {
         maxDepth: MAX_DEPTH,
         onUpdate: (update) => {
           if (cancelled) return
@@ -87,6 +110,10 @@ export function useEngineEval(fen: string) {
             if (pendingTimeout) clearTimeout(pendingTimeout)
             pendingTimeout = undefined
             flush(update)
+            rememberEngineEvaluation(update)
+            analysisCompleted = true
+            recordClientCacheMetric('engineAnalysisCompleted')
+            if (signedIn) void persistEngineEvaluation(update).catch(() => undefined)
             return
           }
 
@@ -105,17 +132,23 @@ export function useEngineEval(fen: string) {
           }
         },
       })
-      .then((stopFn) => {
+      if (cancelled) {
+        stopFn?.()
+        recordClientCacheMetric('engineAnalysisCancelled')
+      } else {
         stop = stopFn
-      })
+      }
+    }
+    void startAnalysis()
 
     return () => {
       cancelled = true
-      clearTimeout(watchdog)
+      if (watchdog) clearTimeout(watchdog)
       if (pendingTimeout) clearTimeout(pendingTimeout)
+      if (stop && !analysisCompleted) recordClientCacheMetric('engineAnalysisCancelled')
       stop?.()
     }
-  }, [fen, engineGeneration])
+  }, [fen, engineGeneration, signedIn])
 
   return evaluation
 }

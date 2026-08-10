@@ -121,6 +121,7 @@ class EngineEvalQuerySerializer(serializers.Serializer):
     """Query params for `GET /explorer/evals/`."""
 
     fen = serializers.CharField(validators=[validate_fen])
+    engineVersion = serializers.CharField(max_length=64)
 
 
 class EngineEvaluationSerializer(serializers.ModelSerializer):
@@ -132,6 +133,7 @@ class EngineEvaluationSerializer(serializers.ModelSerializer):
     """
 
     fen = serializers.CharField(validators=[validate_fen])
+    engineVersion = serializers.CharField(source="engine_version", max_length=64)
     scoreType = serializers.ChoiceField(source="score_type", choices=EngineLineCache.SCORE_TYPE_CHOICES)
     scoreValue = serializers.IntegerField(source="score_value")
     bestMoveUci = serializers.CharField(source="best_move_uci", allow_null=True, required=False, max_length=8)
@@ -141,4 +143,4 @@ class EngineEvaluationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EngineLineCache
-        fields = ["fen", "depth", "scoreType", "scoreValue", "bestMoveUci", "pvUci"]
+        fields = ["fen", "engineVersion", "depth", "scoreType", "scoreValue", "bestMoveUci", "pvUci"]

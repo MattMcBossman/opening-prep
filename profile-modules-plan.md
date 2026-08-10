@@ -72,6 +72,86 @@ Coverage reliability: aggregate scoring now paces position requests and honors
 Lichess `Retry-After` responses with a visible countdown and automatic resume,
 rather than aborting the calculation on its first rate limit.
 
+### Coverage-analysis redesign (planned)
+
+The current dashboard calls a position “fully covered” only at effectively
+100% (`>= 99.999%`) and averages position percentages equally. Replace those
+rules with an exposure-oriented model:
+
+- Use **95% covered reply mass as the proposed default “fully covered” target**,
+  subject to fixture/user testing. Make the target a named constant and show it
+  in explanatory UI rather than implying that every returned move is required.
+- Compute the profile aggregate as `sum(coveredGames) / sum(totalGames)` across
+  scored positions. This intentionally gives positions with larger matching
+  Lichess samples more influence instead of treating a rare deep position like
+  a common early position.
+- Show both the weighted aggregate and distribution: fully covered positions,
+  partially covered positions, and positions with no reliable sample. Do not
+  collapse “no data” into 0% preparation.
+- Rank uncovered replies by **impact** (`position exposure × reply frequency`,
+  represented initially by the reply's matching-game count) so the next action
+  is the gap most likely to occur, not merely the largest percentage at an
+  obscure position.
+- Treat the low-frequency tail explicitly. Proposed starting rule: moves below
+  1% of the returned position sample do not prevent the “fully covered” label,
+  but remain visible under “rare uncovered replies.” Revisit the threshold
+  against real repertoires rather than silently discarding those moves.
+- Add sample-confidence states. Avoid strong labels when the position has too
+  few matching games; show the sample and allow the user to inspect it. The
+  precise minimum belongs in the implementation contract and fixture review.
+- Deduplicate normalized-FEN transpositions so one position is not scored twice
+  merely because several authored paths reach it, while retaining path/module
+  provenance for navigation.
+- Keep coverage scoped to the active composed profile, selected color, Lichess
+  filters, and database source. Never reuse public-database scores as My Games
+  scores or vice versa.
+- Add a prioritized gap list with “Open in explorer,” module provenance, reply
+  frequency, sample size, and an explanation of why each gap affects the score.
+- Cache/batch completed position scores where possible and support resumable
+  calculation so rate limits do not throw away earlier progress.
+- Test threshold boundaries, zero/low samples, transpositions, filtered data,
+  highly skewed position frequencies, and the case where rare uncovered moves
+  remain but the position still qualifies as fully covered.
+
+One later refinement is reach-probability weighting from the repertoire root.
+Raw Lichess totals deliberately emphasize common early positions but can
+overwhelm deep preparation; empirical use should determine whether depth-aware
+reach weighting is clearer than raw cross-position game totals.
+
+### Similar-position drill feedback gap (planned)
+
+Wrong-move feedback can currently say that the attempted move is prepared in a
+similar repertoire position, but it provides no way to see that position or
+understand the relevant difference. Treat the hint as incomplete until it is
+actionable:
+
+- Add **Compare positions** beside the hint. It must show the current drill
+  position and the matched repertoire position, not merely name the match.
+- Provide a phone-safe board toggle and a desktop side-by-side option. Preserve
+  the active drill and wrong-move feedback while the comparison is open.
+- Highlight piece-placement differences, side to move, castling rights, and
+  en-passant rights. Do not limit comparison to the current placement-only
+  Hamming score when rule-state differences make the move legal or sound in
+  only one position.
+- Show the matched profile/module, authored line, move-order prefix, and the
+  prepared occurrence of the attempted move. Offer **View line in explorer**
+  without destroying the drill session, matching existing completed-drill
+  Explorer continuity.
+- Explain the decisive difference only when supported by concrete evidence—for
+  example, a defender is absent, a square is occupied, castling rights differ,
+  or Stockfish shows a material evaluation change. Otherwise use neutral copy:
+  “Compare the positions to see why the prepared move may not apply here.”
+- Rank multiple matches by legality, normalized rule-state compatibility,
+  piece-placement distance, active-profile provenance, and evaluation
+  relevance; let the user inspect alternatives rather than silently choosing a
+  confusing match.
+- Until comparison UI ships, revise the existing message so it does not imply
+  that the app has explained the difference when it has only detected a nearby
+  position.
+- Cover transpositions, reversed colors, castling/en-passant differences,
+  several equally near matches, mobile navigation, and drill-session
+  persistence in unit and browser tests.
+
 - [x] Schema and API contract agreed and documented.
 - [x] Backend profiles, modules, explicit paths, global releases, migrations,
   and multi-source drill persistence.

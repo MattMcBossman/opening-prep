@@ -86,8 +86,9 @@ function App() {
     effectiveExplorerSource,
     boardColor,
     explorerFilters,
+    auth.user?.id,
   )
-  const evaluation = useEngineEval(fen)
+  const evaluation = useEngineEval(fen, isSignedIn)
   const repertoire = useRepertoire(auth.user)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)

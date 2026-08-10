@@ -32,6 +32,29 @@ a tactical response.”
 7. Render cached results immediately, enrich in the background, and never block
    Next/Finish or View in explorer.
 8. Use mobile-first progressive disclosure and selectable board-arrow layers.
+9. Treat a material disagreement between a cached parent evaluation and a
+   deeper evaluation after its recommended move as search instability. Never
+   copy the child score backward into the parent: re-search the parent at a
+   stronger budget so Stockfish can either revise its score or choose a
+   different best move.
+
+## Parent/child evaluation consistency
+
+A nominal depth-20 parent search usually examines its chosen move with roughly
+one fewer ply remaining than a fresh depth-20 search from the resulting
+position. Selective search and the extra ply can therefore produce results such
+as “best move ...Be6, -0.57” followed by “after ...Be6, 0.00.” This is not enough
+to overwrite the parent cache entry with the child score, because the child
+evaluates only that branch and another parent move may become preferable.
+
+Deferred behavior: when the completed child evaluation differs materially from
+the parent's cached score (provisionally 30–50 centipawns, with separate mate
+handling), mark the parent result as unstable and schedule a bounded parent
+re-search several plies or a stronger node budget deeper. Only the resulting
+parent search may replace the parent cache entry under the normal
+keep-strongest rules. The UI may label the earlier result provisional while
+that reconciliation runs; it must not imply that nominal depth alone guarantees
+minimax consistency.
 
 ## Recurring moves and plans
 
@@ -108,6 +131,8 @@ Objective reads may be shared publicly.
 ### A0 — Contract and fixtures (foundation; easy)
 
 - [ ] Freeze FEN normalization and compatible-result replacement rules.
+- [ ] Define parent/child disagreement thresholds, mate handling, re-search
+  budget, loop prevention, and the provisional-result UI state.
 - [ ] Measure phones and choose node budget, MultiPV breadth, and ply horizon.
 - [ ] Define candidate, fact, evidence, and recurring-move JSON schemas.
 - [ ] Build fixtures covering quiet/tactical play, forced replies, castling, en

@@ -51,20 +51,20 @@ class EngineLineCache(models.Model):
     """
     A client-submitted Stockfish evaluation for one normalized position.
 
-    Only ever holds the single deepest evaluation seen for a FEN - see
+    Only ever holds the single deepest evaluation seen for a FEN/build pair - see
     `explorer_cache/cache.py`'s `upsert_engine_line`, which mirrors the
     keep-deepest logic in the client's iterative-deepening cache
     (`frontend/src/hooks/useEngineEval.ts`). There is deliberately no `engine`
-    identity field: today there is exactly one client-side engine (Stockfish),
-    and adding an axis for a hypothetical second one before it exists would
-    just be unused schema.
+    engine-build identity so an upgrade never silently reuses an evaluation
+    produced by different code or settings.
     """
 
     SCORE_CP = "cp"
     SCORE_MATE = "mate"
     SCORE_TYPE_CHOICES = [(SCORE_CP, "Centipawns"), (SCORE_MATE, "Mate")]
 
-    fen = models.CharField(max_length=100, unique=True)
+    fen = models.CharField(max_length=100)
+    engine_version = models.CharField(max_length=64, default="stockfish-18-lite-single")
     depth = models.PositiveSmallIntegerField()
     score_type = models.CharField(max_length=8, choices=SCORE_TYPE_CHOICES)
     score_value = models.IntegerField()
@@ -78,5 +78,40 @@ class EngineLineCache(models.Model):
     pv_uci = models.JSONField(default=list, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["fen", "engine_version"], name="unique_engine_line_cache_key")
+        ]
+        indexes = [models.Index(fields=["fen", "engine_version"], name="explorer_ca_fen_engi_idx")]
+
     def __str__(self) -> str:
-        return f"{self.fen} depth={self.depth}"
+        return f"{self.engine_version}:{self.fen} depth={self.depth}"
+
+
+class PlayerStatsCache(models.Model):
+    """Short-lived terminal result from Lichess's per-user player explorer."""
+
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE)
+    fen = models.CharField(max_length=100)
+    color = models.CharField(max_length=5)
+    params_key = models.CharField(max_length=64)
+    response = models.JSONField()
+    fetched_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "fen", "color", "params_key"], name="unique_player_stats_cache_key"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["user", "fen", "color", "params_key"], name="explorer_ca_user_id_fen_idx")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id}:{self.color}:{self.fen}:{self.params_key}"
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at

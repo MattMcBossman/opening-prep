@@ -12,6 +12,7 @@ import responses
 
 from accounts.models import LichessAccount, User
 from explorer_cache import cache, player_stats
+from explorer_cache.models import PlayerStatsCache
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -46,6 +47,23 @@ def test_prefers_a_terminal_snapshot_already_available_in_the_stream(user):
     assert data["totalGames"] == 15
     assert "stillIndexing" not in data
     assert "queuePosition" not in data
+    assert PlayerStatsCache.objects.count() == 1
+
+
+@responses.activate
+def test_completed_result_is_reused_without_an_upstream_call(user):
+    responses.add(
+        responses.GET,
+        player_stats.PLAYER_EXPLORER_URL,
+        body=_ndjson({"white": 7, "draws": 1, "black": 2, "moves": []}),
+        status=200,
+    )
+
+    first = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
+    second = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
+
+    assert second == first
+    assert len(responses.calls) == 1
 
 
 @responses.activate
@@ -65,6 +83,7 @@ def test_returns_the_latest_available_partial_snapshot(user):
     assert data["stillIndexing"] is True
     assert data["queuePosition"] == 80
     assert data["totalGames"] == 2
+    assert PlayerStatsCache.objects.count() == 0
 
 
 @responses.activate

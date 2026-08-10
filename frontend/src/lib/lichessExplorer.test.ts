@@ -65,6 +65,16 @@ describe('fetchExplorerStatsViaBackend (signed-in, via the Django proxy)', () =>
     expect(init.credentials).toBe('same-origin')
   })
 
+  it('shares the browser cache when only FEN move counters differ', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(EXPECTED_RESPONSE)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchExplorerStatsViaBackend('counter-cache-fen w KQkq - 0 1')
+    await fetchExplorerStatsViaBackend('counter-cache-fen w KQkq - 9 22')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces a 401 (sign-in required, no server fallback token) as an ApiError', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ detail: 'Sign in required.' }, { status: 401 })))
     await expect(fetchExplorerStatsViaBackend('third-fen w KQkq -')).rejects.toMatchObject({
@@ -120,7 +130,7 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await fetchMyGamesExplorerStats('my-games-fen w KQkq -', 'white')
+    const result = await fetchMyGamesExplorerStats('my-games-fen w KQkq -', 'white', 1)
 
     expect(result).toEqual(EXPECTED_RESPONSE)
     const [url, init] = fetchMock.mock.calls[0]
@@ -132,7 +142,7 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
     const indexing = { ...EXPECTED_RESPONSE, stillIndexing: true }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(indexing)))
 
-    const result = await fetchMyGamesExplorerStats('another-my-games-fen w KQkq -', 'black')
+    const result = await fetchMyGamesExplorerStats('another-my-games-fen w KQkq -', 'black', 1)
     expect(result.stillIndexing).toBe(true)
   })
 
@@ -142,7 +152,7 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
       vi.fn().mockResolvedValue(jsonResponse({ detail: 'Link your Lichess account.' }, { status: 401 })),
     )
 
-    await expect(fetchMyGamesExplorerStats('yet-another-fen w KQkq -', 'white')).rejects.toMatchObject({
+    await expect(fetchMyGamesExplorerStats('yet-another-fen w KQkq -', 'white', 1)).rejects.toMatchObject({
       status: 401,
     })
   })
@@ -154,8 +164,8 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(indexing)))
     vi.stubGlobal('fetch', fetchMock)
 
-    await fetchMyGamesExplorerStats('still-indexing-fen w KQkq -', 'white')
-    await fetchMyGamesExplorerStats('still-indexing-fen w KQkq -', 'white')
+    await fetchMyGamesExplorerStats('still-indexing-fen w KQkq -', 'white', 1)
+    await fetchMyGamesExplorerStats('still-indexing-fen w KQkq -', 'white', 1)
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
@@ -164,17 +174,27 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
     vi.stubGlobal('fetch', fetchMock)
 
-    await fetchMyGamesExplorerStats('finished-fen w KQkq -', 'white')
-    await fetchMyGamesExplorerStats('finished-fen w KQkq -', 'white')
+    await fetchMyGamesExplorerStats('finished-fen w KQkq -', 'white', 1)
+    await fetchMyGamesExplorerStats('finished-fen w KQkq -', 'white', 1)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not share personal results between signed-in user ids', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(EXPECTED_RESPONSE)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchMyGamesExplorerStats('account-scoped-fen w KQkq -', 'white', 101)
+    await fetchMyGamesExplorerStats('account-scoped-fen w KQkq -', 'white', 202)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('sends since/until and game-speed filters as query params', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
     vi.stubGlobal('fetch', fetchMock)
 
-    await fetchMyGamesExplorerStats('filtered-my-games-fen w KQkq -', 'white', undefined, {
+    await fetchMyGamesExplorerStats('filtered-my-games-fen w KQkq -', 'white', 1, undefined, {
       since: '2020-01-17',
       until: '2021-06-03',
       speeds: ['bullet', 'rapid'],

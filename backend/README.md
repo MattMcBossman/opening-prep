@@ -90,7 +90,7 @@ dev server is running.
 - `repertoire/` — reusable personal opening modules, composed profiles,
   explicit move-order lines, immutable global-opening release snapshots, and
   the FEN-graph cascade-delete semantics kept compatible with older clients.
-- `explorer_cache/` — FEN-keyed Lichess explorer cache and engine-eval cache.
+- `explorer_cache/` — FEN-keyed public and short-lived per-user Lichess explorer caches, plus a versioned engine-eval cache populated by client-side Stockfish.
 - `drills/` — drill sessions, per-attempt history, weakness aggregates.
 
 Global opening templates are curated through Django admin. A published release

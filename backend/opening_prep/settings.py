@@ -23,6 +23,7 @@ env = environ.Env(
     LICHESS_EXPLORER_URL=(str, "https://explorer.lichess.org/lichess"),
     LICHESS_CLIENT_ID=(str, "opening-prep-local"),
     EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 60 * 24),
+    PLAYER_EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 10),
 )
 
 # Read backend/.env when present. Deployments may instead inject real env vars.
@@ -160,6 +161,22 @@ SPECTACULAR_SETTINGS = {
     "SCHEMA_PATH_PREFIX": "/api/v1",
 }
 
+# Structured cache events make hit/miss/upstream-fetch rates measurable from
+# ordinary development or production logs without adding a database write to
+# every cache read. See explorer_cache.metrics.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {
+        "opening_prep.cache": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        }
+    },
+}
+
 # --- Lichess integration --------------------------------------------------
 # Lichess is a public OAuth client: there is no client secret, `LICHESS_CLIENT_ID`
 # is just an identifying string (conventionally the app URL), and the Opening
@@ -182,3 +199,4 @@ FRONTEND_URL = REMOTE_DEV_ORIGIN or env("FRONTEND_URL")
 TOKEN_ENCRYPTION_KEY = env("TOKEN_ENCRYPTION_KEY", default="")
 
 EXPLORER_CACHE_TTL_SECONDS = env("EXPLORER_CACHE_TTL_SECONDS")
+PLAYER_EXPLORER_CACHE_TTL_SECONDS = env("PLAYER_EXPLORER_CACHE_TTL_SECONDS")

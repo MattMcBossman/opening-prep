@@ -40,6 +40,7 @@ type UseDrillSessionParams = {
    * decision the pure state machine (drillSessionLogic.ts) makes.
    */
   recording?: DrillSessionRecording
+  signedIn?: boolean
 }
 
 // How close (by Hamming distance) two positions need to be before surfacing one as
@@ -78,8 +79,9 @@ export function useDrillSession({
   onStepApplied,
   onLineComplete,
   recording,
+  signedIn = false,
 }: UseDrillSessionParams) {
-  const { compare, evaluatePosition } = useEngineComparison()
+  const { compare, evaluatePosition } = useEngineComparison(signedIn)
   const prepared = useMemo(
     () => prepareDrillLines(lines ?? collectDrillLines(color, getContinuations, rootFen), startMode, startContext),
     // A drill is a snapshot; callers should replace `lines` only to launch a new scope.

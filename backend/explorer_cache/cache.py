@@ -16,6 +16,7 @@ from django.utils import timezone
 from common.fen import denormalize_fen, normalize_fen
 
 from .lichess_token import token_for_user
+from .metrics import cache_event
 from .models import EngineLineCache, PositionStatsCache
 from .response_shape import to_explorer_response as _to_explorer_response
 
@@ -106,7 +107,9 @@ def get_or_fetch_stats(
 
     cached = _fresh_entry(normalized, key)
     if cached is not None:
+        cache_event("public_explorer", "hit")
         return _to_explorer_response(cached.response)
+    cache_event("public_explorer", "miss")
 
     with transaction.atomic():
         with connection.cursor() as cursor:
@@ -116,6 +119,7 @@ def get_or_fetch_stats(
         # have just populated the cache while we were waiting.
         cached = _fresh_entry(normalized, key)
         if cached is not None:
+            cache_event("public_explorer", "single_flight_hit")
             return _to_explorer_response(cached.response)
 
         token = token_for_user(user)
@@ -123,6 +127,7 @@ def get_or_fetch_stats(
             raise TokenRequired()
 
         raw = _fetch_upstream(normalized, moves, token, since, until, ratings, speeds)
+        cache_event("public_explorer", "upstream_fetch")
 
         entry, _ = PositionStatsCache.objects.update_or_create(
             source=PositionStatsCache.SOURCE_LICHESS,
@@ -183,8 +188,10 @@ def _fetch_upstream(
         raise UpstreamUnavailable() from exc
 
 
-def get_cached_eval(fen: str) -> EngineLineCache | None:
-    return EngineLineCache.objects.filter(fen=normalize_fen(fen)).first()
+def get_cached_eval(fen: str, engine_version: str) -> EngineLineCache | None:
+    row = EngineLineCache.objects.filter(fen=normalize_fen(fen), engine_version=engine_version).first()
+    cache_event("engine_eval", "hit" if row else "miss", engine_version=engine_version)
+    return row
 
 
 def _apply_submission(
@@ -205,6 +212,7 @@ def _apply_submission(
 
 def upsert_engine_line(
     fen: str,
+    engine_version: str,
     depth: int,
     score_type: str,
     score_value: int,
@@ -213,7 +221,7 @@ def upsert_engine_line(
 ) -> tuple[EngineLineCache, bool]:
     """
     Stores `fen`'s evaluation, keeping whichever of the new submission and any
-    existing row is deeper - mirrors the client's own iterative-deepening cache
+    existing row for the same engine build is deeper - mirrors the client's own iterative-deepening cache
     (`frontend/src/hooks/useEngineEval.ts`), which likewise only ever wants the
     best (deepest) result it has seen for a position. Returns
     `(stored_record, stored_the_new_submission)`; the second is `False` when a
@@ -228,7 +236,11 @@ def upsert_engine_line(
     """
     normalized = normalize_fen(fen)
     with transaction.atomic():
-        existing = EngineLineCache.objects.select_for_update().filter(fen=normalized).first()
+        existing = (
+            EngineLineCache.objects.select_for_update()
+            .filter(fen=normalized, engine_version=engine_version)
+            .first()
+        )
         if existing:
             if existing.depth >= depth:
                 return existing, False
@@ -239,6 +251,7 @@ def upsert_engine_line(
             with transaction.atomic():
                 created = EngineLineCache.objects.create(
                     fen=normalized,
+                    engine_version=engine_version,
                     depth=depth,
                     score_type=score_type,
                     score_value=score_value,
@@ -247,7 +260,9 @@ def upsert_engine_line(
                 )
             return created, True
         except IntegrityError:
-            existing = EngineLineCache.objects.select_for_update().get(fen=normalized)
+            existing = EngineLineCache.objects.select_for_update().get(
+                fen=normalized, engine_version=engine_version
+            )
             if existing.depth >= depth:
                 return existing, False
             _apply_submission(existing, depth, score_type, score_value, best_move_uci, pv_uci)

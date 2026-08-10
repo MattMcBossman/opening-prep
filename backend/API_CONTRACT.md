@@ -214,8 +214,10 @@ requests for the same key should not produce duplicate upstream calls.
 ### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12&speeds=bullet,blitz`
 **Authenticated only** — there's no anonymous path, since this always needs the
 caller's own linked Lichess account. Live proxy for Lichess's player-scoped
-opening explorer (the signed-in user's own games), **never cached** unlike
-`/explorer/stats/`. `color` is the color the signed-in user played (matching
+opening explorer (the signed-in user's own games), unlike the longer-lived shared cache on
+`/explorer/stats/`. Completed results are cached per user for
+`PLAYER_EXPLORER_CACHE_TTL_SECONDS`; partial `stillIndexing` snapshots are never
+cached so polling continues to observe progress. `color` is the color the signed-in user played (matching
 the app's White/Black repertoire toggle), not whose turn it is at `fen`.
 Optional `since`/`until` month filters and comma-separated `speeds`
 (`ultraBullet`, `bullet`, `blitz`, `rapid`, `classical`, `correspondence`)
@@ -231,17 +233,17 @@ snapshots for updates. `queuePosition` is diagnostic and is not presented as a
 game-count progress indicator. `401` when
 no Lichess account is linked.
 
-### `GET /api/v1/explorer/evals/?fen=<fen>`
+### `GET /api/v1/explorer/evals/?fen=<fen>&engineVersion=<build>`
 Cached engine evaluation, or `404` when nothing is cached. Shape matches
 `EngineEvaluation` minus the client-only `thinking`/`terminal` flags:
 ```json
-{ "fen": "...", "depth": 22, "scoreType": "cp", "scoreValue": 31,
+{ "fen": "...", "engineVersion": "stockfish-18-lite-single", "depth": 22, "scoreType": "cp", "scoreValue": 31,
   "bestMoveUci": "e2e4", "pvUci": ["e2e4", "e7e5"] }
 ```
 
 ### `PUT /api/v1/explorer/evals/`
 Upserts an evaluation computed by the client's Stockfish worker. **Keeps the
-deepest result per FEN**: a shallower submission for a position that already has a
+deepest result per normalized FEN and engine build**: a shallower submission for a position that already has a
 deeper entry is accepted and ignored. Returns the stored (possibly pre-existing,
 deeper) record.
 

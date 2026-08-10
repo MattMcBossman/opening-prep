@@ -1,10 +1,9 @@
 """
-Live proxy for Lichess's player-scoped Opening Explorer
+Proxy for Lichess's player-scoped Opening Explorer
 (https://explorer.lichess.org/player), which aggregates one signed-in user's
-own games rather than the whole Lichess database. Deliberately uncached,
-unlike the DB-cached `/lichess` proxy in cache.py - see the "Personal
-game-data explorer" plan: this is the signed-in user's own data, queried
-fresh every time rather than shared/cached across users.
+own games rather than the whole Lichess database. Terminal results receive a
+short per-user cache; partial indexing snapshots remain live so polling can
+observe progress.
 
 The endpoint streams ND-JSON while Lichess indexes the player's games in the
 background: intermediate lines carry a `queuePosition` that (in principle)
@@ -17,14 +16,20 @@ so the proxy returns the latest promptly available snapshot, flagged as
 holding one request open indefinitely.
 """
 
+import hashlib
 import json
+from datetime import timedelta
 
 import requests
+from django.conf import settings
+from django.utils import timezone
 
 from accounts.tokens import get_lichess_access_token, get_lichess_username
 from common.fen import denormalize_fen, normalize_fen
 
 from .cache import TokenRequired, UpstreamRateLimited, UpstreamUnavailable
+from .metrics import cache_event
+from .models import PlayerStatsCache
 from .response_shape import to_explorer_response
 
 UPSTREAM_CONNECT_TIMEOUT_SECONDS = 8
@@ -61,12 +66,23 @@ def fetch_player_stats(
     exceptions `cache.py` uses so the view can translate both proxies'
     failures identically (see explorer_cache/views.py).
     """
+    normalized_fen = normalize_fen(fen)
+    raw_key = f"moves={moves}&since={since or ''}&until={until or ''}&speeds={speeds or ''}"
+    params_key = hashlib.sha256(raw_key.encode()).hexdigest()[:32]
+    cached = PlayerStatsCache.objects.filter(
+        user=user, fen=normalized_fen, color=color, params_key=params_key
+    ).first()
+    if cached and not cached.is_expired:
+        cache_event("player_explorer", "hit", user_id=user.pk)
+        return cached.response
+    cache_event("player_explorer", "miss", user_id=user.pk)
+
     token = get_lichess_access_token(user)
     username = get_lichess_username(user)
     if not token or not username:
         raise TokenRequired()
 
-    upstream_fen = denormalize_fen(normalize_fen(fen), ply=0)
+    upstream_fen = denormalize_fen(normalized_fen, ply=0)
     params = {
         "player": username,
         "color": color,
@@ -109,6 +125,19 @@ def fetch_player_stats(
         # from totalGames: that count is for the selected position and may be
         # partial, not the number of account games indexed globally.
         result["queuePosition"] = snapshot["queuePosition"]
+        cache_event("player_explorer", "partial_not_cached", user_id=user.pk)
+    else:
+        PlayerStatsCache.objects.update_or_create(
+            user=user,
+            fen=normalized_fen,
+            color=color,
+            params_key=params_key,
+            defaults={
+                "response": result,
+                "expires_at": timezone.now() + timedelta(seconds=settings.PLAYER_EXPLORER_CACHE_TTL_SECONDS),
+            },
+        )
+        cache_event("player_explorer", "upstream_fetch_cached", user_id=user.pk)
     return result
 
 

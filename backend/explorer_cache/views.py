@@ -87,14 +87,15 @@ class MyGamesExplorerView(APIView):
     Authenticated (the default): unlike `/explorer/stats/`, this always needs
     the caller's own linked Lichess account (both to know which player to
     query and to authenticate the request), so there is no anonymous path.
-    Deliberately uncached - see player_stats.py.
+    Completed results are cached briefly per user; indexing snapshots remain live.
     """
 
     @extend_schema(
         summary="Opening-tree stats from the signed-in user's own Lichess games.",
         description=(
-            "Live proxy for Lichess's player-scoped opening explorer - never cached, since this is "
-            "per-user data. `color` is the color the signed-in user played (matching the app's "
+            "Live proxy for Lichess's player-scoped opening explorer. Completed results use a short, "
+            "per-user cache; still-indexing snapshots are never cached. `color` is the color the "
+            "signed-in user played (matching the app's "
             "White/Black repertoire toggle), not whose turn it is at `fen`. May return "
             "`stillIndexing: true` with a best-effort partial result if Lichess hasn't finished "
             "processing the account's games yet."
@@ -147,7 +148,7 @@ class EngineEvalView(APIView):
         query = EngineEvalQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
 
-        entry = cache.get_cached_eval(query.validated_data["fen"])
+        entry = cache.get_cached_eval(query.validated_data["fen"], query.validated_data["engineVersion"])
         if entry is None:
             return Response({"detail": "No cached evaluation for this position."}, status=404)
         return Response(EngineEvaluationSerializer(entry).data)
@@ -165,6 +166,7 @@ class EngineEvalView(APIView):
 
         entry, _ = cache.upsert_engine_line(
             fen=data["fen"],
+            engine_version=data["engine_version"],
             depth=data["depth"],
             score_type=data["score_type"],
             score_value=data["score_value"],

@@ -45,6 +45,7 @@ export function useExplorerStats(
   source: ExplorerSource = 'lichess',
   myGamesColor: RepertoireColor = 'white',
   filters?: LichessDatabaseFilters,
+  userId?: number,
 ) {
   const [data, setData] = useState<ExplorerResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -54,7 +55,7 @@ export function useExplorerStats(
   const [tick, setTick] = useState(0)
 
   const filtersKey = JSON.stringify(filters ?? {})
-  const identityKey = `${fen}|${apiToken}|${enabled}|${signedIn}|${source}|${myGamesColor}|${filtersKey}`
+  const identityKey = `${fen}|${apiToken}|${enabled}|${signedIn}|${source}|${myGamesColor}|${filtersKey}|${userId ?? ''}`
 
   // A fresh query identity (new position/color/source/token/filters) always
   // starts its own poll-attempt count from zero, rather than inheriting an
@@ -119,7 +120,7 @@ export function useExplorerStats(
 
     const request =
       source === 'my-games'
-        ? fetchMyGamesExplorerStats(fen, myGamesColor, controller.signal, filters)
+        ? fetchMyGamesExplorerStats(fen, myGamesColor, userId ?? 0, controller.signal, filters)
         : fetchExplorerStats(fen, { apiToken, signedIn, signal: controller.signal, filters })
 
     request

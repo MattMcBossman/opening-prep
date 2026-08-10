@@ -238,14 +238,26 @@ def test_concurrent_requests_for_the_same_key_single_flight(monkeypatch):
 
 def test_upsert_engine_line_keeps_deepest(db):
     row, created = cache.upsert_engine_line(
-        START_FEN, depth=10, score_type="cp", score_value=20, best_move_uci="e2e4", pv_uci=["e2e4"]
+        START_FEN,
+        "stockfish-test",
+        depth=10,
+        score_type="cp",
+        score_value=20,
+        best_move_uci="e2e4",
+        pv_uci=["e2e4"],
     )
     assert created is True
     assert row.depth == 10
 
     # A shallower submission for the same position is accepted (no error) and ignored.
     kept, replaced = cache.upsert_engine_line(
-        START_FEN, depth=5, score_type="cp", score_value=999, best_move_uci="d2d4", pv_uci=["d2d4"]
+        START_FEN,
+        "stockfish-test",
+        depth=5,
+        score_type="cp",
+        score_value=999,
+        best_move_uci="d2d4",
+        pv_uci=["d2d4"],
     )
     assert replaced is False
     assert kept.depth == 10
@@ -253,7 +265,13 @@ def test_upsert_engine_line_keeps_deepest(db):
 
     # A deeper submission does replace it.
     deeper, replaced = cache.upsert_engine_line(
-        START_FEN, depth=15, score_type="mate", score_value=1, best_move_uci="e2e4", pv_uci=["e2e4", "e7e5"]
+        START_FEN,
+        "stockfish-test",
+        depth=15,
+        score_type="mate",
+        score_value=1,
+        best_move_uci="e2e4",
+        pv_uci=["e2e4", "e7e5"],
     )
     assert replaced is True
     assert deeper.depth == 15
@@ -264,12 +282,38 @@ def test_upsert_engine_line_keeps_deepest(db):
 
 def test_get_cached_eval_normalizes_the_lookup_fen(db):
     cache.upsert_engine_line(
-        START_FEN, depth=10, score_type="cp", score_value=5, best_move_uci=None, pv_uci=[]
+        START_FEN, "stockfish-test", depth=10, score_type="cp", score_value=5, best_move_uci=None, pv_uci=[]
     )
 
-    assert cache.get_cached_eval(START_FEN) is not None
-    assert cache.get_cached_eval(normalize_fen(START_FEN)) is not None
+    assert cache.get_cached_eval(START_FEN, "stockfish-test") is not None
+    assert cache.get_cached_eval(normalize_fen(START_FEN), "stockfish-test") is not None
+    assert cache.get_cached_eval(START_FEN, "another-engine") is None
 
 
 def test_get_cached_eval_missing_returns_none(db):
-    assert cache.get_cached_eval(START_FEN) is None
+    assert cache.get_cached_eval(START_FEN, "stockfish-test") is None
+
+
+def test_engine_builds_have_independent_cache_entries(db):
+    cache.upsert_engine_line(
+        START_FEN,
+        "stockfish-a",
+        depth=10,
+        score_type="cp",
+        score_value=5,
+        best_move_uci=None,
+        pv_uci=[],
+    )
+    cache.upsert_engine_line(
+        START_FEN,
+        "stockfish-b",
+        depth=12,
+        score_type="cp",
+        score_value=8,
+        best_move_uci=None,
+        pv_uci=[],
+    )
+
+    assert cache.get_cached_eval(START_FEN, "stockfish-a").depth == 10
+    assert cache.get_cached_eval(START_FEN, "stockfish-b").depth == 12
+    assert EngineLineCache.objects.count() == 2

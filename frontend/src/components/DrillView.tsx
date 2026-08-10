@@ -112,6 +112,7 @@ export function DrillView({
     onStepApplied,
     onLineComplete: playDrillCompleteSound,
     recording,
+    signedIn: user !== null,
   })
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
 

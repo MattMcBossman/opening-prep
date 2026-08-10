@@ -1,5 +1,7 @@
 import { ApiError, apiRequest } from './apiClient'
 import type { ExplorerMoveStat, ExplorerResponse, RepertoireColor } from '../types'
+import { normalizeFen } from './chessUtils'
+import { recordClientCacheMetric } from './cacheMetrics'
 
 // As of 2026, Lichess requires a personal API token (Bearer auth) on every Opening
 // Explorer request, and the endpoint moved from explorer.lichess.ovh to explorer.lichess.org.
@@ -82,11 +84,13 @@ export async function fetchLichessExplorer(
   signal?: AbortSignal,
   filters?: LichessDatabaseFilters,
 ): Promise<ExplorerResponse> {
-  const cacheKey = `${apiToken ? 'auth' : 'anon'}:${fen}:${filterKey(filters)}`
+  const cacheKey = `${apiToken ? 'auth' : 'anon'}:${normalizeFen(fen)}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
+    recordClientCacheMetric('explorerHit')
     return cached.data
   }
+  recordClientCacheMetric('explorerMiss')
 
   const url = new URL(EXPLORER_URL)
   url.searchParams.set('fen', fen)
@@ -167,11 +171,13 @@ export async function fetchExplorerStatsViaBackend(
   signal?: AbortSignal,
   filters?: LichessDatabaseFilters,
 ): Promise<ExplorerResponse> {
-  const cacheKey = `backend:${fen}:${filterKey(filters)}`
+  const cacheKey = `backend:${normalizeFen(fen)}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
+    recordClientCacheMetric('explorerHit')
     return cached.data
   }
+  recordClientCacheMetric('explorerMiss')
 
   const params = new URLSearchParams({ fen, moves: '12' })
   applyLichessDatabaseFilters(params, filters)
@@ -193,14 +199,17 @@ export async function fetchExplorerStatsViaBackend(
 export async function fetchMyGamesExplorerStats(
   fen: string,
   color: RepertoireColor,
+  userId: number,
   signal?: AbortSignal,
   filters?: LichessDatabaseFilters,
 ): Promise<ExplorerResponse> {
-  const cacheKey = `my-games:${color}:${fen}:${filterKey(filters)}`
+  const cacheKey = `my-games:${userId}:${color}:${normalizeFen(fen)}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
+    recordClientCacheMetric('explorerHit')
     return cached.data
   }
+  recordClientCacheMetric('explorerMiss')
 
   const params = new URLSearchParams({ fen, moves: '12', color })
   applyPlayerFilters(params, filters)

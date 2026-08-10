@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { StockfishEngine } from '../engine/stockfishEngine'
 import { BAD_MOVE_CP_THRESHOLD, classifyMoveQuality } from '../lib/moveQuality'
 import type { EngineEvaluation, RepertoireColor } from '../types'
+import { getOrComputeEngineEvaluation } from '../lib/engineEvaluationCache'
 
 // Comparisons don't need the same depth as the live explorer eval - a moderate
 // fixed depth is enough to reliably tell "off-book but fine" from "objectively bad"
@@ -25,7 +26,7 @@ export type MoveComparisonResult = {
  * concurrently. Results are cached in memory for the lifetime of this hook so
  * retrying the same mistake at the same position doesn't restart engine work.
  */
-export function useEngineComparison() {
+export function useEngineComparison(signedIn = false) {
   const engineRef = useRef<StockfishEngine | null>(null)
   const cacheRef = useRef(new Map<string, Promise<MoveComparisonResult>>())
   const evalCacheRef = useRef(new Map<string, Promise<EngineEvaluation>>())
@@ -52,8 +53,18 @@ export function useEngineComparison() {
       const engine = engineRef.current
 
       const promise = (async () => {
-        const before = await engine.evaluateOnce(originFen, COMPARISON_DEPTH)
-        const after = await engine.evaluateOnce(resultingFen, COMPARISON_DEPTH)
+        const before = await getOrComputeEngineEvaluation(
+          originFen,
+          COMPARISON_DEPTH,
+          signedIn,
+          () => engine.evaluateOnce(originFen, COMPARISON_DEPTH),
+        )
+        const after = await getOrComputeEngineEvaluation(
+          resultingFen,
+          COMPARISON_DEPTH,
+          signedIn,
+          () => engine.evaluateOnce(resultingFen, COMPARISON_DEPTH),
+        )
         const quality = classifyMoveQuality(before, after, mover, threshold)
         return { ...quality, bestResponseLine: after }
       })()
@@ -61,7 +72,7 @@ export function useEngineComparison() {
       cacheRef.current.set(key, promise)
       return promise
     },
-    [],
+    [signedIn],
   )
 
   /**
@@ -71,14 +82,16 @@ export function useEngineComparison() {
    * separate cache keyed by FEN.
    */
   const evaluatePosition = useCallback((fen: string, depth: number = COMPARISON_DEPTH): Promise<EngineEvaluation> => {
-    const cached = evalCacheRef.current.get(fen)
+    const cacheKey = `${fen}|${depth}`
+    const cached = evalCacheRef.current.get(cacheKey)
     if (cached) return cached
 
     if (!engineRef.current) engineRef.current = new StockfishEngine()
-    const promise = engineRef.current.evaluateOnce(fen, depth)
-    evalCacheRef.current.set(fen, promise)
+    const engine = engineRef.current
+    const promise = getOrComputeEngineEvaluation(fen, depth, signedIn, () => engine.evaluateOnce(fen, depth))
+    evalCacheRef.current.set(cacheKey, promise)
     return promise
-  }, [])
+  }, [signedIn])
 
   return { compare, evaluatePosition }
 }
