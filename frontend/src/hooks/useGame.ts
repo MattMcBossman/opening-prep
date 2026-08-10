@@ -20,10 +20,11 @@ export const START_FEN = new Chess().fen()
  * matching standard PGN-editor behavior for branching off an earlier position.
  */
 export function useGame() {
+  const [baseFen, setBaseFen] = useState(START_FEN)
   const [moves, setMoves] = useState<HistoryEntry[]>([])
   const [pointer, setPointer] = useState(0)
 
-  const fen = pointer === 0 ? START_FEN : moves[pointer - 1].fenAfter
+  const fen = pointer === 0 ? baseFen : moves[pointer - 1].fenAfter
 
   const legalMoves = useMemo(() => new Chess(fen).moves(), [fen])
 
@@ -64,8 +65,45 @@ export function useGame() {
   )
 
   const reset = useCallback(() => {
+    setBaseFen(START_FEN)
     setMoves([])
     setPointer(0)
+  }, [])
+
+  /** Replace explorer history with an exact UCI line replayed from move one. */
+  const loadLine = useCallback((uciMoves: readonly string[]): boolean => {
+    const game = new Chess(START_FEN)
+    const history: HistoryEntry[] = []
+    try {
+      for (const uci of uciMoves) {
+        const result = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4) || undefined })
+        if (!result) return false
+        history.push({
+          san: result.san,
+          uci: `${result.from}${result.to}${result.promotion ?? ''}`,
+          fenAfter: game.fen(),
+        })
+      }
+    } catch {
+      return false
+    }
+    setBaseFen(START_FEN)
+    setMoves(history)
+    setPointer(history.length)
+    return true
+  }, [])
+
+  /** Open a standalone explorer position when no move-one history is known. */
+  const loadPosition = useCallback((nextFen: string): boolean => {
+    try {
+      const validatedFen = new Chess(nextFen).fen()
+      setBaseFen(validatedFen)
+      setMoves([])
+      setPointer(0)
+      return true
+    } catch {
+      return false
+    }
   }, [])
 
   return {
@@ -79,5 +117,7 @@ export function useGame() {
     goForward,
     makeMove,
     reset,
+    loadLine,
+    loadPosition,
   }
 }

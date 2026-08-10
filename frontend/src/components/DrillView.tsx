@@ -9,6 +9,7 @@ import { useDrillSessionRecording } from '../hooks/useDrillSessionRecording'
 import { useExplorerStats } from '../hooks/useExplorerStats'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { sideToMove } from '../lib/chessUtils'
+import { completedDrillHistoryUci } from '../lib/repertoireDrills'
 import type { DrillLine, DrillStartContext, DrillStartMode } from '../lib/repertoireDrills'
 import type { AuthUser } from '../lib/authApi'
 import type { RepertoireColor } from '../types'
@@ -40,6 +41,8 @@ type Props = {
   drillLines?: DrillLine[]
   /** Explorer occurrence used by "Drill from here". */
   startContext?: DrillStartContext
+  /** Opens the completed line's final position in the main explorer. */
+  onViewInExplorer: (historyUci: string[], finalFen: string) => void
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -72,6 +75,7 @@ export function DrillView({
   templateReleaseIds = EMPTY_SOURCE_IDS,
   drillLines,
   startContext,
+  onViewInExplorer,
 }: Props) {
   const [startMode, setStartMode] = useState<DrillStartMode>(startContext ? 'selected_position' : 'beginning')
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
@@ -117,6 +121,12 @@ export function DrillView({
     (uci: string) => (reviewFen ? repertoire.isMoveInActiveProfile(color, reviewFen, uci) : false),
     [repertoire, color, reviewFen],
   )
+  const viewCompletionInExplorer = useCallback(() => {
+    const completedLineId = state.completionPause?.lineId
+    const completedLine = completedLineId ? state.linesById.get(completedLineId) : undefined
+    if (!reviewFen || !completedLine) return
+    onViewInExplorer(completedDrillHistoryUci(completedLine, startMode, startContext), reviewFen)
+  }, [onViewInExplorer, reviewFen, startContext, startMode, state.completionPause, state.linesById])
 
   const legalMoves = useMemo(() => {
     if (!selectedSquare) return []
@@ -298,6 +308,7 @@ export function DrillView({
               leafPly={state.completionPause?.leafPly ?? 0}
               isLastDrill={session.complete}
               onNext={session.acknowledgeCompletion}
+              onViewInExplorer={viewCompletionInExplorer}
             />
             <section className="panel explorer-panel">
               <h2>Lichess explorer</h2>

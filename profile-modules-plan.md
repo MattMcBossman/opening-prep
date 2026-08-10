@@ -51,7 +51,10 @@ rather than aborting the calculation on its first rate limit.
 - [x] Load authored personal/global lines into composed drills so path identity
   and source provenance are used end to end.
 - [x] Add integration coverage for the explorer-to-selected-drill launch.
-- [x] Re-run the complete frontend and PostgreSQL verification suites: 159
+- [x] Add “View in explorer” to completed-line review. It opens the exact
+  authored occurrence/final position, while the mounted drill session persists
+  so returning to Drills resumes it rather than starting over.
+- [x] Re-run the complete frontend and PostgreSQL verification suites: 163
   frontend tests and 144 PostgreSQL backend tests, plus build, lint, migration,
   formatting, and OpenAPI checks.
 - [x] Validate immutable global-release graph/line JSON before publication and

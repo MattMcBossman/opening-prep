@@ -55,6 +55,16 @@ export type PreparedDrill = {
   rootFen: string
 }
 
+/** Reconstructs move-one history for opening a completed drill in Explorer. */
+export function completedDrillHistoryUci(
+  line: DrillLine,
+  mode: DrillStartMode,
+  context?: DrillStartContext,
+): string[] {
+  const practicedUci = line.steps.map((step) => step.uci)
+  return mode === 'selected_position' ? [...(context?.prefixUci ?? []), ...practicedUci] : practicedUci
+}
+
 function lineKey(line: DrillLine): string {
   return line.steps.map((step) => step.uci).join(' ')
 }

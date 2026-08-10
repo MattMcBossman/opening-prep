@@ -10,7 +10,7 @@ internet without paying for cloud hosting.
 The first target is:
 
 - the existing development stack continues to run on the laptop;
-- the phone can reach one HTTPS application origin from any network;
+- the phone can reach one private application origin from any network;
 - access is private to the developer's Tailscale network;
 - Django sessions, CSRF, Lichess OAuth, Stockfish, and saved data work through
   that origin;
@@ -20,13 +20,14 @@ The first target is:
 
 Install Tailscale on both the laptop and phone and sign both into the same
 tailnet. Tailscale's Personal plan is free for personal use. Use **Tailscale
-Serve**, which publishes a laptop-local HTTP service at a private HTTPS
-`*.ts.net` address available only to devices in that tailnet.
+Serve**, which publishes a laptop-local HTTP service at a private `*.ts.net`
+address available only to devices in that tailnet. Use tailnet HTTP during this
+development milestone: the underlying Tailscale connection is encrypted, and
+this avoids depending on public ACME certificate issuance.
 
 This requires no Render service, cloud VM, paid database, router port
 forwarding, static home IP, or public exposure. PostgreSQL remains on the
-laptop. Tailscale supplies private connectivity, a stable MagicDNS hostname,
-and HTTPS termination.
+laptop. Tailscale supplies private connectivity and a stable MagicDNS hostname.
 
 Relevant references:
 
@@ -61,14 +62,25 @@ connection failure is not a database outage.
 
 ### H2 — Private remote access
 
-- [ ] Install Tailscale on the laptop and phone, sign both into the same free
-  Personal tailnet, and enable MagicDNS/HTTPS if prompted.
+- [x] Install Tailscale on the laptop and phone and sign both into the same free
+  Personal tailnet.
 - [x] Add `scripts/remote-dev`, which discovers the MagicDNS name and proxies
-  Vite with `tailscale serve --bg 5173`.
-- [x] Add the resulting HTTPS `*.ts.net` hostname to Django's allowed hosts and
-  CSRF trusted origins without weakening the local-development defaults.
+  Vite with `tailscale serve --http=80 --bg 5173`, then health-checks the
+  resulting tailnet URL before reporting success.
+- [x] Preflight and name conflicts on Django port 8000 and Vite port 5173 before
+  starting either server; require Vite's exact port instead of silently falling
+  forward to 5174.
+- [x] Complete migrations and verify Tailscale Serve authorization before
+  starting background servers. Document the one-time
+  `sudo tailscale set --operator="$USER"` setup so an access denial cannot leave
+  a partial stack running.
+- [x] Add the resulting `*.ts.net` hostname/origin to Django's allowed hosts and
+  CSRF trusted origins. HTTP remote origins are accepted only with Debug mode;
+  non-development configuration still requires HTTPS.
 - [x] Configure the frontend origin and Lichess OAuth redirect URI for that
-  HTTPS hostname. Do not commit secrets or machine-specific tailnet names.
+  hostname. Do not commit secrets or machine-specific tailnet names. Lichess
+  OAuth over a non-local HTTP callback may remain unavailable until tailnet
+  HTTPS certificate issuance succeeds; basic app access does not depend on it.
 - [x] Document start and automatic stop behavior for the app and Tailscale
   Serve.
 
@@ -98,9 +110,9 @@ the following local values in the developer's untracked environment file:
 | --- | --- |
 | `DJANGO_DEBUG` | May remain `True` for this private development deployment. |
 | `DJANGO_ALLOWED_HOSTS` | Include the laptop's exact Tailscale hostname. |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Include the exact Tailscale HTTPS origin. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Include the exact Tailscale development origin. |
 | `DATABASE_URL` | Existing laptop-local PostgreSQL connection. |
-| `FRONTEND_URL` | Exact Tailscale HTTPS origin. |
+| `FRONTEND_URL` | Exact Tailscale development origin. |
 | `LICHESS_REDIRECT_URI` | `<tailscale-origin>/api/v1/auth/lichess/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Existing local Fernet key; never commit it. |
 

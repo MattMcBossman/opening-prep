@@ -70,7 +70,7 @@ function isLightSquare(square: string): boolean {
 }
 
 function App() {
-  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset } = useGame()
+  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition } = useGame()
   const { theme, toggleTheme } = useTheme()
   const { boardColor, toggleBoardColor } = useBoardColor()
   const { token, setToken } = useLichessToken()
@@ -105,18 +105,32 @@ function App() {
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
   const [drillStartContext, setDrillStartContext] = useState<DrillStartContext>()
+  const [drillMounted, setDrillMounted] = useState(false)
 
   const handleModeChange = useCallback((nextMode: AppMode) => {
-    // Entering drills from the header means drill the whole composed profile.
-    // The position-specific button below captures explorer history explicitly.
-    if (nextMode === 'drill') setDrillStartContext(undefined)
+    // Mount lazily on the first visit, then keep the drill alive while Explorer
+    // is visible so switching back resumes the same session. Restarting is an
+    // explicit action inside DrillView.
+    if (nextMode === 'drill' && !drillMounted) {
+      setDrillStartContext(undefined)
+      setDrillMounted(true)
+    }
     setMode(nextMode)
-  }, [])
+  }, [drillMounted])
 
   const startDrillFromPosition = useCallback(() => {
     setDrillStartContext(createDrillStartContext(fen, pointer, moves))
+    setDrillMounted(true)
     setMode('drill')
   }, [fen, moves, pointer])
+
+  const viewDrillCompletionInExplorer = useCallback((historyUci: string[], finalFen: string) => {
+    // Prefer the authored occurrence so Back/Forward and the move list remain
+    // useful. A selected-position drill launched without a known prefix cannot
+    // always be replayed from move one, so fall back to its exact final FEN.
+    if (!loadLine(historyUci)) loadPosition(finalFen)
+    setMode('explorer')
+  }, [loadLine, loadPosition])
 
   // Primes the shared AudioContext on the page's first interaction, whatever it is -
   // see installAudioUnlock's docstring for why a move-triggered resume alone isn't
@@ -360,26 +374,30 @@ function App() {
         onDismiss={repertoire.importPrompt.dismiss}
         onClose={repertoire.importPrompt.close}
       />
-      {mode === 'drill' ? (
-        <DrillView
-          repertoire={repertoire}
-          color={boardColor}
-          onToggleColor={handleToggleBoardColor}
-          playMoveSound={playMoveSound}
-          playDrillCompleteSound={playDrillCompleteSound}
-          lichessToken={token}
-          user={auth.user}
-          repertoireId={repertoire.repertoireIds[boardColor] ?? null}
-          repertoireIds={repertoire.activeProfile?.modules
-            .filter((module) => module.enabled && module.color === boardColor)
-            .map((module) => module.id)}
-          templateReleaseIds={repertoire.activeProfile?.templateReleases
-            ?.filter((release) => release.enabled && release.color === boardColor)
-            .map((release) => release.id)}
-          drillLines={repertoire.drillLines[boardColor]}
-          startContext={drillStartContext}
-        />
-      ) : (
+      {drillMounted && (
+        <div hidden={mode !== 'drill'}>
+          <DrillView
+            repertoire={repertoire}
+            color={boardColor}
+            onToggleColor={handleToggleBoardColor}
+            playMoveSound={playMoveSound}
+            playDrillCompleteSound={playDrillCompleteSound}
+            lichessToken={token}
+            user={auth.user}
+            repertoireId={repertoire.repertoireIds[boardColor] ?? null}
+            repertoireIds={repertoire.activeProfile?.modules
+              .filter((module) => module.enabled && module.color === boardColor)
+              .map((module) => module.id)}
+            templateReleaseIds={repertoire.activeProfile?.templateReleases
+              ?.filter((release) => release.enabled && release.color === boardColor)
+              .map((release) => release.id)}
+            drillLines={repertoire.drillLines[boardColor]}
+            startContext={drillStartContext}
+            onViewInExplorer={viewDrillCompletionInExplorer}
+          />
+        </div>
+      )}
+      {mode === 'explorer' && (
         <main className="explorer-layout">
           <section className="panel moves-panel">
             <h2>Moves</h2>
@@ -431,7 +449,7 @@ function App() {
               >
                 Forward →
               </button>
-              <button type="button" onClick={reset} disabled={moves.length === 0}>
+              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN}>
                 Reset
               </button>
               <button type="button" onClick={startDrillFromPosition} disabled={pointer === 0}>

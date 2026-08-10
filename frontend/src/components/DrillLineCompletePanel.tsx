@@ -15,6 +15,7 @@ type Props = {
   /** Whether this was the last pending line - changes the button's label. */
   isLastDrill: boolean
   onNext: () => void
+  onViewInExplorer: () => void
 }
 
 /**
@@ -27,7 +28,7 @@ type Props = {
  * real-world stats for that same position are rendered separately by the caller
  * (see DrillView), next to this panel.
  */
-export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNext }: Props) {
+export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNext, onViewInExplorer }: Props) {
   const pvText = useMemo(() => {
     if (!evaluation) return ''
     const sanMoves = uciLineToSan(evaluation.fen, evaluation.pvUci)
@@ -53,6 +54,9 @@ export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNex
         <p className="panel-status">Checking the engine&apos;s best try for the opponent…</p>
       )}
       <div className="board-controls">
+        <button type="button" onClick={onViewInExplorer}>
+          View in explorer
+        </button>
         <button type="button" onClick={onNext}>
           {isLastDrill ? 'Finish' : 'Next drill'}
         </button>

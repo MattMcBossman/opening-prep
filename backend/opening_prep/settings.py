@@ -40,8 +40,9 @@ ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
 REMOTE_DEV_ORIGIN = env("REMOTE_DEV_ORIGIN").rstrip("/")
 if REMOTE_DEV_ORIGIN:
     remote_dev_url = urlparse(REMOTE_DEV_ORIGIN)
-    if remote_dev_url.scheme != "https" or not remote_dev_url.hostname:
-        raise ValueError("REMOTE_DEV_ORIGIN must be a complete HTTPS origin")
+    allowed_remote_schemes = {"https", "http"} if DEBUG else {"https"}
+    if remote_dev_url.scheme not in allowed_remote_schemes or not remote_dev_url.hostname:
+        raise ValueError("REMOTE_DEV_ORIGIN must be a complete origin (HTTPS unless DJANGO_DEBUG=True)")
     ALLOWED_HOSTS = [*ALLOWED_HOSTS, remote_dev_url.hostname]
 
 INSTALLED_APPS = [

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { collectDrillLines, createDrillStartContext, mergeDrillLines, prepareDrillLines } from './repertoireDrills'
+import {
+  collectDrillLines,
+  completedDrillHistoryUci,
+  createDrillStartContext,
+  mergeDrillLines,
+  prepareDrillLines,
+} from './repertoireDrills'
 import type { DrillLine, DrillStep } from './repertoireDrills'
 import { START_FEN } from '../hooks/useGame'
 import { normalizeFen } from './chessUtils'
@@ -194,5 +200,19 @@ describe('explorer drill handoff', () => {
       selectedPly: 2,
       prefixUci: ['e2e4', 'e7e5'],
     })
+  })
+
+  it('reconstructs a completed full-line drill instead of returning an empty history', () => {
+    expect(completedDrillHistoryUci(FULL_LINE, 'beginning')).toEqual(['e2e4', 'e7e5', 'g1f3'])
+  })
+
+  it('prepends explorer history to a completed selected-position drill', () => {
+    const context = { selectedFen: AFTER_E4_E5, selectedPly: 2, prefixUci: ['e2e4', 'e7e5'] }
+    const slicedLine = prepareDrillLines([FULL_LINE], 'selected_position', context).lines[0]
+    expect(completedDrillHistoryUci(slicedLine, 'selected_position', context)).toEqual([
+      'e2e4',
+      'e7e5',
+      'g1f3',
+    ])
   })
 })

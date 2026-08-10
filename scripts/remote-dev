@@ -16,7 +16,7 @@ if ! command -v npm >/dev/null 2>&1; then
   fi
 fi
 
-for command_name in tailscale python3 uv npm; do
+for command_name in tailscale python3 uv npm curl; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Missing required command: $command_name" >&2
     if [[ "$command_name" == "tailscale" ]]; then
@@ -26,6 +26,39 @@ for command_name in tailscale python3 uv npm; do
   fi
 done
 
+require_free_port() {
+  local port="$1"
+  local service_name="$2"
+  if ! python3 - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.socket() as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        listener.bind(("127.0.0.1", port))
+    except OSError:
+        raise SystemExit(1)
+PY
+  then
+    echo "Cannot start $service_name: port $port is already in use." >&2
+    if command -v lsof >/dev/null 2>&1; then
+      lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
+    else
+      echo "Inspect it with: ss -ltnp | grep ':${port} '" >&2
+    fi
+    echo "Stop the existing server, then run ./scripts/remote-dev again." >&2
+    exit 1
+  fi
+}
+
+# Check both ports before starting either process. Previously Django could fail
+# on 8000 while Vite silently moved from 5173 to 5174, leaving an ambiguous
+# "That port is already in use" message and a proxy aimed at the wrong port.
+require_free_port 8000 "Django"
+require_free_port 5173 "Vite"
+
 tailscale_json="$(tailscale status --json)"
 tailscale_host="$(printf '%s' "$tailscale_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
 if [[ -z "$tailscale_host" ]]; then
@@ -33,32 +66,72 @@ if [[ -z "$tailscale_host" ]]; then
   exit 1
 fi
 
-export REMOTE_DEV_ORIGIN="https://${tailscale_host}"
+# HTTP here is inside the encrypted, private tailnet. Avoiding public TLS keeps
+# remote development independent of ACME/DNS propagation and certificate rate
+# limits; the service is still unreachable to devices outside the tailnet.
+export REMOTE_DEV_ORIGIN="http://${tailscale_host}"
 
 backend_pid=""
 frontend_pid=""
+serve_configured=false
 cleanup() {
   trap - EXIT INT TERM
-  tailscale serve off >/dev/null 2>&1 || true
+  if [[ "$serve_configured" == true ]]; then
+    tailscale serve reset >/dev/null 2>&1 || true
+  fi
   [[ -z "$frontend_pid" ]] || kill "$frontend_pid" >/dev/null 2>&1 || true
   [[ -z "$backend_pid" ]] || kill "$backend_pid" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
+# Finish all foreground prerequisites before starting either long-running child.
+# This prevents a failed Tailscale authorization check from leaving migrations
+# or a development server running after the wrapper returns to the shell.
 (
   cd "$repo_dir/backend"
   uv run manage.py migrate
-  exec uv run manage.py runserver 127.0.0.1:8000
+)
+
+if ! serve_error="$(tailscale serve --http=80 --bg 5173 2>&1)"; then
+  echo "Could not configure private Tailscale HTTPS access:" >&2
+  echo "$serve_error" >&2
+  if [[ "$serve_error" == *"Access denied"* ]]; then
+    echo >&2
+    echo "Grant your user permission once, then rerun this script:" >&2
+    echo "  sudo tailscale set --operator=$(id -un)" >&2
+  fi
+  exit 1
+fi
+serve_configured=true
+
+(
+  cd "$repo_dir/backend"
+  exec uv run manage.py runserver 127.0.0.1:8000 --noreload
 ) &
 backend_pid="$!"
 
 (
   cd "$repo_dir/frontend"
-  exec npm run dev -- --host 127.0.0.1
+  exec ./node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort
 ) &
 frontend_pid="$!"
 
-tailscale serve --bg 5173
+site_ready=false
+for _attempt in {1..40}; do
+  if curl -fsS --connect-timeout 1 "${REMOTE_DEV_ORIGIN}/api/v1/health/" >/dev/null 2>&1; then
+    site_ready=true
+    break
+  fi
+  if ! kill -0 "$backend_pid" "$frontend_pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$site_ready" != true ]]; then
+  echo "Remote site failed its HTTP health check: ${REMOTE_DEV_ORIGIN}/api/v1/health/" >&2
+  echo "Check the Django/Vite output above and 'tailscale serve status'." >&2
+  exit 1
+fi
 
 echo
 echo "Remote development site: $REMOTE_DEV_ORIGIN"

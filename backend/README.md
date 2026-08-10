@@ -46,6 +46,11 @@ derives the laptop's Tailscale HTTPS origin at runtime and supplies
 CSRF allowlists and use it for the OAuth callback. The value does not need to be
 written to `.env`.
 
+The wrapper expects ports 8000 and 5173 to be free. Do not leave a separately
+started `manage.py runserver` or Vite process running before invoking it; its
+preflight reports the exact conflicting listener and exits before starting a
+partial stack.
+
 ## Commands
 
 ```bash

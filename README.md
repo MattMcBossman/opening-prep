@@ -48,10 +48,27 @@ tailnet, then run from the repository root:
 ```
 
 The command applies pending migrations, starts Django and Vite on loopback,
-configures private HTTPS proxying with Tailscale Serve, and prints the URL to
-open on the phone. Press Ctrl-C to stop both servers and disable the proxy.
-PostgreSQL remains local and is never exposed. See
+configures private tailnet HTTP proxying with Tailscale Serve, verifies the
+route, and prints the URL for the phone. This HTTP origin is reachable only
+inside Tailscale's encrypted private network and avoids blocking development on
+public TLS certificate issuance. Press Ctrl-C to stop both servers and disable
+the proxy. PostgreSQL remains local and is never exposed. See
 [deployment-plan.md](deployment-plan.md) for the verification checklist.
+
+`remote-dev` owns ports 8000 (Django) and 5173 (Vite). Stop separately started
+development servers before running it. The script checks both ports before
+starting anything and reports the conflicting port and listener; Vite is run in
+strict-port mode so it cannot silently move to 5174 and break the proxy.
+
+On first use, Tailscale may require one administrator-approved operator setting:
+
+```bash
+sudo tailscale set --operator="$USER"
+```
+
+Run that once, then rerun `./scripts/remote-dev`. The wrapper configures
+Tailscale Serve before starting either long-running app process, so an access
+denial cannot leave a partial development stack behind.
 
 Frontend, in another terminal:
 
