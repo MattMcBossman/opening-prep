@@ -53,5 +53,11 @@ export function useSound() {
     getSoundPlayer().playDrillComplete()
   }, [soundEnabled])
 
-  return { soundEnabled, setSoundEnabled, toggleSound, playMoveSound, playDrillCompleteSound }
+  /** Plays the corrective wrong-move cue used only by drills. */
+  const playWrongMoveSound = useCallback(() => {
+    if (!soundEnabled) return
+    getSoundPlayer().playWrongDrillMove()
+  }, [soundEnabled])
+
+  return { soundEnabled, setSoundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound }
 }

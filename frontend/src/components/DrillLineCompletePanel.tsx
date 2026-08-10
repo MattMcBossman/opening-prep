@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import type { Ref } from 'react'
 import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
 import { formatScore } from '../lib/formatScore'
 import { describeCommonContinuations, describePositionEvaluation } from '../lib/drillPositionAssessment'
@@ -7,6 +8,8 @@ import type { EngineEvaluation, ExplorerResponse } from '../types'
 type Props = {
   evaluation: EngineEvaluation | null
   explorerData: ExplorerResponse | null
+  playerFollowupData: ExplorerResponse | null
+  playerFollowupAfterSans: string[]
   /**
    * How many plies into the game the completed line's leaf position is - needed
    * to number the continuation correctly, since `evaluation.fen` is frequently a
@@ -18,6 +21,7 @@ type Props = {
   isLastDrill: boolean
   onNext: () => void
   onViewInExplorer: () => void
+  primaryActionRef?: Ref<HTMLButtonElement>
 }
 
 /**
@@ -30,13 +34,14 @@ type Props = {
  * real-world stats for that same position are rendered separately by the caller
  * (see DrillView), next to this panel.
  */
-export function DrillLineCompletePanel({ evaluation, explorerData, leafPly, isLastDrill, onNext, onViewInExplorer }: Props) {
+export function DrillLineCompletePanel({ evaluation, explorerData, playerFollowupData, playerFollowupAfterSans, leafPly, isLastDrill, onNext, onViewInExplorer, primaryActionRef }: Props) {
   const pvText = useMemo(() => {
     if (!evaluation) return ''
     const sanMoves = uciLineToSan(evaluation.fen, evaluation.pvUci)
     return formatMoveListFromPly(leafPly, sanMoves)
   }, [evaluation, leafPly])
   const commonMovesText = useMemo(() => describeCommonContinuations(explorerData), [explorerData])
+  const playerMovesText = useMemo(() => describeCommonContinuations(playerFollowupData), [playerFollowupData])
 
   return (
     <div className="panel drill-line-complete">
@@ -55,6 +60,11 @@ export function DrillLineCompletePanel({ evaluation, explorerData, leafPly, isLa
               {commonMovesText} Blue arrows show frequent alternatives; they are game statistics, not engine recommendations.
             </p>
           )}
+          {playerMovesText && playerFollowupAfterSans.length > 0 && (
+            <p className="panel-status">
+              Across the common replies {playerFollowupAfterSans.join(', ')}, {playerMovesText.toLowerCase()} Green arrows show the player side&apos;s common next moves.
+            </p>
+          )}
         </>
       ) : (
         <p className="panel-status">Checking the engine&apos;s best try for the opponent…</p>
@@ -63,7 +73,7 @@ export function DrillLineCompletePanel({ evaluation, explorerData, leafPly, isLa
         <button type="button" onClick={onViewInExplorer}>
           View in explorer
         </button>
-        <button type="button" onClick={onNext}>
+        <button ref={primaryActionRef} type="button" onClick={onNext}>
           {isLastDrill ? 'Finish' : 'Next drill'}
         </button>
       </div>

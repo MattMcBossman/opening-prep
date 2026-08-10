@@ -242,6 +242,24 @@ export class SoundPlayer {
   }
 
   /**
+   * A short, low rejected-move cue: filtered noise plus a descending muted
+   * tone. It is deliberately softer than capture and much shorter than the
+   * completion chime, but distinct enough to register as corrective feedback.
+   */
+  private playWrongMove(t0: number) {
+    this.noise({ startTime: t0, duration: 0.055, peakGain: 0.38, filterFrequency: 320 })
+    this.tone({
+      startTime: t0,
+      duration: 0.16,
+      type: 'sawtooth',
+      fromFrequency: 180,
+      toFrequency: 105,
+      peakGain: 0.28,
+      lowpassFrequency: 480,
+    })
+  }
+
+  /**
    * Descending minor arpeggio with a held final note - the only cue that's clearly a
    * phrase rather than a single hit, so the end of the game is unmistakable.
    */
@@ -328,6 +346,11 @@ export class SoundPlayer {
   /** See playDrillCompleteChime - a distinct cue for finishing a drill line, not tied to any move's SAN. */
   playDrillComplete() {
     this.withContext((t0) => this.playDrillCompleteChime(t0))
+  }
+
+  /** Corrective cue for a legal move rejected by the active drill line. */
+  playWrongDrillMove() {
+    this.withContext((t0) => this.playWrongMove(t0))
   }
 }
 

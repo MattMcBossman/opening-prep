@@ -1011,6 +1011,16 @@
   padding-top: 8px;
 }
 
+.drill-feedback-practical {
+  margin: 0;
+  padding: 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .drill-summary {
   min-width: 280px;
 }

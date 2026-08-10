@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { Arrow, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
@@ -7,10 +7,11 @@ import type { Square } from 'chess.js'
 import { useDrillSession } from '../hooks/useDrillSession'
 import { useDrillSessionRecording } from '../hooks/useDrillSessionRecording'
 import { useExplorerStats } from '../hooks/useExplorerStats'
+import { useDrillFollowupStats } from '../hooks/useDrillFollowupStats'
 import { useRepertoire } from '../hooks/useRepertoire'
-import { sideToMove } from '../lib/chessUtils'
+import { denormalizeFen, sideToMove } from '../lib/chessUtils'
 import { completedDrillHistoryUci } from '../lib/repertoireDrills'
-import { commonContinuations } from '../lib/drillPositionAssessment'
+import { canonicalArrowUci, commonContinuations, continuationArrowColor, playerContinuationArrowColor } from '../lib/drillPositionAssessment'
 import type { DrillLine, DrillStartContext, DrillStartMode } from '../lib/repertoireDrills'
 import type { AuthUser } from '../lib/authApi'
 import type { RepertoireColor } from '../types'
@@ -29,6 +30,8 @@ type Props = {
   playMoveSound: (san: string) => void
   /** Plays the distinct "drill complete" chime, independent of any move's own cue. */
   playDrillCompleteSound: () => void
+  /** Plays once whenever a legal move is rejected as outside the prepared line. */
+  playWrongMoveSound: () => void
   /** Lichess API token, used only for the end-of-line review stats (see below) when signed out. */
   lichessToken: string
   /** Signed-in user, if any - drives both the review stats' backend routing and drill session recording. */
@@ -56,6 +59,7 @@ const CAPTURE_TARGET_STYLE: CSSProperties = {
 }
 // Progressive wrong-attempt hints (2nd attempt: origin square, 3rd+: origin + destination).
 const HINT_SQUARE_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(76, 175, 80, 0.65)' }
+const WRONG_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(239, 92, 92, 0.42)' }
 // Distinct from the green save-hint squares above - this is a warning about an
 // unprepped opponent try, not a hint about the user's own next move.
 const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
@@ -72,6 +76,7 @@ export function DrillView({
   onToggleColor,
   playMoveSound,
   playDrillCompleteSound,
+  playWrongMoveSound,
   lichessToken,
   user,
   repertoireId,
@@ -115,12 +120,64 @@ export function DrillView({
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
+  const soundedWrongAttemptRef = useRef<number | null>(null)
+  const completionActionRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (feedback?.kind !== 'wrong') {
+      soundedWrongAttemptRef.current = null
+      return
+    }
+    if (soundedWrongAttemptRef.current === feedback.attemptToken) return
+    soundedWrongAttemptRef.current = feedback.attemptToken
+    playWrongMoveSound()
+  }, [feedback, playWrongMoveSound])
+
+  useEffect(() => {
+    if (!isPaused) return
+    const revealAction = () => {
+      const action = completionActionRef.current
+      if (!action) return
+      const bounds = action.getBoundingClientRect()
+      if (bounds.top >= 0 && bounds.bottom <= window.innerHeight) return
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      action.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' })
+    }
+    const frame = requestAnimationFrame(revealAction)
+    // Re-check after react-chessboard's final move animation settles; its
+    // changing board geometry could otherwise interrupt the first scroll.
+    const settled = window.setTimeout(revealAction, 350)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(settled)
+    }
+  }, [isPaused, state.completionPause?.lineId])
+
+  // Fetch empirical outcomes only after a rejected move. Doing this during
+  // normal play would reveal popular continuations and undermine the drill.
+  const wrongStatsFen = useMemo(
+    () => feedback?.kind === 'wrong' ? denormalizeFen(feedback.originFen, feedback.originPly) : '',
+    [feedback],
+  )
+  const wrongMoveExplorer = useExplorerStats(
+    wrongStatsFen,
+    lichessToken,
+    feedback?.kind === 'wrong',
+    user !== null,
+  )
 
   // Real-world stats for the position a completed line ends in, fetched only
   // while paused there: during the drill itself they'd both spoil the prepared
   // move and cost an API call for every position walked through.
   const reviewFen = session.completionFen
   const reviewExplorer = useExplorerStats(reviewFen ?? '', lichessToken, isPaused, user !== null)
+  const reviewFollowups = useDrillFollowupStats(
+    reviewFen ?? '',
+    reviewExplorer.data,
+    lichessToken,
+    user !== null,
+    isPaused,
+  )
   const isReviewMoveSaved = useCallback(
     (uci: string) => (reviewFen ? repertoire.isMoveInActiveProfile(color, reviewFen, uci) : false),
     [repertoire, color, reviewFen],
@@ -155,6 +212,10 @@ export function DrillView({
       }
     }
     if (feedback?.kind === 'wrong') {
+      const wrongFrom = feedback.playedUci.slice(0, 2)
+      const wrongTo = feedback.playedUci.slice(2, 4)
+      styles[wrongFrom] = { ...styles[wrongFrom], ...WRONG_MOVE_SQUARE_STYLE }
+      styles[wrongTo] = { ...styles[wrongTo], ...WRONG_MOVE_SQUARE_STYLE }
       if (feedback.hintFrom) styles[feedback.hintFrom] = { ...styles[feedback.hintFrom], ...HINT_SQUARE_STYLE }
       if (feedback.hintTo) styles[feedback.hintTo] = { ...styles[feedback.hintTo], ...HINT_SQUARE_STYLE }
     }
@@ -169,22 +230,31 @@ export function DrillView({
     if (!isPaused) return []
     const result: Arrow[] = []
     if (bestMoveUci) {
+      const arrowUci = canonicalArrowUci(bestMoveUci)
       result.push({
-        startSquare: bestMoveUci.slice(0, 2),
-        endSquare: bestMoveUci.slice(2, 4),
+        startSquare: arrowUci.slice(0, 2),
+        endSquare: arrowUci.slice(2, 4),
         color: BEST_RESPONSE_ARROW_COLOR,
       })
     }
     for (const move of commonContinuations(reviewExplorer.data, bestMoveUci)) {
-      const alpha = Math.min(0.78, 0.28 + move.percentage / 100)
+      const arrowUci = canonicalArrowUci(move.uci)
       result.push({
-        startSquare: move.uci.slice(0, 2),
-        endSquare: move.uci.slice(2, 4),
-        color: `rgba(47, 111, 237, ${alpha.toFixed(2)})`,
+        startSquare: arrowUci.slice(0, 2),
+        endSquare: arrowUci.slice(2, 4),
+        color: continuationArrowColor(move.percentage),
+      })
+    }
+    for (const move of commonContinuations(reviewFollowups.data, null)) {
+      const arrowUci = canonicalArrowUci(move.uci)
+      result.push({
+        startSquare: arrowUci.slice(0, 2),
+        endSquare: arrowUci.slice(2, 4),
+        color: playerContinuationArrowColor(move.percentage),
       })
     }
     return result
-  }, [isPaused, reviewExplorer.data, session.completionEval])
+  }, [isPaused, reviewExplorer.data, reviewFollowups.data, session.completionEval])
 
   const tryMove = useCallback(
     (candidate: { from: string; to: string; promotion?: string }): boolean => {
@@ -329,10 +399,13 @@ export function DrillView({
             <DrillLineCompletePanel
               evaluation={session.completionEval}
               explorerData={reviewExplorer.data}
+              playerFollowupData={reviewFollowups.data}
+              playerFollowupAfterSans={reviewFollowups.afterSans}
               leafPly={state.completionPause?.leafPly ?? 0}
               isLastDrill={session.complete}
               onNext={session.acknowledgeCompletion}
               onViewInExplorer={viewCompletionInExplorer}
+              primaryActionRef={completionActionRef}
             />
             <section className="panel explorer-panel">
               <h2>Lichess explorer</h2>
@@ -353,7 +426,13 @@ export function DrillView({
           />
         ) : (
           <div className="panel drill-feedback-panel">
-            <DrillFeedbackPanel feedback={feedback} similarPosition={session.similarPosition} />
+            <DrillFeedbackPanel
+              feedback={feedback}
+              similarPosition={session.similarPosition}
+              color={color}
+              lichessData={wrongMoveExplorer.data}
+              lichessLoading={wrongMoveExplorer.loading}
+            />
           </div>
         )}
       </div>

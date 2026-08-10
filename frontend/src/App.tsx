@@ -89,7 +89,7 @@ function App() {
   )
   const evaluation = useEngineEval(fen)
   const repertoire = useRepertoire(auth.user)
-  const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
+  const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
   const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>('stats')
@@ -388,6 +388,7 @@ function App() {
             onToggleColor={handleToggleBoardColor}
             playMoveSound={playMoveSound}
             playDrillCompleteSound={playDrillCompleteSound}
+            playWrongMoveSound={playWrongMoveSound}
             lichessToken={token}
             user={auth.user}
             repertoireId={repertoire.repertoireIds[boardColor] ?? null}

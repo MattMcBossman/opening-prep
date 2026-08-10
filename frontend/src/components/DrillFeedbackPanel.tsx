@@ -1,11 +1,17 @@
 import { useMemo } from 'react'
 import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
+import { practicalMoveOutcome } from '../lib/drillPositionAssessment'
+import { formatCompactNumber } from '../lib/formatNumber'
 import type { DrillFeedback } from '../lib/drillSessionLogic'
 import type { SimilarPositionHint } from '../hooks/useDrillSession'
+import type { ExplorerResponse, RepertoireColor } from '../types'
 
 type Props = {
   feedback: DrillFeedback | null
   similarPosition: SimilarPositionHint | null
+  color: RepertoireColor
+  lichessData?: ExplorerResponse | null
+  lichessLoading?: boolean
 }
 
 /**
@@ -14,7 +20,7 @@ type Props = {
  * bad); attempts 2+ additionally reveal square hints (handled by the board via
  * `feedback.hintFrom`/`hintTo` - this panel only covers the textual side).
  */
-export function DrillFeedbackPanel({ feedback, similarPosition }: Props) {
+export function DrillFeedbackPanel({ feedback, similarPosition, color, lichessData, lichessLoading = false }: Props) {
   const pvText = useMemo(() => {
     if (feedback?.kind !== 'wrong' || !feedback.bestResponseLine) return ''
     const sanMoves = uciLineToSan(feedback.bestResponseLine.fen, feedback.bestResponseLine.pvUci)
@@ -38,6 +44,8 @@ export function DrillFeedbackPanel({ feedback, similarPosition }: Props) {
     )
   }
 
+  const practicalOutcome = practicalMoveOutcome(lichessData ?? null, feedback.playedUci, color)
+
   return (
     <div className="drill-feedback">
       <p className="drill-feedback-message">
@@ -56,6 +64,14 @@ export function DrillFeedbackPanel({ feedback, similarPosition }: Props) {
         </div>
       )}
       {feedback.isBad === false && <p className="panel-status">Not a bad move, just not the one you prepared.</p>}
+      {lichessLoading && !lichessData && <p className="panel-status">Checking practical results on Lichess…</p>}
+      {practicalOutcome && (
+        <p className="drill-feedback-practical">
+          In {formatCompactNumber(practicalOutcome.games)} Lichess games after this move, {practicalOutcome.side} lost{' '}
+          <strong>{practicalOutcome.lossPercentage}%</strong> (compared with {practicalOutcome.positionLossPercentage}%
+          across moves from this position). This is historical game data, not proof that the move caused those losses.
+        </p>
+      )}
       {similarPosition && (
         <p className="drill-feedback-similar">
           {similarPosition.matchesPlayedMove
