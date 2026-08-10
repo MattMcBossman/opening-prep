@@ -1,5 +1,9 @@
 # Mobile-first experience plan
 
+The future end-of-drill coaching expansion is specified separately in
+[position-analysis-plan.md](position-analysis-plan.md), including phone-safe
+engine budgets, progressive disclosure, and stable completion actions.
+
 ## Status and objective
 
 **This is the next active project milestone.** Private phone access through the

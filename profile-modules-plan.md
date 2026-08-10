@@ -9,6 +9,10 @@ matrix in [mobile-plan.md](mobile-plan.md). Mobile engineering and automated
 verification are complete. Managed production deployment remains deferred until
 the project is ready for independent uptime or external users.
 
+A basic cached end-of-drill analysis is an approved near-term follow-up, with
+advanced coaching split into later return phases. See
+[position-analysis-plan.md](position-analysis-plan.md).
+
 Mobile progress: M1–M4 engineering and the M5 automated verification pass are
 complete. The app now has a board-first fluid shell, compact settings header,
 Moves/Stats/Prep navigation, responsive statistics, 44px touch targets, a

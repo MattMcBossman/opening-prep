@@ -8,6 +8,10 @@ the operating plan for running the current application and PostgreSQL on the
 developer's laptop and reaching it securely from the developer's phone without
 paying for cloud hosting.
 
+The cached analysis roadmap is in
+[position-analysis-plan.md](position-analysis-plan.md). Its basic release keeps
+Stockfish in the browser; paid server compute is not a deployment prerequisite.
+
 The first target is:
 
 - the existing development stack continues to run on the laptop;

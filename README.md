@@ -24,6 +24,7 @@ Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/
 - `openingtree/` — git submodule; a pre-existing React app used as a **reference implementation only** for Lichess/Chess.com game-history iteration and PGN parsing (see [AGENTS.md](AGENTS.md#inspiration-source-openingtree-submodule)). Not built or run directly as part of this app.
 - `deployment-plan.md` — operating plan for free, private Tailscale access from a phone to the laptop-hosted development app; managed production hosting and database backup/restore work are deferred.
 - `mobile-plan.md` — completed mobile engineering record plus the physical-phone acceptance matrix.
+- `position-analysis-plan.md` — phased cached end-of-drill analysis, recurring plans, and deterministic positional features.
 
 ## Getting started
 
