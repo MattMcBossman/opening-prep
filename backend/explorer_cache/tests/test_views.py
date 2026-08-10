@@ -81,6 +81,38 @@ def test_stats_success_is_anonymous_safe_and_matches_explorer_response_shape(api
     assert response.data == canned
 
 
+def test_stats_rejects_malformed_since(api_client):
+    response = api_client.get("/api/v1/explorer/stats/", {"fen": START_FEN, "since": "not-a-month"})
+    assert response.status_code == 400
+
+
+def test_stats_rejects_unknown_rating_band(api_client):
+    response = api_client.get("/api/v1/explorer/stats/", {"fen": START_FEN, "ratings": "1600,9999"})
+    assert response.status_code == 400
+
+
+def test_stats_rejects_unknown_speed(api_client):
+    response = api_client.get("/api/v1/explorer/stats/", {"fen": START_FEN, "speeds": "warp-speed"})
+    assert response.status_code == 400
+
+
+def test_stats_forwards_valid_filters(api_client, monkeypatch):
+    captured = {}
+
+    def fake_get_or_fetch_stats(fen, moves, user, **kwargs):
+        captured.update(kwargs)
+        return {"totalGames": 0, "moves": [], "opening": None}
+
+    monkeypatch.setattr(views.cache, "get_or_fetch_stats", fake_get_or_fetch_stats)
+
+    response = api_client.get(
+        "/api/v1/explorer/stats/",
+        {"fen": START_FEN, "since": "2020-01", "until": "2021-06", "ratings": "1600,2000", "speeds": "blitz"},
+    )
+    assert response.status_code == 200
+    assert captured == {"since": "2020-01", "until": "2021-06", "ratings": "1600,2000", "speeds": "blitz"}
+
+
 # --- /explorer/evals/ -------------------------------------------------------
 
 
@@ -198,3 +230,29 @@ def test_my_games_upstream_unavailable_returns_502_not_500(api_client, user, mon
     api_client.force_authenticate(user=user)
     response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
     assert response.status_code == 502
+
+
+def test_my_games_rejects_malformed_since(api_client, user):
+    api_client.force_authenticate(user=user)
+    response = api_client.get(
+        "/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white", "since": "2020"}
+    )
+    assert response.status_code == 400
+
+
+def test_my_games_forwards_valid_since_until(api_client, user, monkeypatch):
+    captured = {}
+
+    def fake_fetch_player_stats(user, fen, moves, color, **kwargs):
+        captured.update(kwargs)
+        return {"totalGames": 0, "moves": [], "opening": None}
+
+    monkeypatch.setattr(player_stats, "fetch_player_stats", fake_fetch_player_stats)
+    api_client.force_authenticate(user=user)
+
+    response = api_client.get(
+        "/api/v1/explorer/my-games/",
+        {"fen": START_FEN, "color": "white", "since": "2020-01", "until": "2021-06"},
+    )
+    assert response.status_code == 200
+    assert captured == {"since": "2020-01", "until": "2021-06"}

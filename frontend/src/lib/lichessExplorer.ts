@@ -30,12 +30,53 @@ type RawExplorerResponse = {
   opening?: { eco: string; name: string } | null
 }
 
+/** `since`/`until` are Lichess's own "YYYY-MM" month format, applicable to every explorer source. */
+export type TimeRangeFilters = {
+  since?: string
+  until?: string
+}
+
+/**
+ * Rating-band and game-speed filters, supported only by Lichess's public
+ * `/lichess` database (not the player-scoped `/player` endpoint) - see
+ * API_CONTRACT.md. `ratings` are Lichess's own bracket markers ("1600",
+ * "1800", "2000", "2200", "2500"); `speeds` are perf types ("bullet",
+ * "blitz", etc). An empty/omitted array means "no restriction", matching
+ * today's unfiltered behavior.
+ */
+export type LichessDatabaseFilters = TimeRangeFilters & {
+  ratings?: string[]
+  speeds?: string[]
+}
+
+/** Stable cache-key fragment for a filters object, order-independent so equivalent filter sets share a cache entry. */
+function filterKey(filters?: Record<string, string | string[] | undefined>): string {
+  if (!filters) return ''
+  return Object.entries(filters)
+    .filter(([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
+    .map(([k, v]) => `${k}=${Array.isArray(v) ? [...v].sort().join(',') : v}`)
+    .sort()
+    .join('&')
+}
+
+function applyTimeRangeFilters(params: URLSearchParams, filters?: TimeRangeFilters): void {
+  if (filters?.since) params.set('since', filters.since)
+  if (filters?.until) params.set('until', filters.until)
+}
+
+function applyLichessDatabaseFilters(params: URLSearchParams, filters?: LichessDatabaseFilters): void {
+  applyTimeRangeFilters(params, filters)
+  if (filters?.ratings?.length) params.set('ratings', filters.ratings.join(','))
+  if (filters?.speeds?.length) params.set('speeds', filters.speeds.join(','))
+}
+
 export async function fetchLichessExplorer(
   fen: string,
   apiToken: string,
   signal?: AbortSignal,
+  filters?: LichessDatabaseFilters,
 ): Promise<ExplorerResponse> {
-  const cacheKey = `${apiToken ? 'auth' : 'anon'}:${fen}`
+  const cacheKey = `${apiToken ? 'auth' : 'anon'}:${fen}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data
@@ -46,6 +87,7 @@ export async function fetchLichessExplorer(
   url.searchParams.set('moves', '12')
   url.searchParams.set('topGames', '0')
   url.searchParams.set('recentGames', '0')
+  applyLichessDatabaseFilters(url.searchParams, filters)
 
   const res = await fetch(url.toString(), {
     signal,
@@ -86,16 +128,16 @@ export async function fetchLichessExplorer(
  */
 export async function fetchExplorerStats(
   fen: string,
-  options: { apiToken: string; signedIn: boolean; signal?: AbortSignal },
+  options: { apiToken: string; signedIn: boolean; signal?: AbortSignal; filters?: LichessDatabaseFilters },
 ): Promise<ExplorerResponse> {
   if (!options.signedIn) {
-    return fetchLichessExplorer(fen, options.apiToken, options.signal)
+    return fetchLichessExplorer(fen, options.apiToken, options.signal, options.filters)
   }
   try {
-    return await fetchExplorerStatsViaBackend(fen, options.signal)
+    return await fetchExplorerStatsViaBackend(fen, options.signal, options.filters)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401 && options.apiToken) {
-      return fetchLichessExplorer(fen, options.apiToken, options.signal)
+      return fetchLichessExplorer(fen, options.apiToken, options.signal, options.filters)
     }
     throw err
   }
@@ -110,14 +152,19 @@ export async function fetchExplorerStats(
  * client cache as the anonymous path, under a distinct key prefix so the two
  * paths never collide if a user signs in/out mid-session.
  */
-export async function fetchExplorerStatsViaBackend(fen: string, signal?: AbortSignal): Promise<ExplorerResponse> {
-  const cacheKey = `backend:${fen}`
+export async function fetchExplorerStatsViaBackend(
+  fen: string,
+  signal?: AbortSignal,
+  filters?: LichessDatabaseFilters,
+): Promise<ExplorerResponse> {
+  const cacheKey = `backend:${fen}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data
   }
 
   const params = new URLSearchParams({ fen, moves: '12' })
+  applyLichessDatabaseFilters(params, filters)
   const data = await apiRequest<ExplorerResponse>(`/explorer/stats/?${params.toString()}`, { signal })
 
   cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
@@ -137,16 +184,25 @@ export async function fetchMyGamesExplorerStats(
   fen: string,
   color: RepertoireColor,
   signal?: AbortSignal,
+  filters?: TimeRangeFilters,
 ): Promise<ExplorerResponse> {
-  const cacheKey = `my-games:${color}:${fen}`
+  const cacheKey = `my-games:${color}:${fen}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data
   }
 
   const params = new URLSearchParams({ fen, moves: '12', color })
+  applyTimeRangeFilters(params, filters)
   const data = await apiRequest<ExplorerResponse>(`/explorer/my-games/?${params.toString()}`, { signal })
 
-  cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
+  // Never cache a still-indexing result: Lichess hasn't finished computing it
+  // yet, so caching it (even briefly) would show a stale "no data" result on
+  // the next poll instead of letting useExplorerStats's retry loop see
+  // whatever progress Lichess has made since. A finished result is still
+  // cached normally.
+  if (!data.stillIndexing) {
+    cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
+  }
   return data
 }

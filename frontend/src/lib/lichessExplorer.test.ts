@@ -146,4 +146,87 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
       status: 401,
     })
   })
+
+  it('does not cache a stillIndexing result, so a re-fetch hits the network again', async () => {
+    const indexing = { totalGames: 0, moves: [], opening: null, stillIndexing: true }
+    // A fresh Response per call - unlike mockResolvedValue, which would return
+    // the same Response instance twice, and a Response body can only be read once.
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(indexing)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchMyGamesExplorerStats('still-indexing-fen w KQkq -', 'white')
+    await fetchMyGamesExplorerStats('still-indexing-fen w KQkq -', 'white')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('caches a finished (non-indexing) result, so a re-fetch is served from cache', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchMyGamesExplorerStats('finished-fen w KQkq -', 'white')
+    await fetchMyGamesExplorerStats('finished-fen w KQkq -', 'white')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends since/until filters as query params', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchMyGamesExplorerStats('filtered-my-games-fen w KQkq -', 'white', undefined, {
+      since: '2020-01',
+      until: '2021-06',
+    })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toContain('since=2020-01')
+    expect(url).toContain('until=2021-06')
+  })
+})
+
+describe('LichessDatabaseFilters passthrough (since/until/ratings/speeds)', () => {
+  it('fetchLichessExplorer includes them in the direct-to-Lichess request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(RAW_EXPLORER_RESPONSE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchLichessExplorer('filters-anon-fen w KQkq -', 'lip_token', undefined, {
+      since: '2020-01',
+      until: '2021-06',
+      ratings: ['1600', '2000'],
+      speeds: ['blitz', 'rapid'],
+    })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toContain('since=2020-01')
+    expect(url).toContain('until=2021-06')
+    expect(url).toContain('ratings=1600%2C2000')
+    expect(url).toContain('speeds=blitz%2Crapid')
+  })
+
+  it('fetchExplorerStatsViaBackend includes them in the backend proxy request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchExplorerStatsViaBackend('filters-backend-fen w KQkq -', undefined, {
+      ratings: ['1600'],
+      speeds: ['bullet'],
+    })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe(
+      '/api/v1/explorer/stats/?fen=filters-backend-fen+w+KQkq+-&moves=12&ratings=1600&speeds=bullet',
+    )
+  })
+
+  it('an empty ratings/speeds array omits the param entirely (no filter)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchExplorerStatsViaBackend('filters-empty-fen w KQkq -', undefined, { ratings: [], speeds: [] })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).not.toContain('ratings')
+    expect(url).not.toContain('speeds')
+  })
 })

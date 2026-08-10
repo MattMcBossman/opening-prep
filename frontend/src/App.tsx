@@ -15,6 +15,7 @@ import { useBoardColor } from './hooks/useBoardColor'
 import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
 import type { ExplorerSource } from './hooks/useExplorerStats'
 import { useRepertoire } from './hooks/useRepertoire'
+import type { LichessDatabaseFilters } from './lib/lichessExplorer'
 import { useSound } from './hooks/useSound'
 import { installAudioUnlock } from './audio/soundPlayer'
 import { MoveList } from './components/MoveList'
@@ -29,6 +30,7 @@ import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
 import { PgnImportExportPanel } from './components/PgnImportExportPanel'
 import { ExplorerSourceToggle } from './components/ExplorerSourceToggle'
+import { ExplorerFiltersPanel } from './components/ExplorerFiltersPanel'
 import { BoardColorToggle } from './components/BoardColorToggle'
 import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
@@ -72,7 +74,22 @@ function App() {
   const [explorerSource, setExplorerSource] = useState<ExplorerSource>('lichess')
   // Signed-out users have no "my games" source at all - always show the public database.
   const effectiveExplorerSource = isSignedIn ? explorerSource : 'lichess'
-  const explorer = useExplorerStats(fen, token, true, isSignedIn, effectiveExplorerSource, boardColor)
+  // Shared since/until, plus ratings/speeds which only ever apply to (and are
+  // only ever sent for) the 'lichess' source - see ExplorerFiltersPanel and
+  // LichessDatabaseFilters. Keeping ratings/speeds here even while viewing
+  // "My games" is harmless (useExplorerStats/fetchMyGamesExplorerStats simply
+  // never read them) and means switching back to "Lichess database" doesn't
+  // lose them.
+  const [explorerFilters, setExplorerFilters] = useState<LichessDatabaseFilters>({})
+  const explorer = useExplorerStats(
+    fen,
+    token,
+    true,
+    isSignedIn,
+    effectiveExplorerSource,
+    boardColor,
+    explorerFilters,
+  )
   const evaluation = useEngineEval(fen)
   const repertoire = useRepertoire(auth.user)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
@@ -342,6 +359,11 @@ function App() {
               <h2>Lichess explorer</h2>
               {isSignedIn && <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />}
               {!isSignedIn && <LichessTokenSettings token={token} onChange={setToken} />}
+              <ExplorerFiltersPanel
+                source={effectiveExplorerSource}
+                filters={explorerFilters}
+                onChange={setExplorerFilters}
+              />
               <ExplorerStatsTable
                 data={explorer.data}
                 loading={explorer.loading}
@@ -349,6 +371,9 @@ function App() {
                 onMoveClick={(san) => playMove(san)}
                 isMoveSaved={isExplorerMoveSaved}
                 isMyMove={isExplorerMyMove}
+                isPolling={explorer.isPolling}
+                pollExhausted={explorer.pollExhausted}
+                onRetry={explorer.retry}
               />
             </section>
             <section className="panel">

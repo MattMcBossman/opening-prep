@@ -1,9 +1,18 @@
 """DRF serializers for the explorer_cache app. See backend/API_CONTRACT.md for the shapes."""
 
+import re
+
 import chess
 from rest_framework import serializers
 
 from .models import EngineLineCache
+
+# Lichess's own rating-bracket markers and perf/speed types for the `/lichess`
+# database endpoint (see cache.py) - not accepted at all by the player-scoped
+# `/player` endpoint, so these only ever appear on ExplorerStatsQuerySerializer.
+ALLOWED_RATINGS = {"1600", "1800", "2000", "2200", "2500"}
+ALLOWED_SPEEDS = {"ultraBullet", "bullet", "blitz", "rapid", "classical", "correspondence"}
+_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 
 
 def validate_fen(value: str) -> str:
@@ -21,11 +30,46 @@ def validate_fen(value: str) -> str:
     return value
 
 
+def validate_month(value: str) -> str:
+    """Shared `since`/`until` validator - Lichess expects "YYYY-MM" for both explorer endpoints."""
+    if not _MONTH_RE.match(value):
+        raise serializers.ValidationError('Must be in "YYYY-MM" format.')
+    return value
+
+
+def _comma_separated_choice_validator(allowed: set[str], label: str):
+    """
+    Builds a validator for a comma-separated list of values (e.g.
+    "1600,2000"), rather than DRF's usual repeated-key list handling - this
+    matches how Lichess's own frontend actually sends these params (a single
+    joined string, despite the API docs describing them as arrays - see
+    cache.py's `_fetch_upstream`), so the same string can be forwarded
+    upstream unchanged once validated.
+    """
+
+    def validator(value: str) -> str:
+        values = [v for v in value.split(",") if v]
+        invalid = sorted(set(values) - allowed)
+        if invalid:
+            raise serializers.ValidationError(f"Invalid {label}: {', '.join(invalid)}.")
+        return value
+
+    return validator
+
+
+validate_ratings = _comma_separated_choice_validator(ALLOWED_RATINGS, "rating band(s)")
+validate_speeds = _comma_separated_choice_validator(ALLOWED_SPEEDS, "speed(s)")
+
+
 class ExplorerStatsQuerySerializer(serializers.Serializer):
     """Query params for `GET /explorer/stats/`."""
 
     fen = serializers.CharField(validators=[validate_fen])
     moves = serializers.IntegerField(required=False, default=12, min_value=1, max_value=30)
+    since = serializers.CharField(required=False, validators=[validate_month])
+    until = serializers.CharField(required=False, validators=[validate_month])
+    ratings = serializers.CharField(required=False, validators=[validate_ratings])
+    speeds = serializers.CharField(required=False, validators=[validate_speeds])
 
 
 class ExplorerMoveStatSerializer(serializers.Serializer):
@@ -68,6 +112,8 @@ class MyGamesExplorerQuerySerializer(serializers.Serializer):
     fen = serializers.CharField(validators=[validate_fen])
     moves = serializers.IntegerField(required=False, default=12, min_value=1, max_value=30)
     color = serializers.ChoiceField(choices=["white", "black"])
+    since = serializers.CharField(required=False, validators=[validate_month])
+    until = serializers.CharField(required=False, validators=[validate_month])
 
 
 class EngineEvalQuerySerializer(serializers.Serializer):

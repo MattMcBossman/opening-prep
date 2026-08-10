@@ -37,16 +37,23 @@ class UpstreamUnavailable(Exception):
     """Lichess timed out, errored, or returned something we can't parse."""
 
 
-def params_key_for(moves: int) -> str:
+def params_key_for(
+    moves: int,
+    since: str | None = None,
+    until: str | None = None,
+    ratings: str | None = None,
+    speeds: str | None = None,
+) -> str:
     """
     Stable hash of every explorer query option that changes the upstream
-    response. `moves` is the only one today; the rating-band filter planned in
-    AGENTS.md adds fields to the hashed string later, and every *existing*
-    cache row stays correctly scoped when that happens because a differently-
-    shaped input hashes to a different key rather than colliding with the
-    unfiltered data already cached under the old key shape.
+    response - `moves` plus the optional time-range/rating/speed filters.
+    Every *existing* cache row stays correctly scoped as filters are added:
+    a differently-shaped input hashes to a different key rather than
+    colliding with the unfiltered data already cached under the old key shape.
     """
-    raw = f"moves={moves}"
+    raw = (
+        f"moves={moves}&since={since or ''}&until={until or ''}&ratings={ratings or ''}&speeds={speeds or ''}"
+    )
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -63,12 +70,25 @@ def _fresh_entry(fen: str, params_key: str) -> PositionStatsCache | None:
     return entry if entry and not entry.is_expired else None
 
 
-def get_or_fetch_stats(fen: str, moves: int, user) -> dict:
+def get_or_fetch_stats(
+    fen: str,
+    moves: int,
+    user,
+    since: str | None = None,
+    until: str | None = None,
+    ratings: str | None = None,
+    speeds: str | None = None,
+) -> dict:
     """
     Returns the transformed `ExplorerResponse` dict for `fen`, from cache when
     fresh or freshly fetched from Lichess otherwise. Raises `TokenRequired`,
     `UpstreamRateLimited`, or `UpstreamUnavailable` for the view to translate
     into the appropriate HTTP response.
+
+    `since`/`until` (Lichess's own "YYYY-MM" format) and `ratings`/`speeds`
+    (comma-separated) are optional filters forwarded to Lichess unchanged -
+    see `_fetch_upstream` - and folded into the cache key via `params_key_for`
+    so different filter combinations never share a cached response.
 
     Concurrency: without a lock, two requests racing for the same not-yet-
     cached key would both call upstream and both write. Serialized here with
@@ -82,7 +102,7 @@ def get_or_fetch_stats(fen: str, moves: int, user) -> dict:
     including on an exception.
     """
     normalized = normalize_fen(fen)
-    key = params_key_for(moves)
+    key = params_key_for(moves, since, until, ratings, speeds)
 
     cached = _fresh_entry(normalized, key)
     if cached is not None:
@@ -102,7 +122,7 @@ def get_or_fetch_stats(fen: str, moves: int, user) -> dict:
         if not token:
             raise TokenRequired()
 
-        raw = _fetch_upstream(normalized, moves, token)
+        raw = _fetch_upstream(normalized, moves, token, since, until, ratings, speeds)
 
         entry, _ = PositionStatsCache.objects.update_or_create(
             source=PositionStatsCache.SOURCE_LICHESS,
@@ -116,16 +136,36 @@ def get_or_fetch_stats(fen: str, moves: int, user) -> dict:
         return _to_explorer_response(entry.response)
 
 
-def _fetch_upstream(normalized_fen: str, moves: int, token: str) -> dict:
+def _fetch_upstream(
+    normalized_fen: str,
+    moves: int,
+    token: str,
+    since: str | None = None,
+    until: str | None = None,
+    ratings: str | None = None,
+    speeds: str | None = None,
+) -> dict:
     # Lichess's own move-counter fields don't affect the response - it only
     # cares about board/side-to-move/castling/en-passant - so ply 0 (fullmove 1,
     # halfmove 0) is a harmless default when `normalized_fen` has no move-count
     # fields of its own to restore.
     upstream_fen = denormalize_fen(normalized_fen, ply=0)
+    params = {"fen": upstream_fen, "moves": moves, "topGames": 0, "recentGames": 0}
+    # Lichess's own frontend sends these as single comma-joined strings
+    # (`ratings=1600,2000`), not repeated `ratings[]=` params despite how the
+    # API docs describe them - see serializers.py's `_comma_separated_choice_validator`.
+    if since:
+        params["since"] = since
+    if until:
+        params["until"] = until
+    if ratings:
+        params["ratings"] = ratings
+    if speeds:
+        params["speeds"] = speeds
     try:
         response = requests.get(
             settings.LICHESS_EXPLORER_URL,
-            params={"fen": upstream_fen, "moves": moves, "topGames": 0, "recentGames": 0},
+            params=params,
             headers={"Authorization": f"Bearer {token}"},
             timeout=UPSTREAM_TIMEOUT_SECONDS,
         )

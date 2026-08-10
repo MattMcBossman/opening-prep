@@ -83,6 +83,45 @@ def test_expired_entry_is_refetched(user, settings):
 
 
 @responses.activate
+def test_since_until_ratings_speeds_are_forwarded_to_upstream(user, settings):
+    responses.add(responses.GET, settings.LICHESS_EXPLORER_URL, json=_raw_response(), status=200)
+
+    cache.get_or_fetch_stats(
+        START_FEN, 12, user, since="2020-01", until="2021-06", ratings="1600,2000", speeds="blitz,rapid"
+    )
+
+    request_url = responses.calls[0].request.url
+    assert "since=2020-01" in request_url
+    assert "until=2021-06" in request_url
+    assert "ratings=1600%2C2000" in request_url
+    assert "speeds=blitz%2Crapid" in request_url
+
+
+@responses.activate
+def test_different_filters_get_distinct_cache_entries(user, settings):
+    responses.add(
+        responses.GET,
+        settings.LICHESS_EXPLORER_URL,
+        json=_raw_response(white=1, draws=0, black=0),
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        settings.LICHESS_EXPLORER_URL,
+        json=_raw_response(white=2, draws=0, black=0),
+        status=200,
+    )
+
+    unfiltered = cache.get_or_fetch_stats(START_FEN, 12, user)
+    filtered = cache.get_or_fetch_stats(START_FEN, 12, user, ratings="1600")
+
+    assert unfiltered["totalGames"] == 1
+    assert filtered["totalGames"] == 2
+    assert PositionStatsCache.objects.count() == 2
+    assert len(responses.calls) == 2
+
+
+@responses.activate
 def test_differing_params_get_distinct_cache_entries(user, settings):
     responses.add(
         responses.GET,
@@ -156,7 +195,7 @@ def test_concurrent_requests_for_the_same_key_single_flight(monkeypatch):
     count_lock = threading.Lock()
     first_call_started = threading.Event()
 
-    def slow_fetch_upstream(normalized_fen, moves, token):
+    def slow_fetch_upstream(normalized_fen, moves, token, since=None, until=None, ratings=None, speeds=None):
         nonlocal call_count
         with count_lock:
             call_count += 1

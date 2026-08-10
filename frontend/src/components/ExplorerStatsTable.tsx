@@ -15,6 +15,12 @@ type Props = {
   isMoveSaved: (uci: string) => boolean
   /** Whether it's the repertoire owner's own turn at the current position (vs. the opponent's). */
   isMyMove: boolean
+  /** True while a "my games" result is still indexing and being automatically re-polled - see useExplorerStats. */
+  isPolling?: boolean
+  /** True once automatic re-polling has given up while still indexing - shows a manual "Try again" button. */
+  pollExhausted?: boolean
+  /** Restarts polling - only used/shown when `pollExhausted`. */
+  onRetry?: () => void
 }
 
 function percent(n: number, total: number): number {
@@ -54,15 +60,43 @@ function ResultBar({ move }: { move: ExplorerMoveStat }) {
   )
 }
 
-export function ExplorerStatsTable({ data, loading, error, onMoveClick, isMoveSaved, isMyMove }: Props) {
+function StillIndexingNote({ isPolling, pollExhausted, onRetry }: Pick<Props, 'isPolling' | 'pollExhausted' | 'onRetry'>) {
+  return (
+    <p className="panel-status">
+      {pollExhausted
+        ? "Lichess is still indexing your games — this is taking longer than usual."
+        : isPolling
+          ? 'Still indexing your games on Lichess — checking again shortly…'
+          : 'Still indexing your games on Lichess.'}
+      {pollExhausted && onRetry && (
+        <>
+          {' '}
+          <button type="button" onClick={onRetry}>
+            Try again
+          </button>
+        </>
+      )}
+    </p>
+  )
+}
+
+export function ExplorerStatsTable({
+  data,
+  loading,
+  error,
+  onMoveClick,
+  isMoveSaved,
+  isMyMove,
+  isPolling,
+  pollExhausted,
+  onRetry,
+}: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
   if (error) return <p className="panel-status error">{error}</p>
   if (!data || data.moves.length === 0) {
     return (
       <>
-        {data?.stillIndexing && (
-          <p className="panel-status">Still indexing your games on Lichess — try again shortly.</p>
-        )}
+        {data?.stillIndexing && <StillIndexingNote isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />}
         <p className="panel-status">No Lichess game data for this position.</p>
       </>
     )
@@ -70,9 +104,7 @@ export function ExplorerStatsTable({ data, loading, error, onMoveClick, isMoveSa
 
   return (
     <>
-      {data.stillIndexing && (
-        <p className="panel-status">Still indexing your games on Lichess — results may be incomplete.</p>
-      )}
+      {data.stillIndexing && <StillIndexingNote isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />}
       <table className="explorer-table">
         <thead>
           <tr>

@@ -35,13 +35,24 @@ STREAM_BUDGET_SECONDS = 15
 PLAYER_EXPLORER_URL = "https://explorer.lichess.org/player"
 
 
-def fetch_player_stats(user, fen: str, moves: int, color: str) -> dict:
+def fetch_player_stats(
+    user,
+    fen: str,
+    moves: int,
+    color: str,
+    since: str | None = None,
+    until: str | None = None,
+) -> dict:
     """
     Returns an `ExplorerResponse`-shaped dict (see response_shape.py) built
     from `user`'s own games played as `color`, from `fen`. Adds
     `stillIndexing: True` when Lichess hadn't finished processing within
     `STREAM_BUDGET_SECONDS` - the caller still gets a real (if possibly
     incomplete) result rather than an error.
+
+    `since`/`until` (Lichess's own "YYYY-MM" format) are optional and
+    forwarded to Lichess unchanged - see `explorer_cache/serializers.py`'s
+    `validate_month`.
 
     Raises `TokenRequired` (no linked Lichess account, or a decrypt failure),
     `UpstreamRateLimited`, or `UpstreamUnavailable` - reusing the same
@@ -54,18 +65,23 @@ def fetch_player_stats(user, fen: str, moves: int, color: str) -> dict:
         raise TokenRequired()
 
     upstream_fen = denormalize_fen(normalize_fen(fen), ply=0)
+    params = {
+        "player": username,
+        "color": color,
+        "fen": upstream_fen,
+        "moves": moves,
+        "topGames": 0,
+        "recentGames": 0,
+    }
+    if since:
+        params["since"] = since
+    if until:
+        params["until"] = until
 
     try:
         response = requests.get(
             PLAYER_EXPLORER_URL,
-            params={
-                "player": username,
-                "color": color,
-                "fen": upstream_fen,
-                "moves": moves,
-                "topGames": 0,
-                "recentGames": 0,
-            },
+            params=params,
             headers={"Authorization": f"Bearer {token}"},
             timeout=UPSTREAM_TIMEOUT_SECONDS,
             stream=True,

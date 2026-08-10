@@ -58,10 +58,17 @@ class ExplorerStatsView(APIView):
     def get(self, request):
         query = ExplorerStatsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        data_in = query.validated_data
 
         try:
             data = cache.get_or_fetch_stats(
-                query.validated_data["fen"], query.validated_data["moves"], request.user
+                data_in["fen"],
+                data_in["moves"],
+                request.user,
+                since=data_in.get("since"),
+                until=data_in.get("until"),
+                ratings=data_in.get("ratings"),
+                speeds=data_in.get("speeds"),
             )
         except cache.TokenRequired:
             return Response({"detail": "Sign in with Lichess to load explorer stats."}, status=401)
@@ -103,13 +110,16 @@ class MyGamesExplorerView(APIView):
     def get(self, request):
         query = MyGamesExplorerQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        data_in = query.validated_data
 
         try:
             data = player_stats.fetch_player_stats(
                 request.user,
-                query.validated_data["fen"],
-                query.validated_data["moves"],
-                query.validated_data["color"],
+                data_in["fen"],
+                data_in["moves"],
+                data_in["color"],
+                since=data_in.get("since"),
+                until=data_in.get("until"),
             )
         except cache.TokenRequired:
             return Response(

@@ -84,6 +84,22 @@ def test_skips_blank_and_unparseable_lines(user):
     assert data["totalGames"] == 4
 
 
+@responses.activate
+def test_since_until_are_forwarded_to_upstream(user):
+    responses.add(
+        responses.GET,
+        player_stats.PLAYER_EXPLORER_URL,
+        body=_ndjson({"white": 1, "draws": 0, "black": 0, "moves": []}),
+        status=200,
+    )
+
+    player_stats.fetch_player_stats(user, START_FEN, 12, "white", since="2020-01", until="2021-06")
+
+    request_url = responses.calls[0].request.url
+    assert "since=2020-01" in request_url
+    assert "until=2021-06" in request_url
+
+
 def test_no_linked_account_raises_token_required(db):
     user = User.objects.create_user(username="no-lichess")
     with pytest.raises(cache.TokenRequired):
