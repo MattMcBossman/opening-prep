@@ -119,6 +119,7 @@ test('signed-in explorer saving persists an explicit line across refresh', async
 })
 
 test('switching to My games clears public stats and replaces partial snapshots while polling', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
   let personalRequests = 0
   let personalSpeeds: string | null = null
   const personalRequestsBySpeed = new Map<string, number>()
@@ -164,9 +165,27 @@ test('switching to My games clears public stats and replaces partial snapshots w
 
   await page.goto('/')
   await expect(page.getByRole('row', { name: /c4/ })).toBeVisible()
+  const sourceToggleBox = await page.getByRole('tablist', { name: 'Explorer data source' }).boundingBox()
+  const filtersBox = await page.locator('.explorer-filters-disclosure').boundingBox()
+  expect(sourceToggleBox && filtersBox).toBeTruthy()
+  expect(Math.abs(sourceToggleBox!.y - filtersBox!.y)).toBeLessThan(8)
+  expect(Math.abs(sourceToggleBox!.height - filtersBox!.height)).toBeLessThanOrEqual(1)
+  await expect(page.getByLabel('From month')).toBeHidden()
+  await page.getByText('Filters', { exact: true }).click()
   await page.getByLabel('From month').selectOption('02')
   await page.getByLabel('From year').selectOption('2024')
   await page.getByRole('checkbox', { name: 'Rapid', exact: true }).check()
+  await expect(page.getByText('2 active')).toBeVisible()
+  await page.getByText('Filters', { exact: true }).click()
+  const activeBadgeFits = await page.getByText('2 active').evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(activeBadgeFits.scrollWidth).toBeLessThanOrEqual(activeBadgeFits.clientWidth)
+  expect(activeBadgeFits.scrollHeight).toBeLessThanOrEqual(activeBadgeFits.clientHeight)
+  await page.getByText('Filters', { exact: true }).click()
   await page.getByRole('tab', { name: 'My games' }).click()
   await expect(page.getByRole('row', { name: /c4/ })).toHaveCount(0)
   await expect(page.getByText('Loading explorer stats…')).toBeVisible()

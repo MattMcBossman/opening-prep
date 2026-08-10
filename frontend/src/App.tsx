@@ -491,13 +491,15 @@ function App() {
               role="tabpanel"
             >
               <h2>Lichess explorer</h2>
-              {isSignedIn && <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />}
+              <div className="explorer-toolbar">
+                {isSignedIn && <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />}
+                <ExplorerFiltersPanel
+                  source={effectiveExplorerSource}
+                  filters={explorerFilters}
+                  onChange={setExplorerFilters}
+                />
+              </div>
               {!isSignedIn && <LichessTokenSettings token={token} onChange={setToken} />}
-              <ExplorerFiltersPanel
-                source={effectiveExplorerSource}
-                filters={explorerFilters}
-                onChange={setExplorerFilters}
-              />
               <ExplorerStatsTable
                 data={explorer.data}
                 loading={explorer.loading}
