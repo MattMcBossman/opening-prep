@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { HistoryEntry } from '../hooks/useGame'
 import type { RepertoireColor, RepertoireMove } from '../types'
 
@@ -120,8 +121,20 @@ export function MoveList({
   onRemoveContinuation,
   isContinuationEditable = () => true,
 }: Props) {
+  const listRef = useRef<HTMLDivElement>(null)
   const playedRows = buildPlayedRows(moves, pointer)
   const continuationRows = buildContinuationRows(pointer, continuations)
+  const continuationKey = continuations.map((move) => move.uci).join(' ')
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const list = listRef.current
+      if (!list) return
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      list.scrollTo({ top: list.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pointer, continuationKey])
 
   function renderStar(cell: Cell | undefined) {
     if (!cell) return null
@@ -146,7 +159,7 @@ export function MoveList({
   }
 
   return (
-    <div className="move-list">
+    <div ref={listRef} className="move-list">
       {playedRows.map((row, i) => renderRow(row, `played-${i}`))}
       {playedRows.length > 0 && continuationRows.length > 0 && <div className="move-list-divider" />}
       {continuationRows.map((row, i) => renderRow(row, `continuation-${i}`))}

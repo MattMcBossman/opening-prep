@@ -16,7 +16,8 @@ export function ExplorerSourceToggle({ source, onChange }: Props) {
         className={source === 'lichess' ? 'mode-toggle-button active' : 'mode-toggle-button'}
         onClick={() => onChange('lichess')}
       >
-        Lichess database
+        <span className="source-label-wide">Lichess database</span>
+        <span className="source-label-compact">Lichess DB</span>
       </button>
       <button
         type="button"

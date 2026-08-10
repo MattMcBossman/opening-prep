@@ -33,6 +33,7 @@ test('anonymous profile and module management survives a refresh', async ({ page
 })
 
 test('a selected explorer position launches only eligible saved drill steps', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
   await page.addInitScript(({ root, afterE4, afterE4E5, afterNc3 }) => {
     localStorage.setItem('opening-prep:repertoire', JSON.stringify({
       version: 3,
@@ -55,7 +56,14 @@ test('a selected explorer position launches only eligible saved drill steps', as
   }, { root: ROOT, afterE4: AFTER_E4, afterE4E5: AFTER_E4_E5, afterNc3: AFTER_NC3 })
 
   await page.goto('/')
+  await page.getByRole('tab', { name: 'Moves', exact: true }).click()
+  await page.locator('.move-list').evaluate((element) => {
+    element.style.height = '44px'
+    element.style.maxHeight = '44px'
+    element.style.flex = 'none'
+  })
   await page.getByRole('button', { name: 'e4', exact: true }).click()
+  await expect.poll(() => page.locator('.move-list').evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
   await page.getByRole('button', { name: 'e5', exact: true }).click()
   await page.getByRole('button', { name: 'Drill from here' }).click()
 
@@ -164,7 +172,12 @@ test('switching to My games clears public stats and replaces partial snapshots w
   })
 
   await page.goto('/')
-  await expect(page.getByRole('row', { name: /c4/ })).toBeVisible()
+  const publicMoveRow = page.getByRole('row', { name: /c4/ })
+  await expect(publicMoveRow).toBeVisible()
+  const publicCells = publicMoveRow.getByRole('cell')
+  const publicCellBoxes = await Promise.all([0, 1, 2].map((index) => publicCells.nth(index).boundingBox()))
+  expect(publicCellBoxes.every(Boolean)).toBe(true)
+  expect(Math.max(...publicCellBoxes.map((box) => box!.y)) - Math.min(...publicCellBoxes.map((box) => box!.y))).toBeLessThan(5)
   const sourceToggleBox = await page.getByRole('tablist', { name: 'Explorer data source' }).boundingBox()
   const filtersBox = await page.locator('.explorer-filters-disclosure').boundingBox()
   expect(sourceToggleBox && filtersBox).toBeTruthy()
@@ -203,7 +216,7 @@ test('switching to My games clears public stats and replaces partial snapshots w
   await expect(page.getByText('Found 6 games.')).toBeVisible()
   await expect(page.getByText(/checking Lichess for updates/)).toHaveCount(0)
 
-  await page.getByRole('tab', { name: 'Lichess database' }).click()
+  await page.getByRole('tab', { name: /Lichess (database|DB)/ }).click()
   await expect(page.getByLabel('From month')).toHaveValue('02')
   await expect(page.getByLabel('From year')).toHaveValue('2024')
   await expect(page.getByRole('checkbox', { name: 'Rapid', exact: true })).toBeChecked()
