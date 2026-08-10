@@ -39,6 +39,13 @@ The frontend's Vite dev server proxies `/api` here, so run both and browse to th
 Vite URL (http://localhost:5173) rather than to Django directly — that keeps the
 session cookie first-party and avoids any CORS setup.
 
+For private access from a phone outside the home network, use
+`../scripts/remote-dev` instead of starting these two servers separately. It
+derives the laptop's Tailscale HTTPS origin at runtime and supplies
+`REMOTE_DEV_ORIGIN`; settings add only that exact hostname to Django's host and
+CSRF allowlists and use it for the OAuth callback. The value does not need to be
+written to `.env`.
+
 ## Commands
 
 ```bash
@@ -51,6 +58,17 @@ uv run ruff check .            # lint
 uv run ruff format .           # format
 uv run manage.py spectacular --file schema.yml   # dump the OpenAPI schema
 ```
+
+### Note for Codex/isolated command runners
+
+The normal `backend/.env` connects to the laptop's PostgreSQL service on
+`127.0.0.1:5432`. A command runner with an isolated network namespace cannot
+reach that host-loopback service even when PostgreSQL is healthy. In Codex,
+PostgreSQL-backed tests and `psql` diagnostics therefore need host/escalated
+execution. A sandboxed `OperationalError`, failed `systemctl`, or
+`pg_lsclusters` result showing owner `nobody` is evidence of isolation, not a
+reason to restart PostgreSQL. Verify the host service before diagnosing an
+outage.
 
 Interactive API docs are served at http://localhost:8000/api/v1/docs/ while the
 dev server is running.

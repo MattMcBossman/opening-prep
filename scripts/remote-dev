@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Interactive terminals commonly initialize Node through nvm, while scripts do
+# not. Load the user's existing nvm installation when npm isn't already on PATH.
+if ! command -v npm >/dev/null 2>&1; then
+  account_home="$(getent passwd "$(id -un)" | cut -d: -f6)"
+  nvm_root="${NVM_DIR:-${account_home}/.nvm}"
+  if [[ -s "${nvm_root}/nvm.sh" ]]; then
+    export NVM_DIR="$nvm_root"
+    # shellcheck source=/dev/null
+    source "${nvm_root}/nvm.sh"
+    nvm use default >/dev/null
+  fi
+fi
+
+for command_name in tailscale python3 uv npm; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "Missing required command: $command_name" >&2
+    if [[ "$command_name" == "tailscale" ]]; then
+      echo "Install Tailscale on this laptop and sign in, then retry." >&2
+    fi
+    exit 1
+  fi
+done
+
+tailscale_json="$(tailscale status --json)"
+tailscale_host="$(printf '%s' "$tailscale_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+if [[ -z "$tailscale_host" ]]; then
+  echo "Tailscale did not report a MagicDNS hostname." >&2
+  exit 1
+fi
+
+export REMOTE_DEV_ORIGIN="https://${tailscale_host}"
+
+backend_pid=""
+frontend_pid=""
+cleanup() {
+  trap - EXIT INT TERM
+  tailscale serve off >/dev/null 2>&1 || true
+  [[ -z "$frontend_pid" ]] || kill "$frontend_pid" >/dev/null 2>&1 || true
+  [[ -z "$backend_pid" ]] || kill "$backend_pid" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+(
+  cd "$repo_dir/backend"
+  uv run manage.py migrate
+  exec uv run manage.py runserver 127.0.0.1:8000
+) &
+backend_pid="$!"
+
+(
+  cd "$repo_dir/frontend"
+  exec npm run dev -- --host 127.0.0.1
+) &
+frontend_pid="$!"
+
+tailscale serve --bg 5173
+
+echo
+echo "Remote development site: $REMOTE_DEV_ORIGIN"
+echo "Connect the phone to the same Tailscale tailnet and open that URL."
+echo "Press Ctrl-C to stop both app servers and disable Tailscale Serve."
+echo
+
+wait -n "$backend_pid" "$frontend_pid"

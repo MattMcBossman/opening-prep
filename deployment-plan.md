@@ -1,0 +1,127 @@
+# Remote development hosting plan
+
+## Status and objective
+
+**This is the next active project milestone.** The immediate goal is not a
+production launch. It is to run the current application and PostgreSQL on the
+developer's laptop and use it securely from the developer's phone over the
+internet without paying for cloud hosting.
+
+The first target is:
+
+- the existing development stack continues to run on the laptop;
+- the phone can reach one HTTPS application origin from any network;
+- access is private to the developer's Tailscale network;
+- Django sessions, CSRF, Lichess OAuth, Stockfish, and saved data work through
+  that origin;
+- stopping the laptop or development processes is acceptable.
+
+## Immediate hosting decision: free Tailscale Personal
+
+Install Tailscale on both the laptop and phone and sign both into the same
+tailnet. Tailscale's Personal plan is free for personal use. Use **Tailscale
+Serve**, which publishes a laptop-local HTTP service at a private HTTPS
+`*.ts.net` address available only to devices in that tailnet.
+
+This requires no Render service, cloud VM, paid database, router port
+forwarding, static home IP, or public exposure. PostgreSQL remains on the
+laptop. Tailscale supplies private connectivity, a stable MagicDNS hostname,
+and HTTPS termination.
+
+Relevant references:
+
+- [Tailscale Personal pricing](https://tailscale.com/pricing)
+- [Tailscale quickstart](https://tailscale.com/docs/how-to/quickstart)
+- [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)
+
+Do not use Tailscale Funnel by default. Funnel makes the service reachable from
+the public internet and is unnecessary when the phone can run Tailscale. It can
+be considered later for temporary public demos.
+
+## Implementation sequence
+
+### H1 — One local application origin
+
+- [x] Add a development-host command that serves React and Django through one
+  browser origin while preserving Vite hot reload.
+- [x] Keep PostgreSQL bound locally; never expose port 5432 through Tailscale or
+  the router.
+- [x] Bind both application processes to loopback; Tailscale Serve is the only
+  remote ingress.
+- [ ] Verify SPA refreshes, API requests, admin assets, Stockfish WASM/worker
+  loading, and authenticated mutations locally.
+
+Exit gate: one command starts an application origin on the laptop and the full
+app works locally through it.
+
+Codex verification note: the laptop PostgreSQL service is intentionally bound
+to host loopback. PostgreSQL-backed commands must run outside Codex's isolated
+network namespace; see `AGENTS.md` and `backend/README.md`. A sandbox-only
+connection failure is not a database outage.
+
+### H2 — Private remote access
+
+- [ ] Install Tailscale on the laptop and phone, sign both into the same free
+  Personal tailnet, and enable MagicDNS/HTTPS if prompted.
+- [x] Add `scripts/remote-dev`, which discovers the MagicDNS name and proxies
+  Vite with `tailscale serve --bg 5173`.
+- [x] Add the resulting HTTPS `*.ts.net` hostname to Django's allowed hosts and
+  CSRF trusted origins without weakening the local-development defaults.
+- [x] Configure the frontend origin and Lichess OAuth redirect URI for that
+  HTTPS hostname. Do not commit secrets or machine-specific tailnet names.
+- [x] Document start and automatic stop behavior for the app and Tailscale
+  Serve.
+
+Exit gate: with Wi-Fi disabled, the phone loads the site over cellular while
+connected to Tailscale, and a device outside the tailnet cannot load it.
+
+### H3 — Development smoke test
+
+- [ ] From the phone, verify sign in/out and Lichess OAuth callback behavior.
+- [ ] Verify anonymous and authenticated line saves survive refresh.
+- [ ] Verify explorer sources and filters, profiles/modules, global-opening
+  preview/copy, PGN import/export, drills, audio, and Stockfish.
+- [ ] Record obvious mobile layout blockers for the later mobile-oriented pass;
+  fix only blockers that prevent meaningful remote development.
+- [ ] Confirm the laptop sleeping, shutting down, losing internet, or stopping
+  the app produces expected unavailability and recovers after restart.
+
+Exit gate: the phone is a usable remote development client, and the setup is
+documented well enough to repeat after a reboot.
+
+## Required development configuration
+
+Do not commit concrete secret values or the private tailnet hostname. Document
+the following local values in the developer's untracked environment file:
+
+| Variable | Remote-development rule |
+| --- | --- |
+| `DJANGO_DEBUG` | May remain `True` for this private development deployment. |
+| `DJANGO_ALLOWED_HOSTS` | Include the laptop's exact Tailscale hostname. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Include the exact Tailscale HTTPS origin. |
+| `DATABASE_URL` | Existing laptop-local PostgreSQL connection. |
+| `FRONTEND_URL` | Exact Tailscale HTTPS origin. |
+| `LICHESS_REDIRECT_URI` | `<tailscale-origin>/api/v1/auth/lichess/callback`. |
+| `TOKEN_ENCRYPTION_KEY` | Existing local Fernet key; never commit it. |
+
+## Deferred production hosting
+
+Render is **not required or planned for the current development milestone**.
+When the project is ready for other users and independent uptime, revisit a
+managed deployment. The previously evaluated Render shape was a paid Starter
+Web Service plus a separate smallest paid persistent Render Postgres database;
+those payments buy always-on compute and a database that does not depend on the
+developer's laptop. Re-evaluate Render and alternatives at that time instead of
+committing to them now.
+
+Future production work includes a production image, fail-closed settings,
+health checks, CI/CD, managed secrets, migrations, monitoring, rollback, a
+canonical domain, and a narrow-screen launch smoke test.
+
+## Way-back-burner — PostgreSQL backups and disaster recovery
+
+Backups, point-in-time recovery policy, off-platform logical exports, and
+restore drills are explicitly not requirements for remote development or the
+first production experiment. Revisit them when the application holds meaningful
+user data, before charging for the service, or when the owner promotes this
+item.

@@ -7,6 +7,24 @@ This file is the persistent project reference for Warp/agent-assisted developmen
 
 Whenever a change in this repo would make `README.md` inaccurate or incomplete (setup steps, scripts, project layout, or overall status/roadmap), update `README.md` in the same change — don't wait to be asked.
 
+## PostgreSQL checks from Codex
+
+The laptop PostgreSQL 16 cluster runs on `127.0.0.1:5432`; `backend/.env`
+targets that host service. Codex's default command sandbox uses an isolated
+network/process namespace, so `localhost:5432` inside a sandboxed command does
+**not** reach the laptop service. Symptoms include `psycopg.OperationalError`,
+`pg_lsclusters` misleadingly showing the cluster as down/owned by `nobody`, and
+`systemctl` failing to connect to the bus. These symptoms must not be reported
+as “PostgreSQL is unavailable” without a host-level check.
+
+For PostgreSQL-backed tests or diagnostics, run the relevant command with
+escalated/host execution. First verify read-only with `systemctl is-active
+postgresql`, `pg_lsclusters`, and a `psql` connection using the configured
+database. Do not start, restart, reconfigure, or replace PostgreSQL merely
+because a sandboxed connection failed. The Compose database on port 5433 is an
+optional alternative only when `DATABASE_URL` is deliberately changed to use
+it; do not assume Compose is the active database.
+
 ## Inspiration source: `openingtree/` submodule
 `openingtree/` is a pre-existing React app (CRA-style, React 16, custom webpack scripts) that already implements:
 - Lichess and Chess.com API iterators for pulling a player's game history (`src/app/iterator/LichessIterator.js`, `ChessComIterator.js`, `BaseLichessIterator.js`).
@@ -66,7 +84,7 @@ Treat this submodule as a **reference implementation only**: port the API integr
 - **Client-side engine via WASM Web Worker** — run Stockfish (or similar, e.g. lc0 if feasible) fully client-side in a Web Worker for evaluation, avoiding server compute cost; consider an optional server-side eval cache keyed by FEN to avoid recomputing common positions.
 - **API response caching layer** — cache Chess.com/Lichess explorer responses (keyed by FEN) to respect rate limits and speed up repeated exploration of popular positions; also cache computed engine lines (eval + best/refutation line) for moves flagged as mistakes in drills, so repeated wrong moves don't require recomputation.
 - **Mobile-friendly, mobile-oriented UX** — treat phones as a first-class way to build and drill a repertoire, with responsive board/panel layouts, touch-friendly controls, sensible portrait and landscape behavior, and performance testing on mobile-class devices. Start with a high-quality responsive web app; evaluate installable PWA behavior and a dedicated mobile app only after the core mobile web experience is proven.
-- **Production deployment and hosting** — define and ship a production environment for the frontend, Django API, PostgreSQL, static assets, HTTPS, secrets, backups, migrations, observability, and deploy/rollback automation. Choose a hosting provider and topology based on expected traffic and operating cost when this work begins rather than locking one in prematurely.
+- **Remote development hosting, then production** — first make the laptop-hosted development stack privately reachable from the developer's phone through free Tailscale Personal and Tailscale Serve; PostgreSQL remains local and no Render service is required. Revisit managed production hosting only when independent uptime or external users matter. Backup/restore engineering is a way-back-burner goal.
 - (Long-term) **Play vs. bot** — play out a game against an engine bot of configurable skill level, starting from any selected position (e.g. an explorer/repertoire node), to test lines interactively beyond scripted drills.
 
 ## Architecture Direction (Decided)
@@ -78,6 +96,15 @@ Treat this submodule as a **reference implementation only**: port the API integr
 
 ## Development Roadmap
 Tracks implementation progress. Check off a phase once it has shipped; update sub-items as needed. Decision: keep Phases 5-6 as single phases for now, revisit splitting if either grows unwieldy.
+
+### Next active milestone — Private remote development
+
+Remote phone access is the next implementation priority, ahead of additional
+Phase 5/6 feature work. Follow [deployment-plan.md](deployment-plan.md): keep the
+application and PostgreSQL on the developer's laptop, expose one private HTTPS
+origin through free Tailscale Serve, and verify it from the developer's phone
+over cellular. Managed production hosting, CI/CD launch gates, and the broader
+mobile/PWA pass remain later work.
 
 ### Must review before Phase 5
 Before starting Phase 5, review and resolve these Phase 2/3 design notes:
@@ -98,4 +125,4 @@ Before starting Phase 5, review and resolve these Phase 2/3 design notes:
 - **Global-opening publishing workflow** (planned): authorized curators must be able to turn a personal opening module into a global opening without editing JSON or using Django admin. Provide a publish workspace with slug/name/color/description, start-anchor, line/annotation preview, changelog, semantic integer release version, and validation results. Publishing creates a new immutable `OpeningTemplateRelease` snapshot; it never mutates an existing release. Support draft save, validate, preview exactly as users will see it, publish confirmation, and later superseding releases while preserving pinned older versions. Enforce curator/admin permissions server-side, reject illegal/disconnected lines, duplicate versions/slugs, color/start-anchor mismatches, and empty releases, record publisher/timestamps/provenance, and cover the workflow through API, frontend, audit-log, and migration tests. Ordinary users may continue to copy or pin published releases but cannot publish unless granted the curator role.
 - [ ] **Phase 5 — Player data via `openingtree`**: port Lichess/Chess.com game iterators + PGN parsing, time-range filters, GM-inspiration browsing and own-game deviation analysis. **Partially shipped**: signed-in users can switch the explorer panel (`ExplorerSourceToggle`) to "My games", which shows opening-tree-style move stats built from their own Lichess games instead of the public database, scoped to the active board color. This reuses Lichess's own player-scoped Opening Explorer (`GET https://explorer.lichess.org/player`) rather than importing/parsing individual games - `backend/explorer_cache/player_stats.py` proxies it live (deliberately uncached, unlike `/explorer/stats/`, since it's per-user data). The proxy returns Lichess's first ND-JSON aggregate snapshot promptly so the UI can show its matching-game count, then bounded frontend polling replaces it with later snapshots while `queuePosition` indicates indexing. Unchanged snapshots stop being described as actively checking and offer manual retry. Do not label the current position's `totalGames` as total account games loaded. Still open: Chess.com as a source, GM/other-player lookup, time-range filters, and comparing games against the saved repertoire to find deviations.
 - [ ] **Phase 6 — Gap detection & long-term features**: repertoire coverage dashboard (current-position and on-demand per-color scoring are frequency-weighted from Lichess move counts), move-frequency arrows on the explorer board (one arrow per observed next move, opacity proportional to play percentage and always scoped to the active source/filters, like openingtree), per-module/global-release start anchors (FEN plus preferred move-order prefix, with board/name previews and open/drill/coverage-from-start actions), curator-facing global-opening draft/validate/preview/publish/version workflow, similar-position suggestions/diffing, spaced repetition, composable profiles/opening modules (management UI for signed-in and anonymous users, provenance-aware overlays, explicit-line path authoring, authored-path drills, versioned anonymous storage, multi-module drill attribution, selected-position drills, immutable global-release preview/pin/copy, validated starter content, per-line gap review/fill, explicit-path PGN import, and persisted label/comment/NAG round-tripping are shipped), play-vs-bot from a selected position.
-- [ ] **Phase 7 — Mobile experience & production launch**: make the complete explorer/repertoire/drill workflow responsive and touch-friendly, validate it on representative phones and tablets, evaluate PWA installation after the mobile web UX is solid, then deploy the frontend, Django API, and PostgreSQL with production secrets, HTTPS, migrations, backups, monitoring, and a documented deploy/rollback process.
+- [ ] **Phase 7 — Remote development access (NEXT), then production and mobile**: execute [deployment-plan.md](deployment-plan.md) to reach the laptop-hosted same-origin application privately from the developer's phone through free Tailscale Personal/Serve, with PostgreSQL remaining local. After this development phase, separately plan managed production hosting and the deeper touch-first responsive/PWA pass. PostgreSQL backup policy, off-platform exports, and restore drills remain a way-back-burner goal.

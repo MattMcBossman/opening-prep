@@ -4,6 +4,12 @@
 
 Last updated: 2026-08-10
 
+Next project milestone: private remote development access. Further feature work
+from this design is queued behind running the laptop-hosted app through free
+Tailscale Serve and verifying it from the developer's phone, as specified in
+[deployment-plan.md](deployment-plan.md). Managed production deployment is
+deferred until the project is ready for independent uptime or external users.
+
 Current repair note: browser-authored line saving was rejected because
 `chess.js` and python-chess used different en-passant FEN emission modes after
 double pawn moves. The backend now validates with legal-en-passant semantics,

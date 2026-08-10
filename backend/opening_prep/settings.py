@@ -7,6 +7,7 @@ Compose-managed PostgreSQL; `Dockerfile` builds the same code for production.
 """
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 import environ
 
@@ -17,6 +18,7 @@ env = environ.Env(
     DJANGO_ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     DJANGO_CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:5173"]),
     FRONTEND_URL=(str, "http://localhost:5173"),
+    REMOTE_DEV_ORIGIN=(str, ""),
     LICHESS_HOST=(str, "https://lichess.org"),
     LICHESS_EXPLORER_URL=(str, "https://explorer.lichess.org/lichess"),
     LICHESS_CLIENT_ID=(str, "opening-prep-local"),
@@ -31,6 +33,16 @@ if env_file.exists():
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-secret-key")
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
+
+# `scripts/remote-dev` sets one HTTPS Tailscale origin for the lifetime of a
+# remote-development session. Keeping this additive preserves the usual
+# localhost workflow and avoids committing a machine-specific tailnet name.
+REMOTE_DEV_ORIGIN = env("REMOTE_DEV_ORIGIN").rstrip("/")
+if REMOTE_DEV_ORIGIN:
+    remote_dev_url = urlparse(REMOTE_DEV_ORIGIN)
+    if remote_dev_url.scheme != "https" or not remote_dev_url.hostname:
+        raise ValueError("REMOTE_DEV_ORIGIN must be a complete HTTPS origin")
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, remote_dev_url.hostname]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -119,6 +131,8 @@ CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = False  # the SPA reads it to send the X-CSRFToken header
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_TRUSTED_ORIGINS = env("DJANGO_CSRF_TRUSTED_ORIGINS")
+if REMOTE_DEV_ORIGIN:
+    CSRF_TRUSTED_ORIGINS = [*CSRF_TRUSTED_ORIGINS, REMOTE_DEV_ORIGIN]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -152,11 +166,15 @@ SPECTACULAR_SETTINGS = {
 LICHESS_HOST = env("LICHESS_HOST")
 LICHESS_EXPLORER_URL = env("LICHESS_EXPLORER_URL")
 LICHESS_CLIENT_ID = env("LICHESS_CLIENT_ID")
-LICHESS_REDIRECT_URI = env(
-    "LICHESS_REDIRECT_URI",
-    default="http://localhost:5173/api/v1/auth/lichess/callback",
+LICHESS_REDIRECT_URI = (
+    f"{REMOTE_DEV_ORIGIN}/api/v1/auth/lichess/callback"
+    if REMOTE_DEV_ORIGIN
+    else env(
+        "LICHESS_REDIRECT_URI",
+        default="http://localhost:5173/api/v1/auth/lichess/callback",
+    )
 )
-FRONTEND_URL = env("FRONTEND_URL")
+FRONTEND_URL = REMOTE_DEV_ORIGIN or env("FRONTEND_URL")
 
 # Fernet key used to encrypt stored Lichess access tokens at rest. Generate with:
 #   uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

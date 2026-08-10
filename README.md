@@ -15,13 +15,14 @@ Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) t
 
 Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference.
 
-Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Lichess account sign-in (OAuth), server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Signing in is optional — signed-out users can create reusable local opening modules and compose profiles in versioned `localStorage` (alongside a personal Lichess token pasted into the explorer panel), and an existing local repertoire is imported into the backend the first time you sign in. Signed-in users get the same Tournament/Blitz-style profile composition backed by the server, can choose one module as the editing target, inspect move provenance across merged overlays, and drill a composed profile from move one or a selected explorer position. The global opening library has immutable JSON-backed releases with preview, read-only pin, editable-copy, curated starter content, validation, and per-line gap-fill flows. Phase 5 player-data work is partially underway; deeper gap analysis, a first-class mobile experience, and production deployment remain planned — see the roadmap in [AGENTS.md](AGENTS.md#development-roadmap).
+Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Lichess account sign-in (OAuth), server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Signing in is optional — signed-out users can create reusable local opening modules and compose profiles in versioned `localStorage` (alongside a personal Lichess token pasted into the explorer panel), and an existing local repertoire is imported into the backend the first time you sign in. Signed-in users get the same Tournament/Blitz-style profile composition backed by the server, can choose one module as the editing target, inspect move provenance across merged overlays, and drill a composed profile from move one or a selected explorer position. The global opening library has immutable JSON-backed releases with preview, read-only pin, editable-copy, curated starter content, validation, and per-line gap-fill flows. **Private remote development from the developer's laptop is the next active milestone**; see [deployment-plan.md](deployment-plan.md) for the free Tailscale-based phone-access plan. The remaining product roadmap stays in [AGENTS.md](AGENTS.md#development-roadmap).
 
 ## Project layout
 
 - `frontend/` — React + TypeScript + Vite app. See [frontend/README.md](frontend/README.md) for template-specific notes (this will likely be replaced with app-specific docs as the project grows).
 - `backend/` — Django + DRF + PostgreSQL app (accounts/Lichess OAuth, repertoire persistence, explorer/engine-eval cache, drill statistics). See [backend/README.md](backend/README.md) for setup and [backend/API_CONTRACT.md](backend/API_CONTRACT.md) for the endpoint contract.
 - `openingtree/` — git submodule; a pre-existing React app used as a **reference implementation only** for Lichess/Chess.com game-history iteration and PGN parsing (see [AGENTS.md](AGENTS.md#inspiration-source-openingtree-submodule)). Not built or run directly as part of this app.
+- `deployment-plan.md` — next-milestone plan for free, private Tailscale access from a phone to the laptop-hosted development app; managed production hosting and database backup/restore work are deferred.
 
 ## Getting started
 
@@ -36,6 +37,21 @@ uv run manage.py migrate
 uv run manage.py seed_opening_templates  # Vienna, Sicilian, and Stonewall starter releases
 uv run manage.py runserver
 ```
+
+## Private phone access during development
+
+Install Tailscale on this laptop and phone, sign both into the same Personal
+tailnet, then run from the repository root:
+
+```bash
+./scripts/remote-dev
+```
+
+The command applies pending migrations, starts Django and Vite on loopback,
+configures private HTTPS proxying with Tailscale Serve, and prints the URL to
+open on the phone. Press Ctrl-C to stop both servers and disable the proxy.
+PostgreSQL remains local and is never exposed. See
+[deployment-plan.md](deployment-plan.md) for the verification checklist.
 
 Frontend, in another terminal:
 
