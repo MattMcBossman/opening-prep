@@ -2,10 +2,11 @@
 
 ## Status and objective
 
-**This is the next active project milestone.** The immediate goal is not a
-production launch. It is to run the current application and PostgreSQL on the
-developer's laptop and use it securely from the developer's phone over the
-internet without paying for cloud hosting.
+**The remote-development foundation is implemented; mobile optimization is now
+the active milestone in [mobile-plan.md](mobile-plan.md).** This document remains
+the operating plan for running the current application and PostgreSQL on the
+developer's laptop and reaching it securely from the developer's phone without
+paying for cloud hosting.
 
 The first target is:
 

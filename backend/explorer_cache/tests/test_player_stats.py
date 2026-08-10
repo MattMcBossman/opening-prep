@@ -30,7 +30,7 @@ def _ndjson(*objects) -> str:
 
 
 @responses.activate
-def test_returns_first_snapshot_immediately_so_progress_can_render(user):
+def test_prefers_a_terminal_snapshot_already_available_in_the_stream(user):
     responses.add(
         responses.GET,
         player_stats.PLAYER_EXPLORER_URL,
@@ -43,13 +43,13 @@ def test_returns_first_snapshot_immediately_so_progress_can_render(user):
 
     data = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
 
-    assert data["totalGames"] == 1
-    assert data["stillIndexing"] is True
-    assert data["queuePosition"] == 5
+    assert data["totalGames"] == 15
+    assert "stillIndexing" not in data
+    assert "queuePosition" not in data
 
 
 @responses.activate
-def test_flags_still_indexing_on_the_current_snapshot(user):
+def test_returns_the_latest_available_partial_snapshot(user):
     responses.add(
         responses.GET,
         player_stats.PLAYER_EXPLORER_URL,
@@ -63,10 +63,8 @@ def test_flags_still_indexing_on_the_current_snapshot(user):
     data = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
 
     assert data["stillIndexing"] is True
-    assert data["queuePosition"] == 90
-    # Returns promptly instead of hiding this usable count while the stream
-    # remains open for later indexing updates.
-    assert data["totalGames"] == 1
+    assert data["queuePosition"] == 80
+    assert data["totalGames"] == 2
 
 
 @responses.activate

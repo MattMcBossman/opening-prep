@@ -104,6 +104,7 @@ function App() {
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
+  const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>('stats')
   const [drillStartContext, setDrillStartContext] = useState<DrillStartContext>()
   const [drillMounted, setDrillMounted] = useState(false)
 
@@ -399,7 +400,26 @@ function App() {
       )}
       {mode === 'explorer' && (
         <main className="explorer-layout">
-          <section className="panel moves-panel">
+          <nav className="mobile-section-tabs" aria-label="Explorer sections" role="tablist">
+            {(['moves', 'stats', 'prep'] as const).map((section) => (
+              <button
+                key={section}
+                type="button"
+                role="tab"
+                aria-selected={mobileExplorerSection === section}
+                aria-controls={`mobile-${section}-panel`}
+                className={mobileExplorerSection === section ? 'active' : ''}
+                onClick={() => setMobileExplorerSection(section)}
+              >
+                {section[0].toUpperCase() + section.slice(1)}
+              </button>
+            ))}
+          </nav>
+          <section
+            id="mobile-moves-panel"
+            className={`panel moves-panel mobile-section-panel ${mobileExplorerSection === 'moves' ? 'mobile-active' : ''}`}
+            role="tabpanel"
+          >
             <h2>Moves</h2>
             <MoveList
               moves={moves}
@@ -459,8 +479,12 @@ function App() {
             <EngineEvalPanel evaluation={evaluation} />
           </div>
 
-          <div className="side-column">
-            <section className="panel explorer-panel">
+          <div className={`side-column ${mobileExplorerSection === 'moves' ? 'mobile-section-container-hidden' : ''}`}>
+            <section
+              id="mobile-stats-panel"
+              className={`panel explorer-panel mobile-section-panel ${mobileExplorerSection === 'stats' ? 'mobile-active' : ''}`}
+              role="tabpanel"
+            >
               <h2>Lichess explorer</h2>
               {isSignedIn && <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />}
               {!isSignedIn && <LichessTokenSettings token={token} onChange={setToken} />}
@@ -478,7 +502,6 @@ function App() {
                 isMyMove={isExplorerMyMove}
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
-                pollStalled={explorer.pollStalled}
                 onRetry={explorer.retry}
               />
               {positionCoverage && positionCoverage.totalGames > 0 && (
@@ -488,7 +511,11 @@ function App() {
                 </p>
               )}
             </section>
-            <section className="panel">
+            <section
+              id="mobile-prep-panel"
+              className={`panel mobile-section-panel ${mobileExplorerSection === 'prep' ? 'mobile-active' : ''}`}
+              role="tabpanel"
+            >
               <CoverageDashboard
                 color={boardColor}
                 tree={repertoire.getTree(boardColor)}
@@ -498,7 +525,7 @@ function App() {
                 getContinuations={coverageContinuations}
               />
             </section>
-            <section className="panel">
+            <section className={`panel mobile-section-panel ${mobileExplorerSection === 'prep' ? 'mobile-active' : ''}`}>
               <h2>PGN</h2>
               <PgnImportExportPanel
                 color={boardColor}

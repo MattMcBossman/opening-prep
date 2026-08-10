@@ -29,7 +29,7 @@ type ToneOptions = {
   /**
    * Rounds off the oscillator's upper harmonics for a warmer, more "wooden"
    * body tone instead of a bright synth one. Omit for cues that should stay
-   * bright/ringing (check, checkmate, the drill-complete chime).
+   * bright/ringing (checkmate and the drill-complete chime).
    */
   lowpassFrequency?: number
 }
@@ -217,13 +217,28 @@ export class SoundPlayer {
   }
 
   /**
-   * A single warm "ding" - a sine fundamental plus a quiet octave-and-a-half
-   * overtone, decaying together. Replaces an earlier rising two-tone alert that
-   * read as more of an alarm than a notification.
+   * A short, mellow "knock-chime": a low sine fundamental with a very quiet
+   * fifth above it, both gently low-pass filtered. It stays distinct from the
+   * wooden move/capture taps without the long, high overtone that made check
+   * feel overly bright and attention-grabbing.
    */
   private playCheck(t0: number) {
-    this.tone({ startTime: t0, duration: 0.24, type: 'sine', fromFrequency: 880, peakGain: 0.55 })
-    this.tone({ startTime: t0, duration: 0.16, type: 'sine', fromFrequency: 1760, peakGain: 0.16 })
+    this.tone({
+      startTime: t0,
+      duration: 0.14,
+      type: 'sine',
+      fromFrequency: 440,
+      peakGain: 0.42,
+      lowpassFrequency: 900,
+    })
+    this.tone({
+      startTime: t0,
+      duration: 0.1,
+      type: 'sine',
+      fromFrequency: 660,
+      peakGain: 0.09,
+      lowpassFrequency: 800,
+    })
   }
 
   /**

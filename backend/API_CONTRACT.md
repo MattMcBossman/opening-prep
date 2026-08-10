@@ -225,7 +225,10 @@ Response shape is `ExplorerResponse` plus optional `stillIndexing: true` and
 is the number of matching games currently available for the selected position;
 it is not a global account-import progress count. While Lichess is still
 processing the account, this is a best-effort partial result, not an error. The
-proxy returns the first snapshot promptly and the frontend polls for updates. `401` when
+proxy returns the latest promptly available snapshot (including an immediately
+following terminal line) and the frontend polls through unchanged partial
+snapshots for updates. `queuePosition` is diagnostic and is not presented as a
+game-count progress indicator. `401` when
 no Lichess account is linked.
 
 ### `GET /api/v1/explorer/evals/?fen=<fen>`

@@ -12,8 +12,8 @@ counts down to done, and a line without one is the finished result. In
 practice this can take a while (or apparently never fully resolve for some
 accounts - see
 https://lichess.org/forum/lichess-feedback/lichess-api-player-games-endpoint-is-non-functional),
-so the proxy returns the first current snapshot promptly, flagged as
-`stillIndexing`, and lets the browser poll for later snapshots rather than
+so the proxy returns the latest promptly available snapshot, flagged as
+`stillIndexing` when necessary, and lets the browser poll for later snapshots rather than
 holding one request open indefinitely.
 """
 
@@ -27,7 +27,12 @@ from common.fen import denormalize_fen, normalize_fen
 from .cache import TokenRequired, UpstreamRateLimited, UpstreamUnavailable
 from .response_shape import to_explorer_response
 
-UPSTREAM_TIMEOUT_SECONDS = 8
+UPSTREAM_CONNECT_TIMEOUT_SECONDS = 8
+# After receiving a partial ND-JSON snapshot, briefly wait for another line.
+# Lichess often sends the terminal line immediately afterward; returning only
+# the first line made completed indexing look permanently queued. Keep this
+# short so genuinely queued requests still return useful partial data promptly.
+UPSTREAM_READ_TIMEOUT_SECONDS = 2
 PLAYER_EXPLORER_URL = "https://explorer.lichess.org/player"
 
 
@@ -82,7 +87,7 @@ def fetch_player_stats(
             PLAYER_EXPLORER_URL,
             params=params,
             headers={"Authorization": f"Bearer {token}"},
-            timeout=UPSTREAM_TIMEOUT_SECONDS,
+            timeout=(UPSTREAM_CONNECT_TIMEOUT_SECONDS, UPSTREAM_READ_TIMEOUT_SECONDS),
             stream=True,
         )
     except requests.RequestException as exc:
@@ -109,23 +114,26 @@ def fetch_player_stats(
 
 def _read_ndjson_snapshot(response: requests.Response) -> dict | None:
     """
-    Return the first parseable snapshot from Lichess's stream. Lichess sends
-    the current aggregate immediately, then may hold the connection open while
-    indexing more games. Returning that first snapshot lets the browser show a
-    real game count during indexing; bounded frontend polling requests later
-    snapshots instead of one Django request hiding progress for ~15 seconds.
+    Return the latest promptly available snapshot from Lichess's stream. A line
+    without `queuePosition` is terminal and returns immediately. After a queued
+    line, wait only for the short response read timeout: this catches a terminal
+    line already following it without hiding partial progress behind a long
+    request while Lichess continues background indexing.
     """
+    snapshot = None
     try:
-        for line in response.iter_lines(decode_unicode=True):
+        for line in response.iter_lines(chunk_size=1, decode_unicode=True):
             if not line:
                 continue
             try:
                 parsed = json.loads(line)
             except ValueError:
                 continue
-            return parsed
+            snapshot = parsed
+            if "queuePosition" not in parsed:
+                return parsed
     except requests.RequestException:
         pass
     finally:
         response.close()
-    return None
+    return snapshot

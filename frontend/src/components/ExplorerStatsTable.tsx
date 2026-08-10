@@ -15,12 +15,10 @@ type Props = {
   isMoveSaved: (uci: string) => boolean
   /** Whether it's the repertoire owner's own turn at the current position (vs. the opponent's). */
   isMyMove: boolean
-  /** True while a "my games" result is still indexing and being automatically re-polled - see useExplorerStats. */
+  /** True only while indexing snapshots are visibly changing; silent polling may continue after they stabilize. */
   isPolling?: boolean
   /** True once automatic re-polling has given up while still indexing - shows a manual "Try again" button. */
   pollExhausted?: boolean
-  /** True when consecutive upstream snapshots are identical and automatic polling has paused. */
-  pollStalled?: boolean
   /** Restarts polling - only used/shown when `pollExhausted`. */
   onRetry?: () => void
 }
@@ -62,25 +60,23 @@ function ResultBar({ move }: { move: ExplorerMoveStat }) {
   )
 }
 
-function StillIndexingNote({
+function GamesFoundNote({
   data,
   isPolling,
   pollExhausted,
-  pollStalled,
   onRetry,
-}: Pick<Props, 'data' | 'isPolling' | 'pollExhausted' | 'pollStalled' | 'onRetry'>) {
-  const queueText = data?.queuePosition === undefined ? '' : ` Queue position: ${data.queuePosition}.`
+}: Pick<Props, 'data' | 'isPolling' | 'pollExhausted' | 'onRetry'>) {
+  const visiblyUpdating = Boolean(data?.stillIndexing && isPolling)
+  const message = `Found ${formatCompactNumber(data?.totalGames ?? 0)} games`
   return (
-    <p className="panel-status">
-      {pollStalled
-        ? `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games.`
-        : pollExhausted
-        ? `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games currently available. Lichess still reports background indexing.`
-        : isPolling
-          ? `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games currently available; checking Lichess for updates…`
-          : `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games currently available. Lichess reports background indexing.`}
-      {queueText}
-      {(pollExhausted || pollStalled) && onRetry && (
+    <p className="panel-status" aria-label={`${message}${visiblyUpdating ? ', checking for more.' : '.'}`}>
+      {message}
+      {visiblyUpdating ? (
+        <span className="loading-ellipsis" aria-hidden="true">
+          <span>.</span><span>.</span><span>.</span>
+        </span>
+      ) : '.'}
+      {pollExhausted && onRetry && (
         <>
           {' '}
           <button type="button" onClick={onRetry}>
@@ -101,7 +97,6 @@ export function ExplorerStatsTable({
   isMyMove,
   isPolling,
   pollExhausted,
-  pollStalled,
   onRetry,
 }: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
@@ -109,7 +104,7 @@ export function ExplorerStatsTable({
   if (!data || data.moves.length === 0) {
     return (
       <>
-        {data?.stillIndexing && <StillIndexingNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} pollStalled={pollStalled} onRetry={onRetry} />}
+        {data && <GamesFoundNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />}
         <p className="panel-status">No Lichess game data for this position.</p>
       </>
     )
@@ -117,7 +112,7 @@ export function ExplorerStatsTable({
 
   return (
     <>
-      {data.stillIndexing && <StillIndexingNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} pollStalled={pollStalled} onRetry={onRetry} />}
+      <GamesFoundNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />
       <table className="explorer-table">
         <thead>
           <tr>

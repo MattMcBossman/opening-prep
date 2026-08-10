@@ -373,6 +373,29 @@
   color: #d33;
 }
 
+.loading-ellipsis span {
+  animation: loading-dot 1.2s infinite both;
+}
+
+.loading-ellipsis span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-ellipsis span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes loading-dot {
+  0%, 20% { opacity: 0.2; }
+  50%, 100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-ellipsis span {
+    animation: none;
+  }
+}
+
 .opening-name {
   display: flex;
   flex-direction: column;
@@ -961,4 +984,280 @@
 
 .import-prompt {
   max-width: 480px;
+}
+
+.mobile-section-tabs {
+  display: none;
+}
+
+/* Mobile layout foundation -------------------------------------------------
+   The desktop UI is intentionally multi-column. Phones get an explicit
+   board-first hierarchy instead of relying on those fixed columns to wrap in
+   document order (which previously put Moves before an overflowing board). */
+@media (max-width: 700px) {
+  .app-layout {
+    gap: 10px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
+
+  .app-header {
+    min-width: 0;
+    gap: 8px;
+    padding-bottom: 8px;
+  }
+
+  .app-header h1 {
+    font-size: 22px;
+  }
+
+  .app-header > p {
+    display: none;
+  }
+
+  .mode-toggle {
+    margin-left: 0;
+  }
+
+  .header-controls {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-left: 0;
+  }
+
+  .explorer-layout,
+  .drill-layout {
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 12px;
+  }
+
+  .explorer-layout > .board-column,
+  .drill-layout > .board-column {
+    order: 1;
+  }
+
+  .explorer-layout > .moves-panel {
+    order: 3;
+  }
+
+  .explorer-layout > .side-column,
+  .drill-layout > .side-column {
+    order: 4;
+  }
+
+  .mobile-section-tabs {
+    order: 2;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+    min-width: 0;
+    padding: 3px;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+  }
+
+  .mobile-section-tabs button {
+    min-width: 0;
+    min-height: 44px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+  }
+
+  .mobile-section-tabs button.active {
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .mobile-section-panel {
+    display: none;
+  }
+
+  .mobile-section-panel.mobile-active {
+    display: flex;
+  }
+
+  .explorer-panel.mobile-section-panel.mobile-active,
+  .side-column > .mobile-section-panel.mobile-active {
+    flex-direction: column;
+  }
+
+  .mobile-section-container-hidden {
+    display: none;
+  }
+
+  .board-column {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
+    gap: 8px;
+  }
+
+  .board-heading {
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .opening-name {
+    min-width: 0;
+  }
+
+  .opening-name-text {
+    overflow-wrap: anywhere;
+  }
+
+  .board-with-eval {
+    width: 100%;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .board-wrapper {
+    width: calc(100% - 38px);
+    max-width: calc(100% - 38px);
+  }
+
+  .eval-bar,
+  .eval-bar-placeholder {
+    width: 32px;
+  }
+
+  .eval-bar-label {
+    font-size: 10px;
+  }
+
+  .board-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .board-controls button {
+    min-width: calc(50% - 4px);
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+
+  .move-row {
+    grid-template-columns: 22px 44px minmax(0, 1fr) minmax(0, 1fr) 44px;
+    gap: 2px;
+  }
+
+  .move-button,
+  .move-star {
+    min-height: 44px;
+  }
+
+  .move-star {
+    width: 44px;
+    font-size: 18px;
+  }
+
+  .mode-toggle-button,
+  .profile-manage-button,
+  .auth-control,
+  .token-settings-row input,
+  .token-settings-row button,
+  .explorer-filters-month select,
+  .pgn-panel-actions button,
+  .pgn-import button {
+    min-height: 44px;
+  }
+
+  .explorer-filters-checkbox {
+    min-height: 44px;
+    padding: 0 4px;
+  }
+
+  .explorer-filters-checkbox input {
+    width: 20px;
+    height: 20px;
+  }
+
+  .explorer-row {
+    height: 44px;
+  }
+
+  .moves-panel,
+  .explorer-panel,
+  .drill-feedback-panel,
+  .drill-summary,
+  .drill-review,
+  .drill-line-complete {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .moves-panel {
+    max-height: min(45svh, 360px);
+  }
+
+  .side-column {
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .side-column > * {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .panel {
+    min-width: 0;
+    padding: 10px;
+  }
+
+  .explorer-table th:nth-child(1),
+  .explorer-table td:nth-child(1) {
+    width: 58px;
+  }
+
+  .explorer-table th:nth-child(2),
+  .explorer-table td:nth-child(2) {
+    width: 82px;
+  }
+
+  .result-bar {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .header-toggle-label {
+    display: none;
+  }
+
+  .board-color-toggle-label {
+    max-width: 72px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eval-bar-black,
+  .eval-bar-white,
+  .header-toggle-thumb,
+  .board-color-toggle-thumb,
+  .board-controls button {
+    transition-duration: 0.01ms;
+  }
 }

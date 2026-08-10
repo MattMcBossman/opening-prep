@@ -4,11 +4,18 @@
 
 Last updated: 2026-08-10
 
-Next project milestone: private remote development access. Further feature work
-from this design is queued behind running the laptop-hosted app through free
-Tailscale Serve and verifying it from the developer's phone, as specified in
-[deployment-plan.md](deployment-plan.md). Managed production deployment is
-deferred until the project is ready for independent uptime or external users.
+Next project milestone: the mobile-first responsive experience specified in
+[mobile-plan.md](mobile-plan.md). Private phone access to the laptop-hosted app
+is wired through Tailscale; managed production deployment remains deferred until
+the project is ready for independent uptime or external users.
+
+Mobile progress: the M1 board-first fluid layout is complete across the planned
+320–430px portrait widths and 667×375 landscape without document overflow.
+Phone-only Moves/Stats/Prep section navigation has started M2 and preserves its
+selection while the explorer position changes. Core move, repertoire,
+statistics, source, date, rating, speed, and PGN controls now use phone-friendly
+44px touch targets; the remaining M2 work is the compact header, responsive
+statistics presentation, and stable loading/error states.
 
 Current repair note: browser-authored line saving was rejected because
 `chess.js` and python-chess used different en-passant FEN emission modes after
@@ -19,21 +26,33 @@ only rolling back optimistically.
 Latest reliability repair: the local PostgreSQL database was missing the new
 profile/line/drill migrations, which caused repertoire loading to return 500
 after refresh; all pending migrations are now applied. Lichess player-explorer
-responses now expose the upstream queue position and label partial matching
-game totals honestly while background indexing continues.
+responses label partial matching-game totals honestly while background indexing
+continues; raw queue metadata is retained only for diagnostics.
 
 Explorer source-switch repair: changing from the public database to “My games”
 now invalidates the public result immediately, while subsequent Lichess
 indexing polls retain and replace the latest personal partial snapshot instead
-of flashing back to an empty table. The backend returns its first upstream
-snapshot promptly so a matching-game count appears during indexing; two
-identical consecutive snapshots pause automatic checking with a truthful status
-and manual retry instead of leaving the UI indefinitely saying “checking.” “My
-games” now also shares the game-type filters (Bullet combines Lichess bullet
+of flashing back to an empty table. The backend returns the latest promptly
+available upstream snapshot so a matching-game count appears during indexing.
+“My
+games" now also shares the game-type filters (Bullet combines Lichess bullet
 and ultraBullet, alongside blitz, rapid, classical, and correspondence) with
 the public explorer; rating bands remain public-database-only. Public and “My games” selections are stored independently,
 so switching sources restores each source's own months and game types. From/To
 use explicit month/year selectors matching Lichess's supported granularity.
+
+Latest My Games completion repair: identical partial snapshots no longer stop
+automatic polling, the backend consumes a terminal ND-JSON line when it is
+already promptly available after a queued snapshot, and the raw Lichess queue
+number is no longer shown in the normal UI. This prevents an obsolete queue
+position from lingering after Lichess has completed the result.
+
+My Games status copy is now deliberately compact: `Found X games` ends in an
+animated ellipsis while Lichess still reports indexing and a period once the
+snapshot is final. Because Lichess can retain that indexing flag after its
+aggregates stop changing, two identical snapshots also settle the visible
+ellipsis to a period while bounded polling continues silently; later changes
+make the ellipsis active again.
 
 Coverage reliability: aggregate scoring now paces position requests and honors
 Lichess `Retry-After` responses with a visible countdown and automatic resume,

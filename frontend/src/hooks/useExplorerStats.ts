@@ -50,7 +50,7 @@ export function useExplorerStats(
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [resultIdentity, setResultIdentity] = useState<string | null>(null)
-  const [pollStalled, setPollStalled] = useState(false)
+  const [snapshotStable, setSnapshotStable] = useState(false)
   const [tick, setTick] = useState(0)
 
   const filtersKey = JSON.stringify(filters ?? {})
@@ -76,7 +76,7 @@ export function useExplorerStats(
   const retry = useCallback(() => {
     attemptRef.current = 0
     snapshotFingerprintRef.current = null
-    setPollStalled(false)
+    setSnapshotStable(false)
     setTick((t) => t + 1)
   }, [])
 
@@ -129,13 +129,15 @@ export function useExplorerStats(
         setLoading(false)
         const fingerprint = JSON.stringify({
           totalGames: res.totalGames,
-          queuePosition: res.queuePosition,
           moves: res.moves.map((move) => [move.uci, move.white, move.draws, move.black]),
         })
-        const unchanged = res.stillIndexing && snapshotFingerprintRef.current === fingerprint
+        const unchangedPartial = Boolean(res.stillIndexing && snapshotFingerprintRef.current === fingerprint)
         snapshotFingerprintRef.current = fingerprint
-        setPollStalled(Boolean(unchanged))
-        if (source === 'my-games' && res.stillIndexing && !unchanged && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS) {
+        // A stale upstream queue flag must not animate forever after the usable
+        // aggregates settle. Polling still continues below; a changed snapshot
+        // makes progress visible again until it stabilizes.
+        setSnapshotStable(unchangedPartial || !res.stillIndexing)
+        if (source === 'my-games' && res.stillIndexing && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS) {
           attemptRef.current += 1
           pollTimeoutRef.current = setTimeout(() => setTick((t) => t + 1), MY_GAMES_POLL_INTERVAL_MS)
         }
@@ -173,11 +175,9 @@ export function useExplorerStats(
     loading: visibleLoading,
     error: visibleError,
     /** True while automatically re-polling a `my-games` result that's still indexing on Lichess's side. */
-    isPolling: stillIndexing && !pollStalled && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS,
+    isPolling: stillIndexing && !snapshotStable && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS,
     /** True once automatic re-polling has given up (still indexing after `MY_GAMES_MAX_POLL_ATTEMPTS`) - offer a manual `retry`. */
     pollExhausted: stillIndexing && attemptRef.current >= MY_GAMES_MAX_POLL_ATTEMPTS,
-    /** True when two consecutive Lichess snapshots are identical; polling pauses until manual retry. */
-    pollStalled: stillIndexing && pollStalled,
     /** Restarts the poll-attempt count and re-fetches immediately - for a manual "Try again" once auto-polling has given up. */
     retry,
   }
