@@ -133,7 +133,7 @@ export function ExplorerStatsTable({
                 className={classNames.join(' ')}
                 onClick={onMoveClick ? () => onMoveClick(move.san) : undefined}
               >
-                <td>
+                <td data-label="Move">
                   {move.san}
                   {saved && (
                     <span className="explorer-saved-badge" title="In your prep" aria-label="In your prep">
@@ -141,14 +141,14 @@ export function ExplorerStatsTable({
                     </span>
                   )}
                 </td>
-                <td className="explorer-games-cell">
+                <td data-label="Games" className="explorer-games-cell">
                   {formatCompactNumber(move.totalGames)}
                   <span className="explorer-games-pct">
                     {' '}
                     ({Math.round(percent(move.totalGames, data.totalGames))}%)
                   </span>
                 </td>
-                <td>
+                <td data-label="Results">
                   <ResultBar move={move} />
                 </td>
               </tr>

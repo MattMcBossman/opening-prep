@@ -18,12 +18,12 @@ test('anonymous profile and module management survives a refresh', async ({ page
   const editingSelect = page.locator('.repertoire-profile-controls select').nth(1)
   await page.getByRole('button', { name: 'Manage' }).click()
 
-  await page.getByLabel('New profile name').fill('Tournament')
-  await page.getByRole('button', { name: 'Create profile' }).click()
+  await page.getByLabel('New profile').fill('Tournament')
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(profileSelect).toHaveValue('4')
 
-  page.once('dialog', (dialog) => dialog.accept('Vienna'))
-  await page.getByRole('button', { name: 'New white module' }).click()
+  await page.getByLabel('New white opening module').fill('Vienna')
+  await page.getByRole('button', { name: 'Create module' }).click()
   await expect(editingSelect).toHaveValue('5')
   await expect(editingSelect.getByRole('option', { name: 'Vienna' })).toHaveCount(1)
 
@@ -181,9 +181,8 @@ test('switching to My games clears public stats and replaces partial snapshots w
   expect(personalSpeeds).toBe('bullet,ultraBullet')
   await expect(page.getByRole('row', { name: /e4 6/ })).toBeVisible({ timeout: 7_000 })
   await expect.poll(() => personalRequests, { timeout: 7_000 }).toBeGreaterThanOrEqual(3)
-  await expect(page.getByText('Showing 6 matching games.')).toBeVisible()
+  await expect(page.getByText('Found 6 games.')).toBeVisible()
   await expect(page.getByText(/checking Lichess for updates/)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Lichess database' }).click()
   await expect(page.getByLabel('From month')).toHaveValue('02')

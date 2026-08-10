@@ -39,3 +39,123 @@ test('mobile Explorer sections show one workspace at a time and preserve selecti
   await expect(page.locator('#mobile-prep-panel')).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
 })
+
+test('mobile settings stay reachable without crowding the primary header', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/')
+
+  const title = page.getByRole('heading', { name: 'opening-prep' })
+  const mode = page.getByRole('tablist', { name: 'App mode' })
+  const settings = page.getByRole('button', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  const [titleBox, modeBox, settingsBox] = await Promise.all([
+    title.boundingBox(), mode.boundingBox(), settings.boundingBox(),
+  ])
+  expect(titleBox && modeBox && settingsBox).toBeTruthy()
+  expect(Math.abs(titleBox!.y - modeBox!.y)).toBeLessThan(12)
+  expect(Math.abs(modeBox!.y - settingsBox!.y)).toBeLessThan(12)
+  await expect(page.locator('#header-settings')).toBeHidden()
+  await settings.click()
+  await expect(page.locator('#header-settings')).toBeVisible()
+  await expect(page.getByRole('switch', { name: /sound/i })).toBeVisible()
+  await expect(page.getByRole('switch', { name: /Light|Dark/ })).toBeVisible()
+  await expect(page.locator('#header-settings .header-toggle-label').filter({ hasText: /Sound|Muted/ })).toBeVisible()
+  await expect(page.locator('#header-settings .header-toggle-label').filter({ hasText: /Light|Dark/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
+  await page.getByRole('button', { name: 'Close' }).click()
+  await expect(page.locator('#header-settings')).toBeHidden()
+})
+
+test('mobile primary controls meet the touch target baseline', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/')
+
+  for (const control of ['Back', 'Forward', 'Reset', 'Drill from here']) {
+    const box = await page.getByRole('button', { name: new RegExp(control, 'i') }).boundingBox()
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  }
+  const tabs = page.getByRole('tablist', { name: 'Explorer sections' }).getByRole('tab')
+  for (let index = 0; index < await tabs.count(); index += 1) {
+    const box = await tabs.nth(index).boundingBox()
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+  }
+})
+
+test('reduced motion keeps navigation usable and removes long transitions', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Moves', exact: true }).click()
+  await expect(page.locator('#mobile-moves-panel')).toBeVisible()
+  const duration = await page.locator('.board-controls button').first().evaluate(
+    (element) => getComputedStyle(element).transitionDuration,
+  )
+  expect(Number.parseFloat(duration)).toBeLessThanOrEqual(0.00001)
+})
+
+test('selected-position drill survives a mobile Explorer round trip', async ({ page }) => {
+  const root = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -'
+  const afterE4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -'
+  const afterE4E5 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -'
+  const afterNc3 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR b KQkq -'
+  await page.addInitScript((positions) => {
+    localStorage.setItem('opening-prep:repertoire', JSON.stringify({
+      version: 3,
+      nextId: 4,
+      activeProfileId: 1,
+      editingModuleIds: { white: 2, black: 3 },
+      profiles: [{ id: 1, name: 'Default', modules: [
+        { moduleId: 2, enabled: true, sortOrder: 0 },
+        { moduleId: 3, enabled: true, sortOrder: 1 },
+      ] }],
+      modules: [
+        { id: 2, name: 'Vienna', color: 'white', tree: {
+          [positions.root]: [{ san: 'e4', uci: 'e2e4', resultingFen: positions.afterE4 }],
+          [positions.afterE4]: [{ san: 'e5', uci: 'e7e5', resultingFen: positions.afterE4E5 }],
+          [positions.afterE4E5]: [{ san: 'Nc3', uci: 'b1c3', resultingFen: positions.afterNc3 }],
+        } },
+        { id: 3, name: 'General Black', color: 'black', tree: {} },
+      ],
+    }))
+  }, { root, afterE4, afterE4E5, afterNc3 })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Moves', exact: true }).click()
+  await page.getByRole('button', { name: 'e4', exact: true }).click()
+  await page.getByRole('button', { name: 'e5', exact: true }).click()
+  await page.getByRole('button', { name: 'Drill from here' }).click()
+  await expect(page.getByRole('radio', { name: 'Start at this position' })).toBeChecked()
+
+  await page.getByRole('tab', { name: 'Explorer', exact: true }).click()
+  await page.getByRole('tab', { name: 'Drills', exact: true }).click()
+  await expect(page.getByRole('radio', { name: 'Start at this position' })).toBeChecked()
+  await expect(page.getByText('Drill 1 of 1')).toBeVisible()
+})
+
+test('enabling Reset after the first mobile move does not leave it highlighted', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  const source = await page.locator('[data-square="e2"]').boundingBox()
+  const target = await page.locator('[data-square="e4"]').boundingBox()
+  expect(source && target).toBeTruthy()
+  await page.mouse.move(source!.x + source!.width / 2, source!.y + source!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, { steps: 5 })
+  await page.mouse.up()
+
+  const reset = page.getByRole('button', { name: 'Reset', exact: true })
+  await expect(reset).toBeEnabled()
+  // react-chessboard renders custom square styles on an overlay inside each
+  // data-square node, rather than changing the base square's computed color.
+  await expect(page.locator('.board-wrapper [style*="255, 235, 59"]')).toHaveCount(2)
+  const colors = await reset.evaluate((element) => {
+    const button = getComputedStyle(element)
+    const surfaceProbe = document.createElement('div')
+    surfaceProbe.style.background = 'var(--surface)'
+    document.body.append(surfaceProbe)
+    const surface = getComputedStyle(surfaceProbe).backgroundColor
+    surfaceProbe.remove()
+    return { button: button.backgroundColor, surface }
+  })
+  expect(colors.button).toBe(colors.surface)
+})

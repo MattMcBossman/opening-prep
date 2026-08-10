@@ -83,7 +83,7 @@ Pins, updates, or removes a published global release in a profile. POST accepts
 
 ### `GET /api/v1/repertoires/`
 ```json
-[{ "id": 1, "name": "Default", "color": "white", "moveCount": 42,
+[{ "id": 1, "name": "Default", "color": "white", "moveCount": 42, "lineCount": 8,
    "createdAt": "...", "updatedAt": "..." }]
 ```
 

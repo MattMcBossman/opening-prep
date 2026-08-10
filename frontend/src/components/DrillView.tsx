@@ -10,6 +10,7 @@ import { useExplorerStats } from '../hooks/useExplorerStats'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { sideToMove } from '../lib/chessUtils'
 import { completedDrillHistoryUci } from '../lib/repertoireDrills'
+import { commonContinuations } from '../lib/drillPositionAssessment'
 import type { DrillLine, DrillStartContext, DrillStartMode } from '../lib/repertoireDrills'
 import type { AuthUser } from '../lib/authApi'
 import type { RepertoireColor } from '../types'
@@ -45,11 +46,14 @@ type Props = {
   onViewInExplorer: (historyUci: string[], finalFen: string) => void
 }
 
-const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
+const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
+const LAST_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
 const LEGAL_TARGET_STYLE: CSSProperties = {
-  backgroundImage: 'radial-gradient(circle, rgba(0, 0, 0, 0.3) 22%, transparent 24%)',
+  backgroundImage: 'radial-gradient(circle, rgba(0, 0, 0, 0.2) 22%, transparent 24%)',
 }
-const CAPTURE_TARGET_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(0, 0, 0, 0.35)' }
+const CAPTURE_TARGET_STYLE: CSSProperties = {
+  backgroundImage: 'radial-gradient(circle closest-side, rgba(0, 0, 0, 0.2) 0 calc(100% - 1px), transparent 100%)',
+}
 // Progressive wrong-attempt hints (2nd attempt: origin square, 3rd+: origin + destination).
 const HINT_SQUARE_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(76, 175, 80, 0.65)' }
 // Distinct from the green save-hint squares above - this is a warning about an
@@ -139,8 +143,13 @@ export function DrillView({
 
   const squareStyles = useMemo(() => {
     const styles: Record<string, CSSProperties> = {}
+    const lastAppliedStep = state.lastAppliedSteps.at(-1)
+    if (lastAppliedStep?.resultingFen === fen) {
+      styles[lastAppliedStep.uci.slice(0, 2)] = LAST_MOVE_SQUARE_STYLE
+      styles[lastAppliedStep.uci.slice(2, 4)] = LAST_MOVE_SQUARE_STYLE
+    }
     if (selectedSquare) {
-      styles[selectedSquare] = SELECTED_SQUARE_STYLE
+      styles[selectedSquare] = { ...styles[selectedSquare], ...SELECTED_SQUARE_STYLE }
       for (const move of legalMoves) {
         styles[move.to] = { ...styles[move.to], ...(move.isCapture() ? CAPTURE_TARGET_STYLE : LEGAL_TARGET_STYLE) }
       }
@@ -150,21 +159,32 @@ export function DrillView({
       if (feedback.hintTo) styles[feedback.hintTo] = { ...styles[feedback.hintTo], ...HINT_SQUARE_STYLE }
     }
     return styles
-  }, [selectedSquare, legalMoves, feedback])
+  }, [selectedSquare, legalMoves, feedback, state.lastAppliedSteps, fen])
 
-  // Drawn only while paused after completing a line - the opponent's best try
-  // in a position the user hasn't prepped a reply to yet (see DrillLineCompletePanel).
+  // Drawn only while paused after completing a line. Orange is Stockfish's best
+  // continuation; blue arrows are frequent moves from the Lichess sample. The
+  // latter are empirical alternatives, not claimed strategic "themes".
   const arrows = useMemo<Arrow[]>(() => {
-    const bestMoveUci = isPaused ? session.completionEval?.bestMoveUci : null
-    if (!bestMoveUci) return []
-    return [
-      {
+    const bestMoveUci = isPaused ? (session.completionEval?.bestMoveUci ?? null) : null
+    if (!isPaused) return []
+    const result: Arrow[] = []
+    if (bestMoveUci) {
+      result.push({
         startSquare: bestMoveUci.slice(0, 2),
         endSquare: bestMoveUci.slice(2, 4),
         color: BEST_RESPONSE_ARROW_COLOR,
-      },
-    ]
-  }, [isPaused, session.completionEval])
+      })
+    }
+    for (const move of commonContinuations(reviewExplorer.data, bestMoveUci)) {
+      const alpha = Math.min(0.78, 0.28 + move.percentage / 100)
+      result.push({
+        startSquare: move.uci.slice(0, 2),
+        endSquare: move.uci.slice(2, 4),
+        color: `rgba(47, 111, 237, ${alpha.toFixed(2)})`,
+      })
+    }
+    return result
+  }, [isPaused, reviewExplorer.data, session.completionEval])
 
   const tryMove = useCallback(
     (candidate: { from: string; to: string; promotion?: string }): boolean => {
@@ -194,6 +214,9 @@ export function DrillView({
   )
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
+    // Dragging starts a separate move interaction from tap-to-move. Always
+    // discard an earlier selected square, including after a rejected drop.
+    setSelectedSquare(null)
     if (!targetSquare) return false
     // A wrong-but-legal move is deliberately never applied to `fen` (see
     // drillSessionLogic) - returning false here also makes react-chessboard snap
@@ -305,6 +328,7 @@ export function DrillView({
           <div className="drill-review">
             <DrillLineCompletePanel
               evaluation={session.completionEval}
+              explorerData={reviewExplorer.data}
               leafPly={state.completionPause?.leafPly ?? 0}
               isLastDrill={session.complete}
               onNext={session.acknowledgeCompletion}

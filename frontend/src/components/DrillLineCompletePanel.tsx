@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
 import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
 import { formatScore } from '../lib/formatScore'
-import type { EngineEvaluation } from '../types'
+import { describeCommonContinuations, describePositionEvaluation } from '../lib/drillPositionAssessment'
+import type { EngineEvaluation, ExplorerResponse } from '../types'
 
 type Props = {
   evaluation: EngineEvaluation | null
+  explorerData: ExplorerResponse | null
   /**
    * How many plies into the game the completed line's leaf position is - needed
    * to number the continuation correctly, since `evaluation.fen` is frequently a
@@ -28,12 +30,13 @@ type Props = {
  * real-world stats for that same position are rendered separately by the caller
  * (see DrillView), next to this panel.
  */
-export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNext, onViewInExplorer }: Props) {
+export function DrillLineCompletePanel({ evaluation, explorerData, leafPly, isLastDrill, onNext, onViewInExplorer }: Props) {
   const pvText = useMemo(() => {
     if (!evaluation) return ''
     const sanMoves = uciLineToSan(evaluation.fen, evaluation.pvUci)
     return formatMoveListFromPly(leafPly, sanMoves)
   }, [evaluation, leafPly])
+  const commonMovesText = useMemo(() => describeCommonContinuations(explorerData), [explorerData])
 
   return (
     <div className="panel drill-line-complete">
@@ -44,11 +47,14 @@ export function DrillLineCompletePanel({ evaluation, leafPly, isLastDrill, onNex
             Engine: <strong>{formatScore(evaluation)}</strong>{' '}
             <span className="score-label">(depth {evaluation.depth})</span>
           </p>
-          <p className="panel-status">
-            You haven&apos;t prepped a reply here yet - the engine&apos;s best try for the opponent is shown with an
-            arrow on the board.
-          </p>
+          <p className="panel-status">{describePositionEvaluation(evaluation)}</p>
+          <p className="panel-status">The orange arrow is Stockfish&apos;s recommended continuation.</p>
           {pvText && <p className="engine-line">{pvText}</p>}
+          {commonMovesText && (
+            <p className="panel-status">
+              {commonMovesText} Blue arrows show frequent alternatives; they are game statistics, not engine recommendations.
+            </p>
+          )}
         </>
       ) : (
         <p className="panel-status">Checking the engine&apos;s best try for the opponent…</p>

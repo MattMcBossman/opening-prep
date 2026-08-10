@@ -4,18 +4,28 @@
 
 Last updated: 2026-08-10
 
-Next project milestone: the mobile-first responsive experience specified in
-[mobile-plan.md](mobile-plan.md). Private phone access to the laptop-hosted app
-is wired through Tailscale; managed production deployment remains deferred until
+Current acceptance milestone: complete the physical Android/Tailscale smoke
+matrix in [mobile-plan.md](mobile-plan.md). Mobile engineering and automated
+verification are complete. Managed production deployment remains deferred until
 the project is ready for independent uptime or external users.
 
-Mobile progress: the M1 board-first fluid layout is complete across the planned
-320–430px portrait widths and 667×375 landscape without document overflow.
-Phone-only Moves/Stats/Prep section navigation has started M2 and preserves its
-selection while the explorer position changes. Core move, repertoire,
-statistics, source, date, rating, speed, and PGN controls now use phone-friendly
-44px touch targets; the remaining M2 work is the compact header, responsive
-statistics presentation, and stable loading/error states.
+Mobile progress: M1–M4 engineering and the M5 automated verification pass are
+complete. The app now has a board-first fluid shell, compact settings header,
+Moves/Stats/Prep navigation, responsive statistics, 44px touch targets, a
+full-screen accessible repertoire manager, drill-first portrait/landscape
+layouts, and drill/Explorer session continuity. Automated coverage spans
+320–430px portrait, 667×375 landscape, Android Chrome emulation, and
+iPhone-sized touch emulation. The remaining acceptance item is the documented
+hands-on Android/Tailscale smoke matrix in `mobile-plan.md`.
+
+Mobile profile management (M3) is complete: Manage opens as a contained desktop
+dialog and a safe-area-aware full-screen phone sheet, traps focus, closes with
+Escape or its visible close control, restores focus and page scrolling on exit,
+and presents profile/module creation and renaming as labeled validated forms
+instead of browser prompts. At 360px, module membership and ordering, explicit
+editing-target selection, immutable-global provenance, preview/pin/copy/gap
+fill, and deliberate destructive confirmations remain fully available through
+touch-sized controls.
 
 Current repair note: browser-authored line saving was rejected because
 `chess.js` and python-chess used different en-passant FEN emission modes after

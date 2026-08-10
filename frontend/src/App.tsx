@@ -44,29 +44,17 @@ import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import type { ExplorerOpening, RepertoireMove } from './types'
 import './App.css'
 
-const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
+const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
+const LAST_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
 // Quiet moves get a small center dot.
 const LEGAL_TARGET_STYLE: CSSProperties = {
-  backgroundImage: 'radial-gradient(circle, rgba(0, 0, 0, 0.3) 22%, transparent 24%)',
+  backgroundImage: 'radial-gradient(circle, rgba(0, 0, 0, 0.2) 22%, transparent 24%)',
 }
-// Captures (and en passant) target an occupied square, where a center dot would be
-// hidden behind the piece artwork, so use an inset ring around the square instead.
-// A single alpha doesn't read the same on both square colors: on a dark square a
-// translucent black ring sits against an already-dark background and only needs to be
-// slightly deeper to stand out, while on a light square the same alpha washes out to a
-// pale grey, so light squares get a noticeably darker ring.
-const CAPTURE_TARGET_STYLE_DARK_SQUARE: CSSProperties = {
-  boxShadow: 'inset 0 0 0 4px rgba(0, 0, 0, 0.35)',
-}
-const CAPTURE_TARGET_STYLE_LIGHT_SQUARE: CSSProperties = {
-  boxShadow: 'inset 0 0 0 4px rgba(0, 0, 0, 0.6)',
-}
-
-/** Whether an algebraic square (e.g. "e4") is one of the board's light squares. */
-function isLightSquare(square: string): boolean {
-  const file = square.charCodeAt(0) - 'a'.charCodeAt(0)
-  const rank = square.charCodeAt(1) - '1'.charCodeAt(0)
-  return (file + rank) % 2 === 1
+// Captures use a large circular outline around the destination piece. Keeping
+// the center transparent leaves the piece artwork unobscured, while the thick
+// outer ring remains visible on both light and dark board squares.
+const CAPTURE_TARGET_STYLE: CSSProperties = {
+  backgroundImage: 'radial-gradient(circle closest-side, rgba(0, 0, 0, 0.2) 0 calc(100% - 1px), transparent 100%)',
 }
 
 function App() {
@@ -105,6 +93,7 @@ function App() {
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
   const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>('stats')
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
   const [drillStartContext, setDrillStartContext] = useState<DrillStartContext>()
   const [drillMounted, setDrillMounted] = useState(false)
 
@@ -280,22 +269,29 @@ function App() {
   }, [fen, selectedSquare])
 
   const squareStyles = useMemo(() => {
-    if (!selectedSquare) return undefined
-    const styles: Record<string, CSSProperties> = { [selectedSquare]: SELECTED_SQUARE_STYLE }
-    for (const move of legalMoves) {
-      styles[move.to] = {
-        ...styles[move.to],
-        ...(move.isCapture()
-          ? isLightSquare(move.to)
-            ? CAPTURE_TARGET_STYLE_LIGHT_SQUARE
-            : CAPTURE_TARGET_STYLE_DARK_SQUARE
-          : LEGAL_TARGET_STYLE),
+    const styles: Record<string, CSSProperties> = {}
+    const lastMoveUci = pointer > 0 ? moves[pointer - 1]?.uci : undefined
+    if (lastMoveUci) {
+      styles[lastMoveUci.slice(0, 2)] = LAST_MOVE_SQUARE_STYLE
+      styles[lastMoveUci.slice(2, 4)] = LAST_MOVE_SQUARE_STYLE
+    }
+    if (selectedSquare) {
+      styles[selectedSquare] = { ...styles[selectedSquare], ...SELECTED_SQUARE_STYLE }
+      for (const move of legalMoves) {
+        styles[move.to] = {
+          ...styles[move.to],
+          ...(move.isCapture() ? CAPTURE_TARGET_STYLE : LEGAL_TARGET_STYLE),
+        }
       }
     }
-    return styles
-  }, [selectedSquare, legalMoves])
+    return Object.keys(styles).length > 0 ? styles : undefined
+  }, [selectedSquare, legalMoves, moves, pointer])
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
+    // A drag is a new interaction, independent of any earlier tap-to-move
+    // selection. Clear it even when the drop is cancelled or illegal so a
+    // stale origin/highlight cannot remain on the board.
+    setSelectedSquare(null)
     if (!targetSquare) return false
     return playMove({ from: sourceSquare, to: targetSquare, promotion: 'q' })
   }
@@ -323,6 +319,15 @@ function App() {
         <h1>opening-prep</h1>
         <p>Opening explorer &amp; repertoire builder</p>
         <ModeToggle mode={mode} onChange={handleModeChange} />
+        <button
+          type="button"
+          className="mobile-settings-button"
+          aria-expanded={mobileSettingsOpen}
+          aria-controls="header-settings"
+          onClick={() => setMobileSettingsOpen((open) => !open)}
+        >
+          {mobileSettingsOpen ? 'Close' : 'Settings'}
+        </button>
         <RepertoireProfileControls
             profiles={repertoire.profiles}
             modules={repertoire.modules}
@@ -348,7 +353,7 @@ function App() {
             onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
             onPreviewTemplate={repertoire.setPreviewRelease}
           />
-        <div className="header-controls">
+        <div id="header-settings" className={`header-controls ${mobileSettingsOpen ? 'mobile-open' : ''}`}>
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
           <AuthControl user={auth.user} loading={auth.loading} onLogin={() => auth.login()} onLogout={auth.logout} />

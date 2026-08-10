@@ -37,6 +37,7 @@ import type {
   RepertoireSummary,
 } from '../lib/repertoireApi'
 import type { AuthUser } from '../lib/authApi'
+import { collectDrillLines } from '../lib/repertoireDrills'
 import type { DrillLine } from '../lib/repertoireDrills'
 import type { Repertoire, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
 
@@ -169,6 +170,7 @@ function useLocalRepertoireStore() {
   const modules: RepertoireSummary[] = store.modules.map((module) => ({
     id: module.id, name: module.name, description: '', color: module.color,
     moveCount: Object.values(module.tree).reduce((sum, moves) => sum + moves.length, 0),
+    lineCount: collectDrillLines(module.color, (fen) => module.tree[normalizeFen(fen)] ?? []).length,
     createdAt: '', updatedAt: '',
   }))
   const profiles: RepertoireProfileSummary[] = store.profiles.map((profile) => ({
@@ -181,7 +183,7 @@ function useLocalRepertoireStore() {
         description: module.description ?? '',
         color: module.color,
         moveCount: module.moveCount,
-        lineCount: 0,
+        lineCount: module.lineCount,
         enabled: link.enabled,
         sortOrder: link.sortOrder,
       }] : []
@@ -319,6 +321,14 @@ function useApiRepertoireStore(enabled: boolean) {
         )
         const trees = Object.fromEntries(modulePayloads.map((payload) => [payload.id, payload.tree]))
         const lines = Object.fromEntries(modulePayloads.map((payload) => [payload.id, payload.lines]))
+        // Older/still-running backend processes may omit the newly added
+        // top-level lineCount. We already load canonical authored lines for
+        // every module, so hydrate the count from those instead of letting the
+        // management UI render an empty value.
+        const hydratedModules = modules.map((module) => ({
+          ...module,
+          lineCount: Number.isFinite(module.lineCount) ? module.lineCount : (lines[module.id]?.length ?? 0),
+        }))
         const pinnedReleases = profiles.flatMap((profile) => profile.templateReleases ?? [])
         const fetchedReleases = await Promise.all(
             Array.from(new Map(pinnedReleases.map((release) => [release.id, release])).values()).map(
@@ -345,7 +355,7 @@ function useApiRepertoireStore(enabled: boolean) {
           return {
             status: 'ready',
             profiles,
-            modules,
+            modules: hydratedModules,
             trees,
             lines,
             templateTrees,

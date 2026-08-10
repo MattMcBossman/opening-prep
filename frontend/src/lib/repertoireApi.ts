@@ -7,6 +7,7 @@ export type RepertoireSummary = {
   description?: string
   color: RepertoireColor
   moveCount: number
+  lineCount: number
   createdAt: string
   updatedAt: string
 }

@@ -64,6 +64,7 @@ class TestRepertoireListCreate:
 
         assert response.status_code == 201
         assert response.data["moveCount"] == 0
+        assert response.data["lineCount"] == 0
         created = Repertoire.objects.get(pk=response.data["id"])
         assert created.owner == user
         profile = RepertoireProfile.objects.get(owner=user, name="Default")

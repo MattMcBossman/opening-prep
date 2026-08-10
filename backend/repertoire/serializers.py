@@ -16,9 +16,10 @@ from .models import (
 
 
 class RepertoireSerializer(serializers.ModelSerializer):
-    """Shape for `GET/POST /repertoires/` - `moveCount` is computed, not stored."""
+    """Shape for `GET/POST /repertoires/` - counts are computed, not stored."""
 
     moveCount = serializers.IntegerField(source="moves.count", read_only=True)
+    lineCount = serializers.IntegerField(source="lines.count", read_only=True)
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     description = serializers.CharField(required=False, allow_blank=True)
@@ -31,6 +32,7 @@ class RepertoireSerializer(serializers.ModelSerializer):
             "description",
             "color",
             "moveCount",
+            "lineCount",
             "source_release",
             "createdAt",
             "updatedAt",

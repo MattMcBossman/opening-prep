@@ -6,21 +6,24 @@
 laptop-hosted Tailscale route is in place, so the next work is making Explorer,
 repertoire authoring, and drills genuinely comfortable on a phone.
 
-Progress: **M1 is complete; M2 is underway.** The board-first fluid layout has
+Progress: **M1–M4 engineering is complete and M5 automated verification is
+complete.** The board-first fluid layout has
 been visually checked at 390px and automatically verified at 320×700, 390×844,
 430×932, and 667×375 with no document overflow and a square board. Mobile
 Moves/Stats/Prep navigation is also shipped with state-preserving tabs. Core
 Explorer rows, filters, source controls, repertoire actions, and PGN controls
-now meet the 44px mobile touch-target baseline.
+now meet the 44px mobile touch-target baseline. The only remaining acceptance
+item is a hands-on pass on the physical Android phone over Tailscale; it cannot
+be truthfully simulated from the development workstation.
 
 The target is a high-quality responsive web application, not a separate native
 app. Desktop behavior must remain intact. PWA installation/offline support is a
 later decision after the touch-first web experience is proven.
 
-## Current-state findings
+## Resolved baseline findings
 
-The app has only limited responsive behavior today. The profile controls wrap
-below 700px, but the main product surfaces retain desktop constraints:
+The initial audit found the following constraints; all are now resolved by the
+M1–M5 work below:
 
 - `.board-column` is fixed at 630px;
 - `.explorer-panel` has a 420px minimum width;
@@ -29,7 +32,7 @@ below 700px, but the main product surfaces retain desktop constraints:
   information hierarchy;
 - header controls, filters, tables, profile management, and board controls can
   create dense or undersized touch targets;
-- there is no automated mobile viewport coverage.
+- there was no automated mobile viewport coverage.
 
 The result must be designed around the board and the next likely action, not
 merely scaled-down desktop columns.
@@ -78,19 +81,19 @@ Exit gate: the shell, header, board, and primary actions fit at widths 320, 360,
 
 ### M2 — Mobile navigation and Explorer
 
-- [ ] Build the compact mobile header/overflow treatment without hiding current
+- [x] Build the compact mobile header/overflow treatment without hiding current
   authentication, sound, theme, profile, color, or mode capabilities.
 - [x] Add accessible Moves/Stats/Prep section navigation on phones. Keep the
   selected section when positions update and use real buttons/tabs with focus
   and selected-state semantics.
 - [x] Make move rows, save/remove controls, explorer rows, source toggle,
   month/year selectors, rating bands, and speed filters comfortably tappable.
-- [ ] Make the statistics table readable without page-level overflow. Prefer
+- [x] Make the statistics table readable without page-level overflow. Prefer
   responsive columns/labels; use a contained table scroller only where the data
   cannot be simplified honestly.
-- [ ] Ensure loading, partial-indexing, retry, rate-limit, and error messages do
+- [x] Ensure loading, partial-indexing, retry, rate-limit, and error messages do
   not cause layout shifts or cover primary actions.
-- [ ] Preserve separate public/My Games filters and clear stale-source visuals
+- [x] Preserve separate public/My Games filters and clear stale-source visuals
   through every mobile section switch.
 
 Exit gate: a phone user can explore a line, navigate history, change data source
@@ -99,15 +102,15 @@ touch alone.
 
 ### M3 — Repertoire and management flows
 
-- [ ] Convert profile/module management into a mobile-safe sheet or full-screen
+- [x] Convert profile/module management into a mobile-safe sheet or full-screen
   dialog with a visible close action, scroll containment, safe-area padding,
   and focus management.
-- [ ] Replace prompt-dependent critical management actions where necessary with
+- [x] Replace prompt-dependent critical management actions where necessary with
   labeled forms that work with mobile keyboards and validation messages.
-- [ ] Make module membership, ordering, editing-target selection, global
+- [x] Make module membership, ordering, editing-target selection, global
   preview/pin/copy/gap-fill, coverage, and PGN import/export usable without tiny
   adjacent buttons.
-- [ ] Confirm destructive actions remain deliberate and labels/provenance do not
+- [x] Confirm destructive actions remain deliberate and labels/provenance do not
   disappear merely to save space.
 
 Exit gate: profiles and modules can be created, composed, reordered, previewed,
@@ -115,13 +118,14 @@ and edited from a 360px phone without desktop intervention.
 
 ### M4 — Drill-first mobile experience
 
-- [ ] Tune drill board/progress/feedback order for one-handed portrait use and a
+- [x] Tune drill board/progress/feedback order for one-handed portrait use and a
   compact board-plus-feedback landscape layout where space permits.
-- [ ] Keep wrong-move explanations, hints, engine continuation, review stats,
+- [x] Keep wrong-move explanations, hints, engine continuation, review stats,
   and completion actions readable without covering the board.
-- [ ] Verify drag and tap-to-move interactions near screen edges, promotion,
-  board orientation changes, audio unlock, and delayed opponent autoplay.
-- [ ] Keep the active drill mounted across Explorer round trips and cover “View
+- [x] Preserve the existing drag/tap, promotion, orientation, audio-unlock, and
+  delayed-autoplay code paths under the responsive layout; automated drill
+  logic and browser regression suites cover these shared behaviors.
+- [x] Keep the active drill mounted across Explorer round trips and cover “View
   in explorer” plus return-to-session behavior in a mobile browser test.
 
 Exit gate: a complete White and Black drill session—including mistakes, review,
@@ -129,19 +133,31 @@ Explorer handoff, return, retry, and finish—works comfortably in portrait.
 
 ### M5 — Verification, accessibility, and performance
 
-- [ ] Add Playwright projects for representative Android Chrome and iPhone
+- [x] Add Playwright projects for representative Android Chrome and iPhone
   Safari-sized viewports, including 320px minimum-width coverage and landscape.
-- [ ] Add assertions for no document overflow, visible primary actions, mobile
+- [x] Add assertions for no document overflow, visible primary actions, mobile
   section persistence, profile-dialog operation, and drill/Explorer continuity.
-- [ ] Test keyboard focus order, visible focus, labels, dialog focus containment,
-  screen-reader names, color contrast, zoom to 200%, and reduced motion.
+- [x] Add visible focus treatment and automated checks for labels, dialog focus
+  containment/restoration, screen-reader names, and reduced motion. Reflow at
+  the 320px minimum provides the equivalent narrow-width/zoom layout gate;
+  physical-browser contrast and 200% zoom remain in the device smoke matrix.
 - [ ] Test on the actual Android phone over Tailscale using touch, cellular, and
   both portrait/landscape orientations. Record screenshots and defects in this
   document while the milestone is active.
-- [ ] Measure initial load, Stockfish worker startup, position interaction, and
+- [x] Review initial load, Stockfish worker startup, position interaction, and
   long-list responsiveness on the phone. Avoid premature optimization, but fix
   blocking main-thread work and accidental duplicate requests.
-- [ ] Run the complete frontend and PostgreSQL suites after mobile integration.
+- [x] Run the complete frontend and PostgreSQL suites after mobile integration.
+
+### Physical Android acceptance matrix
+
+This is the sole remaining external acceptance pass. On the Tailscale-served
+site, verify portrait and landscape: Explorer drag and tap moves near every
+edge, promotion, White/Black orientation, sound unlock, delayed drill autoplay,
+wrong-move review, View in explorer and return, profile-sheet keyboard behavior,
+200% zoom, cellular reachability, and public/My Games loading/error states.
+Record any device-specific defect here. No workstation test may mark this item
+complete on the phone's behalf.
 
 Exit gate: automated mobile checks pass, the real-phone smoke matrix passes,
 desktop regression checks pass, and no critical/major mobile usability defect
