@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { createDrillSession, finishDrillSession, submitDrillAttempts } from '../lib/drillsApi'
-import type { DrillAttemptPayload, DrillLineOutcome } from '../lib/drillsApi'
+import type { CreateDrillSessionPayload, DrillAttemptPayload, DrillLineOutcome } from '../lib/drillsApi'
 
 // Flush attempts periodically rather than holding them all until the session
 // ends - both so a long session doesn't accumulate an unbounded buffer, and so
@@ -34,7 +34,10 @@ export type DrillSessionRecording = {
  * needs both a signed-in user (attempts are tied to an account) and a known
  * server-side repertoire id to attach the session to.
  */
-export function useDrillSessionRecording(enabled: boolean, repertoireId: number | null): DrillSessionRecording {
+export function useDrillSessionRecording(
+  enabled: boolean,
+  repertoireIdOrConfig: number | CreateDrillSessionPayload | null,
+): DrillSessionRecording {
   const sessionIdRef = useRef<number | null>(null)
   const sessionFailedRef = useRef(false)
   const bufferRef = useRef<Map<number, DrillAttemptPayload>>(new Map())
@@ -78,11 +81,14 @@ export function useDrillSessionRecording(enabled: boolean, repertoireId: number 
       bufferRef.current.clear()
       sessionIdRef.current = null
       sessionFailedRef.current = false
-      if (!enabled || repertoireId === null) {
+      if (!enabled || repertoireIdOrConfig === null) {
         sessionFailedRef.current = true
         return
       }
-      createDrillSession(repertoireId, isRetryPass).then(
+      const request = typeof repertoireIdOrConfig === 'number'
+        ? repertoireIdOrConfig
+        : { ...repertoireIdOrConfig, isRetryPass }
+      createDrillSession(request, isRetryPass).then(
         (res) => {
           sessionIdRef.current = res.id
         },
@@ -91,7 +97,7 @@ export function useDrillSessionRecording(enabled: boolean, repertoireId: number 
         },
       )
     },
-    [enabled, repertoireId, clearFlushTimer],
+    [enabled, repertoireIdOrConfig, clearFlushTimer],
   )
 
   const onAttempt = useCallback(

@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+test-results/
+playwright-report/
 
 # Stockfish engine binaries (copied from node_modules/stockfish/bin via `npm run setup:engine`)
 public/engine/

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { collectDrillLines } from '../lib/repertoireDrills'
-import type { DrillStep } from '../lib/repertoireDrills'
+import { collectDrillLines, prepareDrillLines } from '../lib/repertoireDrills'
+import type { DrillLine, DrillStartContext, DrillStartMode, DrillStep } from '../lib/repertoireDrills'
 import {
   acknowledgeLineCompletion,
   advanceAutoPlay,
@@ -26,6 +26,10 @@ type UseDrillSessionParams = {
   color: RepertoireColor
   getContinuations: (fen: string) => RepertoireMove[]
   rootFen?: string
+  /** Explicit source-authored lines; falls back to graph leaf enumeration. */
+  lines?: DrillLine[]
+  startMode?: DrillStartMode
+  startContext?: DrillStartContext
   /** Called for every ply actually applied to the board, in the order it happens. */
   onStepApplied?: (step: DrillStep) => void
   /** Called once a line is completed (right as the review pause begins). */
@@ -68,14 +72,20 @@ export function useDrillSession({
   color,
   getContinuations,
   rootFen = START_FEN,
+  lines,
+  startMode = 'beginning',
+  startContext,
   onStepApplied,
   onLineComplete,
   recording,
 }: UseDrillSessionParams) {
   const { compare, evaluatePosition } = useEngineComparison()
-  const [state, setState] = useState<DrillSessionState>(() =>
-    createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen),
+  const prepared = useMemo(
+    () => prepareDrillLines(lines ?? collectDrillLines(color, getContinuations, rootFen), startMode, startContext),
+    // A drill is a snapshot; callers should replace `lines` only to launch a new scope.
+    [lines, color, getContinuations, rootFen, startMode, startContext],
   )
+  const [state, setState] = useState<DrillSessionState>(() => createDrillSession(prepared.lines, prepared.rootFen))
   // A recording-only correlation id, independent of drillSessionLogic's own
   // `nextAttemptToken` (which only increments on wrong attempts and exists to
   // match an async classification back to in-flight feedback) - every recorded
@@ -111,10 +121,10 @@ export function useDrillSession({
   }, [state.lines])
 
   const startNewSession = useCallback(() => {
-    const next = createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen)
+    const next = createDrillSession(prepared.lines, prepared.rootFen)
     setState(next)
     recording?.onSessionStart(next.isRetryPass)
-  }, [color, getContinuations, rootFen, recording])
+  }, [prepared, recording])
 
   // Re-collect and restart whenever the drilled color or root position changes -
   // e.g. the user switches from drilling White to drilling Black. Deliberately
@@ -122,11 +132,11 @@ export function useDrillSession({
   // a fixed snapshot of the repertoire for its duration (see the Phase 3 plan's
   // "Risks and decisions" - drilling must never fight with concurrent editing).
   useEffect(() => {
-    const next = createDrillSession(collectDrillLines(color, getContinuations, rootFen), rootFen)
+    const next = createDrillSession(prepared.lines, prepared.rootFen)
     setState(next)
     recording?.onSessionStart(next.isRetryPass)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [color, rootFen])
+  }, [color, rootFen, startMode, startContext, lines])
 
   useEffect(() => {
     if (!completionFen) {

@@ -44,6 +44,7 @@ session cookie first-party and avoids any CORS setup.
 ```bash
 uv run manage.py runserver     # dev server on :8000
 uv run manage.py migrate       # apply migrations
+uv run manage.py seed_opening_templates  # idempotently publish starter global openings
 uv run manage.py makemigrations
 uv run pytest                  # tests
 uv run ruff check .            # lint
@@ -63,9 +64,17 @@ dev server is running.
   frontend's `chessUtils.ts` normalization. The two must not drift: the
   repertoire is keyed by normalized FEN on both sides of the wire.
 - `accounts/` — custom `User`, Lichess OAuth (PKCE), encrypted token storage.
-- `repertoire/` — repertoire trees and their cascade-delete semantics.
+- `repertoire/` — reusable personal opening modules, composed profiles,
+  explicit move-order lines, immutable global-opening release snapshots, and
+  the FEN-graph cascade-delete semantics kept compatible with older clients.
 - `explorer_cache/` — FEN-keyed Lichess explorer cache and engine-eval cache.
 - `drills/` — drill sessions, per-attempt history, weakness aggregates.
+
+Global opening templates are curated through Django admin. A published release
+stores immutable `tree` and `lines` JSON snapshots, so profiles pin an exact
+version and editable copies retain their source provenance. Before production
+content is loaded, add a curator publishing workflow that validates both JSON
+shapes; see [`../profile-modules-plan.md`](../profile-modules-plan.md).
 
 ## Notes
 

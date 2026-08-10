@@ -49,6 +49,8 @@ export function useExplorerStats(
   const [data, setData] = useState<ExplorerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [resultIdentity, setResultIdentity] = useState<string | null>(null)
+  const [pollStalled, setPollStalled] = useState(false)
   const [tick, setTick] = useState(0)
 
   const filtersKey = JSON.stringify(filters ?? {})
@@ -62,15 +64,19 @@ export function useExplorerStats(
   // callback below for the other place this ref is reset.
   const identityRef = useRef(identityKey)
   const attemptRef = useRef(0)
+  const snapshotFingerprintRef = useRef<string | null>(null)
   if (identityRef.current !== identityKey) {
     identityRef.current = identityKey
     attemptRef.current = 0
+    snapshotFingerprintRef.current = null
   }
 
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const retry = useCallback(() => {
     attemptRef.current = 0
+    snapshotFingerprintRef.current = null
+    setPollStalled(false)
     setTick((t) => t + 1)
   }, [])
 
@@ -87,6 +93,7 @@ export function useExplorerStats(
       setData(null)
       setLoading(true)
       setError(null)
+      setResultIdentity(identityKey)
       return
     }
 
@@ -94,6 +101,7 @@ export function useExplorerStats(
       setData(null)
       setLoading(false)
       setError('Add a Lichess API token to load explorer stats.')
+      setResultIdentity(identityKey)
       return
     }
 
@@ -101,6 +109,7 @@ export function useExplorerStats(
       setData(null)
       setLoading(false)
       setError('Sign in with Lichess to see stats from your own games.')
+      setResultIdentity(identityKey)
       return
     }
 
@@ -116,8 +125,17 @@ export function useExplorerStats(
     request
       .then((res) => {
         setData(res)
+        setResultIdentity(identityKey)
         setLoading(false)
-        if (source === 'my-games' && res.stillIndexing && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS) {
+        const fingerprint = JSON.stringify({
+          totalGames: res.totalGames,
+          queuePosition: res.queuePosition,
+          moves: res.moves.map((move) => [move.uci, move.white, move.draws, move.black]),
+        })
+        const unchanged = res.stillIndexing && snapshotFingerprintRef.current === fingerprint
+        snapshotFingerprintRef.current = fingerprint
+        setPollStalled(Boolean(unchanged))
+        if (source === 'my-games' && res.stillIndexing && !unchanged && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS) {
           attemptRef.current += 1
           pollTimeoutRef.current = setTimeout(() => setTick((t) => t + 1), MY_GAMES_POLL_INTERVAL_MS)
         }
@@ -125,6 +143,7 @@ export function useExplorerStats(
       .catch((err: unknown) => {
         if (controller.signal.aborted) return
         setError(err instanceof Error ? err.message : 'Failed to load explorer stats')
+        setResultIdentity(identityKey)
         setLoading(false)
       })
 
@@ -141,16 +160,24 @@ export function useExplorerStats(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identityKey, tick])
 
-  const stillIndexing = source === 'my-games' && Boolean(data?.stillIndexing)
+  // A source/position/filter switch must never render the previous query's
+  // table while the next request is starting. Poll ticks retain the latest
+  // partial snapshot because their identity is deliberately unchanged.
+  const visibleData = resultIdentity === identityKey ? data : null
+  const visibleError = resultIdentity === identityKey ? error : null
+  const visibleLoading = loading || resultIdentity !== identityKey
+  const stillIndexing = source === 'my-games' && Boolean(visibleData?.stillIndexing)
 
   return {
-    data,
-    loading,
-    error,
+    data: visibleData,
+    loading: visibleLoading,
+    error: visibleError,
     /** True while automatically re-polling a `my-games` result that's still indexing on Lichess's side. */
-    isPolling: stillIndexing && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS,
+    isPolling: stillIndexing && !pollStalled && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS,
     /** True once automatic re-polling has given up (still indexing after `MY_GAMES_MAX_POLL_ATTEMPTS`) - offer a manual `retry`. */
     pollExhausted: stillIndexing && attemptRef.current >= MY_GAMES_MAX_POLL_ATTEMPTS,
+    /** True when two consecutive Lichess snapshots are identical; polling pauses until manual retry. */
+    pollStalled: stillIndexing && pollStalled,
     /** Restarts the poll-attempt count and re-fetches immediately - for a manual "Try again" once auto-polling has given up. */
     retry,
   }

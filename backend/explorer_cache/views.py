@@ -120,6 +120,7 @@ class MyGamesExplorerView(APIView):
                 data_in["color"],
                 since=data_in.get("since"),
                 until=data_in.get("until"),
+                speeds=data_in.get("speeds"),
             )
         except cache.TokenRequired:
             return Response(

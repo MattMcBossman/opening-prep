@@ -1,12 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   addRepertoireMoves,
+  addRepertoireLine,
+  copyOpeningTemplateRelease,
+  copyMissingOpeningTemplateLines,
   createRepertoire,
+  deleteRepertoireProfile,
+  fetchOpeningTemplateRelease,
   ensureRepertoires,
   fetchRepertoireTree,
   importRepertoire,
+  listRepertoireProfiles,
+  listRepertoireLines,
+  listOpeningTemplates,
   listRepertoires,
   removeRepertoireMove,
+  removeProfileModule,
+  pinTemplateRelease,
+  setProfileModule,
+  unpinTemplateRelease,
+  updateRepertoire,
+  updateRepertoireProfile,
 } from './repertoireApi'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -41,7 +55,110 @@ describe('listRepertoires / createRepertoire', () => {
   })
 })
 
+describe('profile composition', () => {
+  it('lists composed profiles', async () => {
+    const profiles = [
+      {
+        id: 3,
+        name: 'Tournament',
+        description: '',
+        modules: [],
+        createdAt: 'x',
+        updatedAt: 'x',
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(profiles)))
+
+    await expect(listRepertoireProfiles()).resolves.toEqual(profiles)
+  })
+
+  it('updates and deletes profiles and modules', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 3, name: 'Blitz' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await updateRepertoireProfile(3, { name: 'Blitz' })
+    await deleteRepertoireProfile(3)
+    await updateRepertoire(9, { name: 'Vienna' })
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/v1/repertoires/profiles/3/', 'PATCH'],
+      ['/api/v1/repertoires/profiles/3/', 'DELETE'],
+      ['/api/v1/repertoires/9/', 'PATCH'],
+    ])
+  })
+
+  it('adds or updates one module membership', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 3, modules: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await setProfileModule(3, 9, 2, false)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/repertoires/profiles/3/modules/')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ moduleId: 9, sortOrder: 2, enabled: false })
+  })
+
+  it('removes membership without deleting the module', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 3, modules: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await removeProfileModule(3, 9)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/repertoires/profiles/3/modules/')
+    expect(init.method).toBe('DELETE')
+    expect(JSON.parse(init.body)).toEqual({ moduleId: 9 })
+  })
+})
+
+describe('global opening library', () => {
+  it('lists and previews immutable releases', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+    await listOpeningTemplates()
+    await fetchOpeningTemplateRelease('vienna-game', 2)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/opening-templates/',
+      '/api/v1/opening-templates/vienna-game/releases/2/',
+    ])
+  })
+
+  it('pins, unpins, and copies a release', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}))
+    vi.stubGlobal('fetch', fetchMock)
+    await pinTemplateRelease(4, 12, 2)
+    await unpinTemplateRelease(4, 12)
+    await copyOpeningTemplateRelease('vienna-game', 2, 4)
+    await copyMissingOpeningTemplateLines('vienna-game', 2, 9)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ templateReleaseId: 12, sortOrder: 2, enabled: true })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ templateReleaseId: 12 })
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ profileId: 4 })
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/opening-templates/vienna-game/releases/2/copy-missing/')
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ moduleId: 9 })
+  })
+})
+
 describe('addRepertoireMoves / removeRepertoireMove', () => {
+  it('lists and authors explicit move-order lines', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+    const steps = [{ originFen: 'root w - -', san: 'e4', uci: 'e2e4', resultingFen: 'after b - -' }]
+
+    await listRepertoireLines(4)
+    await addRepertoireLine(4, steps, 'Vienna main line')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/repertoires/4/lines/')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/repertoires/4/lines/')
+    expect(fetchMock.mock.calls[1][1].method).toBe('POST')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      label: 'Vienna main line',
+      source: 'manual',
+      annotations: [],
+      steps,
+    })
+  })
+
   it('POSTs a batch of moves and returns the updated tree', async () => {
     const tree = { 'root w - -': [{ san: 'e4', uci: 'e2e4', resultingFen: 'after w - -' }] }
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(tree))

@@ -18,6 +18,8 @@ export type ExplorerResponse = {
   opening: ExplorerOpening
   /** Only ever set (and `true`) by the "my games" source - see fetchMyGamesExplorerStats. */
   stillIndexing?: boolean
+  /** Lichess's indexing queue position; not a count of games remaining. */
+  queuePosition?: number
 }
 
 export type RepertoireColor = 'white' | 'black'

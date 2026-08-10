@@ -6,13 +6,15 @@ export class ApiError extends Error {
   status: number
   detail: string
   fieldErrors: Record<string, unknown> | null
+  retryAfterSeconds: number | null
 
-  constructor(status: number, detail: string, fieldErrors: Record<string, unknown> | null = null) {
+  constructor(status: number, detail: string, fieldErrors: Record<string, unknown> | null = null, retryAfterSeconds: number | null = null) {
     super(detail)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
     this.fieldErrors = fieldErrors
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -64,7 +66,9 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         : `Request failed: ${res.status}`
     const fieldErrors =
       payload && typeof payload === 'object' && !('detail' in payload) ? (payload as Record<string, unknown>) : null
-    throw new ApiError(res.status, detail, fieldErrors)
+    const retryAfter = res.headers.get('Retry-After')
+    const retryAfterSeconds = retryAfter === null ? null : Number.parseInt(retryAfter, 10)
+    throw new ApiError(res.status, detail, fieldErrors, Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : null)
   }
 
   return payload as T

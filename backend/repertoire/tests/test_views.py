@@ -10,7 +10,14 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from common.fen import normalize_fen
-from repertoire.models import Repertoire, RepertoireMove
+from repertoire.models import (
+    ProfileModule,
+    Repertoire,
+    RepertoireLine,
+    RepertoireLineStep,
+    RepertoireMove,
+    RepertoireProfile,
+)
 
 User = get_user_model()
 
@@ -59,6 +66,69 @@ class TestRepertoireListCreate:
         assert response.data["moveCount"] == 0
         created = Repertoire.objects.get(pk=response.data["id"])
         assert created.owner == user
+        profile = RepertoireProfile.objects.get(owner=user, name="Default")
+        assert ProfileModule.objects.filter(profile=profile, module=created).exists()
+
+
+@pytest.mark.django_db
+class TestProfiles:
+    def test_create_and_list_profile(self, client, user):
+        response = client.post(
+            "/api/v1/repertoires/profiles/",
+            {"name": "Tournament", "description": "Main classical preparation"},
+            format="json",
+        )
+
+        assert response.status_code == 201
+        assert response.data["name"] == "Tournament"
+        assert response.data["modules"] == []
+        assert RepertoireProfile.objects.get(id=response.data["id"]).owner == user
+
+        listed = client.get("/api/v1/repertoires/profiles/")
+        assert [profile["name"] for profile in listed.data] == ["Tournament"]
+
+    def test_add_update_and_remove_module_without_deleting_it(self, client, user):
+        profile = RepertoireProfile.objects.create(owner=user, name="Blitz")
+        module = Repertoire.objects.create(owner=user, name="Vienna Game", color=Repertoire.WHITE)
+
+        added = client.post(
+            f"/api/v1/repertoires/profiles/{profile.id}/modules/",
+            {"moduleId": module.id, "sortOrder": 3},
+            format="json",
+        )
+        assert added.status_code == 200
+        assert added.data["modules"][0]["name"] == "Vienna Game"
+        assert added.data["modules"][0]["sortOrder"] == 3
+
+        updated = client.post(
+            f"/api/v1/repertoires/profiles/{profile.id}/modules/",
+            {"moduleId": module.id, "sortOrder": 1, "enabled": False},
+            format="json",
+        )
+        assert updated.data["modules"][0]["enabled"] is False
+        assert ProfileModule.objects.filter(profile=profile, module=module).count() == 1
+
+        removed = client.delete(
+            f"/api/v1/repertoires/profiles/{profile.id}/modules/",
+            {"moduleId": module.id},
+            format="json",
+        )
+        assert removed.status_code == 200
+        assert removed.data["modules"] == []
+        assert Repertoire.objects.filter(id=module.id).exists()
+
+    def test_cannot_attach_another_users_module(self, client, user, other_user):
+        profile = RepertoireProfile.objects.create(owner=user, name="Mine")
+        module = Repertoire.objects.create(owner=other_user, name="Theirs", color=Repertoire.BLACK)
+
+        response = client.post(
+            f"/api/v1/repertoires/profiles/{profile.id}/modules/",
+            {"moduleId": module.id},
+            format="json",
+        )
+
+        assert response.status_code == 404
+        assert not ProfileModule.objects.filter(profile=profile).exists()
 
 
 @pytest.mark.django_db
@@ -97,6 +167,14 @@ class TestAddMoves:
             {"san": "e4", "uci": "e2e4", "resultingFen": normalize_fen(AFTER_E4)}
         ]
         assert RepertoireMove.objects.filter(repertoire=repertoire).count() == 2
+        line = RepertoireLine.objects.get(repertoire=repertoire)
+        assert line.uci_path == "e2e4 e7e5"
+        assert list(line.steps.values_list("move__uci", flat=True)) == ["e2e4", "e7e5"]
+
+        lines_response = client.get(f"/api/v1/repertoires/{repertoire.id}/lines/")
+        assert lines_response.status_code == 200
+        assert lines_response.data[0]["uciPath"] == "e2e4 e7e5"
+        assert [step["uci"] for step in lines_response.data[0]["steps"]] == ["e2e4", "e7e5"]
 
     def test_adding_an_existing_edge_is_a_noop(self, client, repertoire):
         body = {"moves": [{"originFen": START_FEN, "san": "e4", "uci": "e2e4", "resultingFen": AFTER_E4}]}
@@ -106,6 +184,21 @@ class TestAddMoves:
 
         assert response.status_code == 200
         assert RepertoireMove.objects.filter(repertoire=repertoire).count() == 1
+        assert RepertoireLine.objects.filter(repertoire=repertoire).count() == 1
+
+    def test_adding_a_sibling_creates_two_explicit_lines_and_preserves_existing_uuid(
+        self, client, repertoire
+    ):
+        first = {"moves": [{"originFen": START_FEN, "san": "e4", "uci": "e2e4", "resultingFen": AFTER_E4}]}
+        client.post(f"/api/v1/repertoires/{repertoire.id}/moves/", first, format="json")
+        original_id = RepertoireLine.objects.get(repertoire=repertoire).id
+
+        after_d4 = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1"
+        second = {"moves": [{"originFen": START_FEN, "san": "d4", "uci": "d2d4", "resultingFen": after_d4}]}
+        client.post(f"/api/v1/repertoires/{repertoire.id}/moves/", second, format="json")
+
+        assert RepertoireLine.objects.filter(repertoire=repertoire).count() == 2
+        assert RepertoireLine.objects.get(repertoire=repertoire, uci_path="e2e4").id == original_id
 
     def test_illegal_move_returns_400_and_saves_nothing(self, client, repertoire):
         body = {
@@ -158,6 +251,8 @@ class TestRemoveMove:
         assert response.status_code == 200
         assert response.data == {}
         assert RepertoireMove.objects.filter(repertoire=repertoire).count() == 0
+        assert RepertoireLine.objects.filter(repertoire=repertoire).count() == 0
+        assert RepertoireLineStep.objects.filter(line__repertoire=repertoire).count() == 0
 
     def test_removing_a_nonexistent_edge_is_a_noop_not_an_error(self, client, repertoire):
         response = client.delete(
@@ -187,6 +282,9 @@ class TestImport:
         }
         white = Repertoire.objects.get(owner=user, color=Repertoire.WHITE, name="Default")
         assert RepertoireMove.objects.filter(repertoire=white).count() == 1
+        profile = RepertoireProfile.objects.get(owner=user, name="Default")
+        assert ProfileModule.objects.filter(profile=profile, module=white).exists()
+        assert RepertoireLine.objects.filter(repertoire=white, uci_path="e2e4").exists()
 
     def test_import_is_idempotent(self, client, user):
         body = {"white": {START_FEN: [{"san": "e4", "uci": "e2e4", "resultingFen": AFTER_E4}]}, "black": {}}

@@ -1,9 +1,9 @@
-# Phase 4 API contract
+# API contract
 
-**Frozen.** Backend and frontend work proceeds in parallel against this document,
-so treat it as the interface both sides agreed on. If something here turns out to
-be wrong or unworkable, say so and get it changed here first rather than quietly
-diverging — a unilateral change breaks whoever is on the other side of it.
+This document records the live backend/frontend interface. The original Phase 4
+routes remain backward compatible; composable profiles, opening modules, global
+releases, and selected-position drills extend that contract. Update this file
+whenever an implemented request or response shape changes.
 
 Everything is mounted under `/api/v1/`. The app-level `urls.py` includes already
 exist in `opening_prep/urls.py`, so adding a route only means editing that app's
@@ -58,8 +58,28 @@ Flushes the session. `204 No Content`.
 
 ## Repertoire — `repertoire/urls.py`
 
-A repertoire is a *collection* even though the UI currently shows exactly one per
-color; the two defaults are created lazily on first use.
+A `Repertoire` is the compatibility name for a reusable personal opening module
+covering one color. Profiles compose any number of personal modules and pinned
+global releases; the signed-in UI selects one personal module as its write target
+and merges the other enabled components as read overlays.
+
+### `GET/POST /api/v1/repertoires/profiles/`
+Lists or creates the caller's named composed profiles. Each response includes
+the profile's ordered personal modules with move/line counts and enabled state.
+
+### `GET/PATCH/DELETE /api/v1/repertoires/profiles/{id}/`
+Fetches, renames/describes, or deletes an owned profile. Deleting a profile does
+not delete its reusable modules.
+
+### `POST/DELETE /api/v1/repertoires/profiles/{id}/modules/`
+Adds, updates, or removes a personal module membership. POST accepts
+`{"moduleId": 1, "sortOrder": 0, "enabled": true}`; DELETE accepts
+`{"moduleId": 1}`. Both the profile and module must belong to the caller.
+
+### `POST/DELETE /api/v1/repertoires/profiles/{id}/template-releases/`
+Pins, updates, or removes a published global release in a profile. POST accepts
+`{"templateReleaseId": 7, "sortOrder": 0, "enabled": true}`; DELETE accepts
+`{"templateReleaseId": 7}`. Pins are read-only and remain fixed to that version.
 
 ### `GET /api/v1/repertoires/`
 ```json
@@ -80,6 +100,33 @@ so `useRepertoire` needs no reshaping:
   ]
 }
 ```
+
+### `GET /api/v1/repertoires/{id}/lines/`
+Returns explicit, stable-UUID root-to-leaf move orders for the module, including
+their ordered steps. During the compatibility phase these lines are synchronized
+from the FEN graph after every existing add/remove/import mutation. A later
+line-authoring endpoint below can make authored lines the mutation source of
+truth for new writes.
+
+### `POST /api/v1/repertoires/{id}/lines/`
+Adds a complete legal path beginning at the standard initial position. Exact
+duplicates and prefixes of existing lines are idempotent; extending a terminal
+prefix replaces that shorter line. Body:
+```json
+{"label": "Main line", "source": "manual", "steps": [
+  {"originFen": "...", "san": "e4", "uci": "e2e4", "resultingFen": "..."}
+]}
+```
+Returns the module's complete ordered line list.
+
+The body may also contain `annotations`, a list of
+`{"ply": number, "comment"?: string, "nags"?: number[]}` entries. Ply values
+must be unique and within the submitted path. The line-list response returns
+these annotations for PGN comment/NAG round-tripping.
+
+### `DELETE /api/v1/repertoires/{id}/lines/{line UUID}/`
+Deletes an explicit line and prunes graph edges that are no longer referenced by
+another line. Returns `204 No Content`.
 
 ### `POST /api/v1/repertoires/{id}/moves/`
 Adds one or more edges **atomically**, mirroring the client's cascade-save (which
@@ -117,6 +164,30 @@ client already stores them:
 Idempotent: existing edges are skipped, not duplicated. Returns
 `{"white": {"imported": 12, "skipped": 3}, "black": {...}}`.
 
+## Global opening library — `repertoire/global_urls.py`
+
+These routes are mounted at `/api/v1/opening-templates/`. Template creation and
+release publishing are admin-only; the public API only discovers and uses
+published releases.
+
+### `GET /api/v1/opening-templates/`
+Lists published templates with metadata for their latest immutable release.
+
+### `GET /api/v1/opening-templates/{slug}/releases/{version}/`
+Returns release metadata plus its normalized-FEN `tree` object and explicit
+`lines` JSON snapshot. Releases cannot be edited after creation.
+
+### `POST /api/v1/opening-templates/{slug}/releases/{version}/copy/`
+Copies a release into an editable personal module while retaining the module
+response's `source_release` provenance id. Accepts optional `name` and `profileId`; when a
+profile is supplied, the new module is attached to it. Returns the module with
+`201 Created`.
+
+### `POST /api/v1/opening-templates/{slug}/releases/{version}/copy-missing/`
+With `{"moduleId": number}`, adds only release paths not already covered by an
+authored path in the owned, same-color module. Returns
+`{"added": number, "skipped": number}` and is idempotent.
+
 ## Explorer cache — `explorer_cache/urls.py`
 
 ### `GET /api/v1/explorer/stats/?fen=<fen>&moves=12`
@@ -140,15 +211,21 @@ required — the frontend then keeps using its existing direct-to-Lichess path.
 Upstream `429` is surfaced as `429` with `Retry-After` passed through. Concurrent
 requests for the same key should not produce duplicate upstream calls.
 
-### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12`
+### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12&speeds=bullet,blitz`
 **Authenticated only** — there's no anonymous path, since this always needs the
 caller's own linked Lichess account. Live proxy for Lichess's player-scoped
 opening explorer (the signed-in user's own games), **never cached** unlike
 `/explorer/stats/`. `color` is the color the signed-in user played (matching
 the app's White/Black repertoire toggle), not whose turn it is at `fen`.
-Response shape is `ExplorerResponse` plus an optional `stillIndexing: true`
-when Lichess hadn't finished processing the account's games within the
-server's wait budget — a best-effort partial result, not an error. `401` when
+Optional `since`/`until` month filters and comma-separated `speeds`
+(`ultraBullet`, `bullet`, `blitz`, `rapid`, `classical`, `correspondence`)
+are forwarded to Lichess's player explorer.
+Response shape is `ExplorerResponse` plus optional `stillIndexing: true` and
+`queuePosition` fields while Lichess reports background indexing. `totalGames`
+is the number of matching games currently available for the selected position;
+it is not a global account-import progress count. While Lichess is still
+processing the account, this is a best-effort partial result, not an error. The
+proxy returns the first snapshot promptly and the frontend polls for updates. `401` when
 no Lichess account is linked.
 
 ### `GET /api/v1/explorer/evals/?fen=<fen>`
@@ -171,7 +248,23 @@ All authenticated. The client remains the source of truth for running a session;
 these endpoints record what happened for later analysis.
 
 ### `POST /api/v1/drills/sessions/`
-Body `{"repertoireId": 1, "isRetryPass": false}` → `{"id": 7, "startedAt": "..."}`.
+Creates a session from one or more personal modules and/or pinned global
+releases. The singular `repertoireId` remains accepted for old clients.
+```json
+{
+  "repertoireIds": [1, 2],
+  "templateReleaseIds": [7],
+  "isRetryPass": false,
+  "startMode": "selected_position",
+  "selectedFen": "...",
+  "selectedPly": 4,
+  "prefixUci": ["e2e4", "e7e5", "b1c3", "g8f6"]
+}
+```
+At least one source is required. `startMode` is `beginning` or
+`selected_position`; the latter requires `selectedFen`. Returns
+`{"id": 7, "startedAt": "..."}`. Source join rows and launch context snapshot
+the session independently of later profile edits.
 
 ### `POST /api/v1/drills/sessions/{id}/attempts/`
 Accepts a batch, so the client can flush periodically rather than per move:
@@ -203,10 +296,5 @@ future spaced-repetition scheduler will read:
 ```
 Sorted by mistake rate descending.
 
-## Ownership
-
-- `accounts/`, `repertoire/` — the accounts + repertoire agent.
-- `explorer_cache/`, `drills/` — the explorer + drills agent.
-- `frontend/src/` — the frontend integration agent.
-- `opening_prep/settings.py`, `opening_prep/urls.py`, `common/`, this file — the
-  lead. Need something changed in them? Ask; don't edit.
+The more detailed domain and compatibility decisions live in
+[`../profile-modules-plan.md`](../profile-modules-plan.md).

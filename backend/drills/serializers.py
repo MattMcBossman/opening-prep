@@ -8,8 +8,34 @@ from .models import DrillLineResult
 class DrillSessionCreateSerializer(serializers.Serializer):
     """Body for `POST /drills/sessions/`."""
 
-    repertoireId = serializers.IntegerField()
+    repertoireId = serializers.IntegerField(required=False)
+    repertoireIds = serializers.ListField(child=serializers.IntegerField(min_value=1), required=False)
+    templateReleaseIds = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, default=list
+    )
     isRetryPass = serializers.BooleanField(source="is_retry_pass", required=False, default=False)
+    startMode = serializers.ChoiceField(
+        source="start_mode", choices=["beginning", "selected_position"], default="beginning"
+    )
+    selectedFen = serializers.CharField(source="selected_fen", required=False, allow_null=True, default=None)
+    selectedPly = serializers.IntegerField(
+        source="selected_ply", required=False, allow_null=True, min_value=0, default=None
+    )
+    prefixUci = serializers.ListField(
+        source="prefix_uci", child=serializers.CharField(max_length=8), required=False, default=list
+    )
+
+    def validate(self, attrs):
+        ids = attrs.get("repertoireIds", [])
+        legacy = attrs.get("repertoireId")
+        if legacy is not None:
+            ids = [legacy, *ids]
+        attrs["repertoireIds"] = list(dict.fromkeys(ids))
+        if not attrs["repertoireIds"] and not attrs["templateReleaseIds"]:
+            raise serializers.ValidationError("At least one drill source is required.")
+        if attrs["start_mode"] == "selected_position" and attrs["selected_fen"] is None:
+            raise serializers.ValidationError({"selectedFen": "Required for selected-position drills."})
+        return attrs
 
 
 class DrillSessionCreatedSerializer(serializers.Serializer):

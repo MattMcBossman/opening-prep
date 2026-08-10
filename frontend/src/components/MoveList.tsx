@@ -27,6 +27,8 @@ type Props = {
   onPlayContinuation: (move: RepertoireMove) => void
   /** Removes a saved continuation without playing it. */
   onRemoveContinuation: (move: RepertoireMove) => void
+  /** Whether a merged-profile continuation belongs to the module currently being edited. */
+  isContinuationEditable?: (move: RepertoireMove) => boolean
 }
 
 function StarButton({ saved, onToggle }: { saved: boolean; onToggle: () => void }) {
@@ -116,6 +118,7 @@ export function MoveList({
   continuations,
   onPlayContinuation,
   onRemoveContinuation,
+  isContinuationEditable = () => true,
 }: Props) {
   const playedRows = buildPlayedRows(moves, pointer)
   const continuationRows = buildContinuationRows(pointer, continuations)
@@ -125,7 +128,9 @@ export function MoveList({
     if (cell.kind === 'played') {
       return <StarButton saved={isPlySaved(cell.index)} onToggle={() => onTogglePlySaved(cell.index)} />
     }
-    return <StarButton saved onToggle={() => onRemoveContinuation(cell.move)} />
+    return isContinuationEditable(cell.move) ? (
+      <StarButton saved onToggle={() => onRemoveContinuation(cell.move)} />
+    ) : null
   }
 
   function renderRow(row: Row, key: string) {

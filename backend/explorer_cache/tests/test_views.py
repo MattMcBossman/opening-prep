@@ -240,7 +240,7 @@ def test_my_games_rejects_malformed_since(api_client, user):
     assert response.status_code == 400
 
 
-def test_my_games_forwards_valid_since_until(api_client, user, monkeypatch):
+def test_my_games_forwards_valid_since_until_and_speeds(api_client, user, monkeypatch):
     captured = {}
 
     def fake_fetch_player_stats(user, fen, moves, color, **kwargs):
@@ -252,7 +252,21 @@ def test_my_games_forwards_valid_since_until(api_client, user, monkeypatch):
 
     response = api_client.get(
         "/api/v1/explorer/my-games/",
-        {"fen": START_FEN, "color": "white", "since": "2020-01", "until": "2021-06"},
+        {
+            "fen": START_FEN,
+            "color": "white",
+            "since": "2020-01",
+            "until": "2021-06",
+            "speeds": "bullet,rapid",
+        },
     )
     assert response.status_code == 200
-    assert captured == {"since": "2020-01", "until": "2021-06"}
+    assert captured == {"since": "2020-01", "until": "2021-06", "speeds": "bullet,rapid"}
+
+
+def test_my_games_rejects_invalid_speed(api_client, user):
+    api_client.force_authenticate(user=user)
+    response = api_client.get(
+        "/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white", "speeds": "bullet,warp"}
+    )
+    assert response.status_code == 400

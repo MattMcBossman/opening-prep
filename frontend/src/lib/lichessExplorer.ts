@@ -37,9 +37,9 @@ export type TimeRangeFilters = {
 }
 
 /**
- * Rating-band and game-speed filters, supported only by Lichess's public
- * `/lichess` database (not the player-scoped `/player` endpoint) - see
- * API_CONTRACT.md. `ratings` are Lichess's own bracket markers ("1600",
+ * Explorer filters. Rating bands are supported only by Lichess's public
+ * `/lichess` database; game speeds are supported by both `/lichess` and the
+ * player-scoped `/player` endpoint. `ratings` are Lichess's bracket markers ("1600",
  * "1800", "2000", "2200", "2500"); `speeds` are perf types ("bullet",
  * "blitz", etc). An empty/omitted array means "no restriction", matching
  * today's unfiltered behavior.
@@ -60,14 +60,20 @@ function filterKey(filters?: Record<string, string | string[] | undefined>): str
 }
 
 function applyTimeRangeFilters(params: URLSearchParams, filters?: TimeRangeFilters): void {
-  if (filters?.since) params.set('since', filters.since)
-  if (filters?.until) params.set('until', filters.until)
+  // Both explorer endpoints accept YYYY-MM. Slicing also keeps this boundary
+  // tolerant of older in-memory values created by the brief date-picker UI.
+  if (filters?.since) params.set('since', filters.since.slice(0, 7))
+  if (filters?.until) params.set('until', filters.until.slice(0, 7))
+}
+
+function applyPlayerFilters(params: URLSearchParams, filters?: LichessDatabaseFilters): void {
+  applyTimeRangeFilters(params, filters)
+  if (filters?.speeds?.length) params.set('speeds', filters.speeds.join(','))
 }
 
 function applyLichessDatabaseFilters(params: URLSearchParams, filters?: LichessDatabaseFilters): void {
-  applyTimeRangeFilters(params, filters)
+  applyPlayerFilters(params, filters)
   if (filters?.ratings?.length) params.set('ratings', filters.ratings.join(','))
-  if (filters?.speeds?.length) params.set('speeds', filters.speeds.join(','))
 }
 
 export async function fetchLichessExplorer(
@@ -95,6 +101,10 @@ export async function fetchLichessExplorer(
   })
   if (res.status === 401) {
     throw new Error('Lichess rejected the API token. Check it and try again.')
+  }
+  if (res.status === 429) {
+    const parsed = Number.parseInt(res.headers.get('Retry-After') ?? '', 10)
+    throw new ApiError(429, 'Lichess rate-limited this request.', null, Number.isFinite(parsed) ? parsed : null)
   }
   if (!res.ok) {
     throw new Error(`Lichess explorer request failed: ${res.status}`)
@@ -184,7 +194,7 @@ export async function fetchMyGamesExplorerStats(
   fen: string,
   color: RepertoireColor,
   signal?: AbortSignal,
-  filters?: TimeRangeFilters,
+  filters?: LichessDatabaseFilters,
 ): Promise<ExplorerResponse> {
   const cacheKey = `my-games:${color}:${fen}:${filterKey(filters)}`
   const cached = cache.get(cacheKey)
@@ -193,7 +203,7 @@ export async function fetchMyGamesExplorerStats(
   }
 
   const params = new URLSearchParams({ fen, moves: '12', color })
-  applyTimeRangeFilters(params, filters)
+  applyPlayerFilters(params, filters)
   const data = await apiRequest<ExplorerResponse>(`/explorer/my-games/?${params.toString()}`, { signal })
 
   // Never cache a still-indexing result: Lichess hasn't finished computing it

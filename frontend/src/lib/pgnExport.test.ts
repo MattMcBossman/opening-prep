@@ -31,6 +31,29 @@ describe('exportRepertoireToPgn', () => {
     expect(firstLine(exportRepertoireToPgn(tree, 'white'))).toBe('1. e4 e5 2. Nf3 *')
   })
 
+  it('embeds an encoded authored-line label at its leaf', () => {
+    const tree: RepertoireTree = {
+      [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }],
+      [AFTER_E4]: [{ san: 'e5', uci: 'e7e5', resultingFen: AFTER_E4_E5 }],
+    }
+    expect(firstLine(exportRepertoireToPgn(tree, 'white', [{ uciPath: 'e2e4 e7e5', label: 'Vienna: main & sharp' }]))).toBe(
+      '1. e4 e5 {[%opening-prep-line e2e4%20e7e5|Vienna%3A%20main%20%26%20sharp]} *',
+    )
+  })
+
+  it('exports persisted comments and NAGs after their annotated move', () => {
+    const tree: RepertoireTree = {
+      [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }],
+      [AFTER_E4]: [{ san: 'e5', uci: 'e7e5', resultingFen: AFTER_E4_E5 }],
+    }
+    const pgn = exportRepertoireToPgn(tree, 'white', [{
+      uciPath: 'e2e4 e7e5',
+      label: '',
+      annotations: [{ ply: 0, comment: 'Controls the center', nags: [1] }],
+    }])
+    expect(firstLine(pgn)).toBe('1. e4 $1 {Controls the center} e5 *')
+  })
+
   it('includes minimal headers naming the exported color', () => {
     const pgn = exportRepertoireToPgn({}, 'black')
     expect(pgn).toContain('[Event "opening-prep Black repertoire"]')

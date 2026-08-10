@@ -1,8 +1,18 @@
 """DRF serializers for the repertoire app. See backend/API_CONTRACT.md for the shapes."""
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .models import Repertoire
+from .models import (
+    OpeningTemplate,
+    OpeningTemplateRelease,
+    ProfileModule,
+    ProfileTemplateRelease,
+    Repertoire,
+    RepertoireLine,
+    RepertoireLineStep,
+    RepertoireProfile,
+)
 
 
 class RepertoireSerializer(serializers.ModelSerializer):
@@ -11,10 +21,153 @@ class RepertoireSerializer(serializers.ModelSerializer):
     moveCount = serializers.IntegerField(source="moves.count", read_only=True)
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
+    description = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Repertoire
-        fields = ["id", "name", "color", "moveCount", "createdAt", "updatedAt"]
+        fields = [
+            "id",
+            "name",
+            "description",
+            "color",
+            "moveCount",
+            "source_release",
+            "createdAt",
+            "updatedAt",
+        ]
+        read_only_fields = ["source_release"]
+
+
+class ProfileModuleSerializer(serializers.ModelSerializer):
+    """One module membership nested in a profile response."""
+
+    id = serializers.IntegerField(source="module.id", read_only=True)
+    name = serializers.CharField(source="module.name", read_only=True)
+    description = serializers.CharField(source="module.description", read_only=True)
+    color = serializers.CharField(source="module.color", read_only=True)
+    moveCount = serializers.IntegerField(source="module.moves.count", read_only=True)
+    lineCount = serializers.IntegerField(source="module.lines.count", read_only=True)
+    sortOrder = serializers.IntegerField(source="sort_order")
+
+    class Meta:
+        model = ProfileModule
+        fields = [
+            "id",
+            "name",
+            "description",
+            "color",
+            "moveCount",
+            "lineCount",
+            "sortOrder",
+            "enabled",
+        ]
+
+
+class RepertoireProfileSerializer(serializers.ModelSerializer):
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
+    modules = ProfileModuleSerializer(source="module_links", many=True, read_only=True)
+    templateReleases = serializers.SerializerMethodField()
+
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_templateReleases(self, obj):
+        return ProfileTemplateReleaseSerializer(obj.template_links.all(), many=True).data
+
+    class Meta:
+        model = RepertoireProfile
+        fields = ["id", "name", "description", "modules", "templateReleases", "createdAt", "updatedAt"]
+
+
+class ProfileTemplateReleaseSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="release.id", read_only=True)
+    templateSlug = serializers.CharField(source="release.template.slug", read_only=True)
+    name = serializers.CharField(source="release.template.name", read_only=True)
+    color = serializers.CharField(source="release.template.color", read_only=True)
+    version = serializers.IntegerField(source="release.version", read_only=True)
+    sortOrder = serializers.IntegerField(source="sort_order")
+
+    class Meta:
+        model = ProfileTemplateRelease
+        fields = ["id", "templateSlug", "name", "color", "version", "sortOrder", "enabled"]
+
+
+class ProfileModuleMutationSerializer(serializers.Serializer):
+    moduleId = serializers.IntegerField(min_value=1)
+    sortOrder = serializers.IntegerField(required=False, min_value=0, default=0)
+    enabled = serializers.BooleanField(required=False, default=True)
+
+
+class ProfileTemplateMutationSerializer(serializers.Serializer):
+    templateReleaseId = serializers.IntegerField(min_value=1)
+    sortOrder = serializers.IntegerField(required=False, min_value=0, default=0)
+    enabled = serializers.BooleanField(required=False, default=True)
+
+
+class OpeningTemplateReleaseSerializer(serializers.ModelSerializer):
+    templateSlug = serializers.CharField(source="template.slug", read_only=True)
+    name = serializers.CharField(source="template.name", read_only=True)
+    color = serializers.CharField(source="template.color", read_only=True)
+    publishedAt = serializers.DateTimeField(source="published_at", read_only=True)
+
+    class Meta:
+        model = OpeningTemplateRelease
+        fields = [
+            "id",
+            "templateSlug",
+            "name",
+            "color",
+            "version",
+            "changelog",
+            "tree",
+            "lines",
+            "publishedAt",
+        ]
+
+
+class OpeningTemplateSerializer(serializers.ModelSerializer):
+    latestRelease = serializers.SerializerMethodField()
+
+    @extend_schema_field(OpeningTemplateReleaseSerializer)
+    def get_latestRelease(self, obj):
+        release = obj.releases.order_by("-version").first()
+        return OpeningTemplateReleaseSerializer(release).data if release else None
+
+    class Meta:
+        model = OpeningTemplate
+        fields = ["slug", "name", "description", "color", "latestRelease"]
+
+
+class CopyTemplateSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False, max_length=100)
+    profileId = serializers.IntegerField(required=False, min_value=1)
+
+
+class CopyMissingTemplateLinesSerializer(serializers.Serializer):
+    moduleId = serializers.IntegerField(min_value=1)
+
+
+class RepertoireLineStepSerializer(serializers.ModelSerializer):
+    originFen = serializers.CharField(source="move.origin_fen", read_only=True)
+    san = serializers.CharField(source="move.san", read_only=True)
+    uci = serializers.CharField(source="move.uci", read_only=True)
+    resultingFen = serializers.CharField(source="move.resulting_fen", read_only=True)
+
+    class Meta:
+        model = RepertoireLineStep
+        fields = ["ply", "originFen", "san", "uci", "resultingFen"]
+
+
+class RepertoireLineSerializer(serializers.ModelSerializer):
+    """Read shape for the explicit move-order lines currently derived from the graph."""
+
+    lineKey = serializers.CharField(source="line_key", read_only=True)
+    uciPath = serializers.CharField(source="uci_path", read_only=True)
+    sortOrder = serializers.IntegerField(source="sort_order", read_only=True)
+    steps = RepertoireLineStepSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = RepertoireLine
+        fields = ["id", "lineKey", "uciPath", "label", "annotations", "source", "sortOrder", "steps"]
 
 
 class TreeEdgeSerializer(serializers.Serializer):
@@ -35,6 +188,32 @@ class MoveInputSerializer(TreeEdgeSerializer):
 
 class AddMovesSerializer(serializers.Serializer):
     moves = MoveInputSerializer(many=True)
+
+
+class LineAnnotationInputSerializer(serializers.Serializer):
+    ply = serializers.IntegerField(min_value=0)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=4000)
+    nags = serializers.ListField(
+        child=serializers.IntegerField(min_value=0, max_value=255), required=False, default=list
+    )
+
+
+class AuthoredLineInputSerializer(serializers.Serializer):
+    label = serializers.CharField(required=False, allow_blank=True, max_length=150, default="")
+    source = serializers.ChoiceField(choices=RepertoireLine.SOURCE_CHOICES, required=False, default="manual")
+    annotations = LineAnnotationInputSerializer(many=True, required=False, default=list)
+    steps = MoveInputSerializer(many=True, allow_empty=False)
+
+    def validate(self, attrs):
+        step_count = len(attrs["steps"])
+        plies = [item["ply"] for item in attrs["annotations"]]
+        if any(ply >= step_count for ply in plies):
+            raise serializers.ValidationError({"annotations": "Annotation ply is outside the line."})
+        if len(plies) != len(set(plies)):
+            raise serializers.ValidationError(
+                {"annotations": "Only one annotation entry is allowed per ply."}
+            )
+        return attrs
 
 
 class RemoveMoveSerializer(serializers.Serializer):

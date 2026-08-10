@@ -29,13 +29,18 @@ import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
 import { PgnImportExportPanel } from './components/PgnImportExportPanel'
+import { RepertoireProfileControls } from './components/RepertoireProfileControls'
 import { ExplorerSourceToggle } from './components/ExplorerSourceToggle'
 import { ExplorerFiltersPanel } from './components/ExplorerFiltersPanel'
+import { CoverageDashboard } from './components/CoverageDashboard'
 import { BoardColorToggle } from './components/BoardColorToggle'
 import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
 import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
+import { createDrillStartContext } from './lib/repertoireDrills'
+import type { DrillStartContext } from './lib/repertoireDrills'
+import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import type { ExplorerOpening, RepertoireMove } from './types'
 import './App.css'
 
@@ -74,13 +79,17 @@ function App() {
   const [explorerSource, setExplorerSource] = useState<ExplorerSource>('lichess')
   // Signed-out users have no "my games" source at all - always show the public database.
   const effectiveExplorerSource = isSignedIn ? explorerSource : 'lichess'
-  // Shared since/until, plus ratings/speeds which only ever apply to (and are
-  // only ever sent for) the 'lichess' source - see ExplorerFiltersPanel and
-  // LichessDatabaseFilters. Keeping ratings/speeds here even while viewing
-  // "My games" is harmless (useExplorerStats/fetchMyGamesExplorerStats simply
-  // never read them) and means switching back to "Lichess database" doesn't
-  // lose them.
-  const [explorerFilters, setExplorerFilters] = useState<LichessDatabaseFilters>({})
+  // Each source owns its filters independently: switching tabs restores that
+  // source's dates/game types instead of silently applying the other source's
+  // selection. Rating bands exist only in the public-source entry.
+  const [explorerFiltersBySource, setExplorerFiltersBySource] = useState<Record<ExplorerSource, LichessDatabaseFilters>>({
+    lichess: {},
+    'my-games': {},
+  })
+  const explorerFilters = explorerFiltersBySource[effectiveExplorerSource]
+  const setExplorerFilters = useCallback((filters: LichessDatabaseFilters) => {
+    setExplorerFiltersBySource((previous) => ({ ...previous, [effectiveExplorerSource]: filters }))
+  }, [effectiveExplorerSource])
   const explorer = useExplorerStats(
     fen,
     token,
@@ -95,6 +104,19 @@ function App() {
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>('explorer')
+  const [drillStartContext, setDrillStartContext] = useState<DrillStartContext>()
+
+  const handleModeChange = useCallback((nextMode: AppMode) => {
+    // Entering drills from the header means drill the whole composed profile.
+    // The position-specific button below captures explorer history explicitly.
+    if (nextMode === 'drill') setDrillStartContext(undefined)
+    setMode(nextMode)
+  }, [])
+
+  const startDrillFromPosition = useCallback(() => {
+    setDrillStartContext(createDrillStartContext(fen, pointer, moves))
+    setMode('drill')
+  }, [fen, moves, pointer])
 
   // Primes the shared AudioContext on the page's first interaction, whatever it is -
   // see installAudioUnlock's docstring for why a move-triggered resume alone isn't
@@ -144,16 +166,13 @@ function App() {
       // deep branch. The opponent's plies aren't independently toggleable (see
       // MoveList), but they're what let a continuation say "here's my response to
       // this specific opponent move."
-      for (let i = index; i >= 0; i -= 1) {
-        const ancestor = moves[i]
-        if (!ancestor) break
-        const ancestorOriginFen = originFenForPly(moves, i)
-        repertoire.addMove(boardColor, ancestorOriginFen, {
-          san: ancestor.san,
-          uci: ancestor.uci,
-          resultingFen: normalizeFen(ancestor.fenAfter),
-        })
-      }
+      const steps = moves.slice(0, index + 1).map((ancestor, ply) => ({
+        originFen: originFenForPly(moves, ply),
+        san: ancestor.san,
+        uci: ancestor.uci,
+        resultingFen: normalizeFen(ancestor.fenAfter),
+      }))
+      repertoire.addLine(boardColor, steps)
     },
     [moves, boardColor, repertoire],
   )
@@ -167,22 +186,47 @@ function App() {
     () => repertoire.getContinuations(boardColor, fen),
     [repertoire, boardColor, fen],
   )
+  const getRepertoireContinuations = repertoire.getContinuations
+  const coverageContinuations = useCallback(
+    (positionFen: string) => getRepertoireContinuations(boardColor, positionFen),
+    [boardColor, getRepertoireContinuations],
+  )
 
   const playRepertoireMove = useCallback((move: RepertoireMove) => playMove(move.san), [playMove])
   const removeRepertoireMove = useCallback(
     (move: RepertoireMove) => repertoire.removeMove(boardColor, fen, move.uci),
     [repertoire, boardColor, fen],
   )
+  const isContinuationEditable = useCallback(
+    (move: RepertoireMove) => repertoire.isMoveSaved(boardColor, fen, move.uci),
+    [repertoire, boardColor, fen],
+  )
 
   const isExplorerMoveSaved = useCallback(
-    (uci: string) => repertoire.isMoveSaved(boardColor, fen, uci),
+    (uci: string) => repertoire.isMoveInActiveProfile(boardColor, fen, uci),
     [repertoire, boardColor, fen],
+  )
+
+  const handleProfileChange = useCallback(
+    (profileId: number) => {
+      repertoire.setActiveProfile(profileId)
+      reset()
+    },
+    [repertoire, reset],
   )
 
   // The explorer always lists candidate moves for whoever is to move at the current
   // position, so this is either "my" turn or the opponent's for every row at once -
   // used to pick the saved-move badge glyph (star for mine, checkmark for theirs).
   const isExplorerMyMove = sideToMove(fen) === boardColor
+  const positionCoverage = useMemo(() => {
+    if (!explorer.data || isExplorerMyMove) return null
+    return calculatePositionCoverage(
+      explorer.data.moves,
+      repertoire.getContinuations(boardColor, fen),
+      (replyFen) => repertoire.getContinuations(boardColor, replyFen),
+    )
+  }, [boardColor, explorer.data, fen, isExplorerMyMove, repertoire])
 
   // Remembers the opening name/ECO fetched for every FEN visited along the current
   // line, so a position with no name of its own can fall back to the last known name
@@ -263,7 +307,32 @@ function App() {
       <header className="app-header">
         <h1>opening-prep</h1>
         <p>Opening explorer &amp; repertoire builder</p>
-        <ModeToggle mode={mode} onChange={setMode} />
+        <ModeToggle mode={mode} onChange={handleModeChange} />
+        <RepertoireProfileControls
+            profiles={repertoire.profiles}
+            modules={repertoire.modules}
+            activeProfileId={repertoire.activeProfileId}
+            editingModuleId={repertoire.editingModuleIds[boardColor] ?? null}
+            editingLinePaths={repertoire.editingLinePaths[boardColor] ?? []}
+            color={boardColor}
+            disabled={repertoire.isSyncing}
+            showGlobalLibrary={isSignedIn}
+            onProfileChange={handleProfileChange}
+            onEditingModuleChange={(moduleId) => repertoire.setEditingModule(boardColor, moduleId)}
+            onCreateProfile={repertoire.createProfile}
+            onRenameProfile={repertoire.renameProfile}
+            onDeleteProfile={repertoire.deleteProfile}
+            onCreateModule={repertoire.createModule}
+            onRenameModule={repertoire.renameModule}
+            onDeleteModule={repertoire.deleteModule}
+            onSetMembership={repertoire.setModuleMembership}
+            onRemoveMembership={repertoire.removeModuleMembership}
+            onPinTemplate={repertoire.pinTemplate}
+            onUnpinTemplate={repertoire.unpinTemplate}
+            onCopyTemplate={repertoire.copyTemplate}
+            onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
+            onPreviewTemplate={repertoire.setPreviewRelease}
+          />
         <div className="header-controls">
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
@@ -276,6 +345,12 @@ function App() {
           <button type="button" onClick={auth.dismissAuthError}>
             Dismiss
           </button>
+        </p>
+      )}
+      {repertoire.syncError && (
+        <p className="panel-status error auth-error-banner">
+          {repertoire.syncErrorKind === 'load' ? 'Repertoire could not be loaded' : 'Repertoire change failed'}: {repertoire.syncError}{' '}
+          <button type="button" onClick={repertoire.clearSyncError}>Dismiss</button>
         </p>
       )}
       <ImportRepertoirePrompt
@@ -295,6 +370,14 @@ function App() {
           lichessToken={token}
           user={auth.user}
           repertoireId={repertoire.repertoireIds[boardColor] ?? null}
+          repertoireIds={repertoire.activeProfile?.modules
+            .filter((module) => module.enabled && module.color === boardColor)
+            .map((module) => module.id)}
+          templateReleaseIds={repertoire.activeProfile?.templateReleases
+            ?.filter((release) => release.enabled && release.color === boardColor)
+            .map((release) => release.id)}
+          drillLines={repertoire.drillLines[boardColor]}
+          startContext={drillStartContext}
         />
       ) : (
         <main className="explorer-layout">
@@ -310,6 +393,7 @@ function App() {
               continuations={continuations}
               onPlayContinuation={playRepertoireMove}
               onRemoveContinuation={removeRepertoireMove}
+              isContinuationEditable={isContinuationEditable}
             />
           </section>
 
@@ -350,6 +434,9 @@ function App() {
               <button type="button" onClick={reset} disabled={moves.length === 0}>
                 Reset
               </button>
+              <button type="button" onClick={startDrillFromPosition} disabled={pointer === 0}>
+                Drill from here
+              </button>
             </div>
             <EngineEvalPanel evaluation={evaluation} />
           </div>
@@ -373,7 +460,24 @@ function App() {
                 isMyMove={isExplorerMyMove}
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
+                pollStalled={explorer.pollStalled}
                 onRetry={explorer.retry}
+              />
+              {positionCoverage && positionCoverage.totalGames > 0 && (
+                <p className="panel-status">
+                  Prepared-response coverage: <strong>{positionCoverage.percent.toFixed(1)}%</strong>{' '}
+                  ({positionCoverage.coveredMoves}/{positionCoverage.totalMoves} replies, weighted by games)
+                </p>
+              )}
+            </section>
+            <section className="panel">
+              <CoverageDashboard
+                color={boardColor}
+                tree={repertoire.getTree(boardColor)}
+                apiToken={token}
+                signedIn={isSignedIn}
+                filters={explorerFiltersBySource.lichess}
+                getContinuations={coverageContinuations}
               />
             </section>
             <section className="panel">
@@ -381,8 +485,9 @@ function App() {
               <PgnImportExportPanel
                 color={boardColor}
                 getTree={repertoire.getTree}
+                getLines={(color) => repertoire.editingLines[color] ?? []}
                 isMoveSaved={repertoire.isMoveSaved}
-                addMove={repertoire.addMove}
+                addLine={repertoire.addLine}
               />
             </section>
           </div>

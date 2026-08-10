@@ -2,6 +2,12 @@ import { START_FEN } from '../hooks/useGame'
 import { normalizeFen } from './chessUtils'
 import type { RepertoireColor, RepertoireTree } from '../types'
 
+export type PgnExportLine = {
+  uciPath: string
+  label: string
+  annotations?: Array<{ ply: number; comment?: string; nags?: number[] }>
+}
+
 type Turn = 'w' | 'b'
 
 /**
@@ -47,6 +53,8 @@ function walk(
   visited: ReadonlySet<string>,
   isSegmentStart: boolean,
   out: string[],
+  path: string[],
+  labels: ReadonlyMap<string, ExportMetadata>,
 ): void {
   const key = normalizeFen(fen)
   const edges = tree[key]
@@ -58,17 +66,39 @@ function walk(
   const next = advance(moveNumber, turn)
 
   pushMoveToken(out, moveNumber, turn, mainMove.san, isSegmentStart)
+  const mainPath = [...path, mainMove.uci]
+  appendMoveAnnotations(out, mainPath, labels)
 
   for (const alt of alternatives) {
     if (pathVisited.has(normalizeFen(alt.resultingFen))) continue
     const variationTokens: string[] = []
     pushMoveToken(variationTokens, moveNumber, turn, alt.san, true)
-    walk(tree, alt.resultingFen, next.moveNumber, next.turn, pathVisited, false, variationTokens)
+    const altPath = [...path, alt.uci]
+    appendMoveAnnotations(variationTokens, altPath, labels)
+    walk(tree, alt.resultingFen, next.moveNumber, next.turn, pathVisited, false, variationTokens, altPath, labels)
+    if (!tree[normalizeFen(alt.resultingFen)]?.length) appendLineLabel(variationTokens, altPath, labels)
     out.push(`(${variationTokens.join(' ')})`)
   }
 
   if (pathVisited.has(normalizeFen(mainMove.resultingFen))) return
-  walk(tree, mainMove.resultingFen, next.moveNumber, next.turn, pathVisited, false, out)
+  walk(tree, mainMove.resultingFen, next.moveNumber, next.turn, pathVisited, false, out, mainPath, labels)
+  if (!tree[normalizeFen(mainMove.resultingFen)]?.length) appendLineLabel(out, mainPath, labels)
+}
+
+type ExportMetadata = { label: string; annotations: PgnExportLine['annotations'] }
+
+function appendMoveAnnotations(out: string[], path: string[], metadata: ReadonlyMap<string, ExportMetadata>): void {
+  const prefix = path.join(' ')
+  const candidate = [...metadata.entries()].find(([uciPath]) => uciPath === prefix || uciPath.startsWith(`${prefix} `))
+  const annotation = candidate?.[1].annotations?.find((item) => item.ply === path.length - 1)
+  for (const nag of annotation?.nags ?? []) out.push(`$${nag}`)
+  if (annotation?.comment) out.push(`{${annotation.comment.replaceAll('}', ']')}}`)
+}
+
+function appendLineLabel(out: string[], path: string[], labels: ReadonlyMap<string, ExportMetadata>): void {
+  const uciPath = path.join(' ')
+  const label = labels.get(uciPath)?.label
+  if (label) out.push(`{[%opening-prep-line ${encodeURIComponent(uciPath)}|${encodeURIComponent(label)}]}`)
 }
 
 function buildHeaders(color: RepertoireColor): string {
@@ -90,9 +120,10 @@ function buildHeaders(color: RepertoireColor): string {
  * for every branch point, starting from the standard start position. Uses `*`
  * (unknown/no result) since this is prep, not a played game.
  */
-export function exportRepertoireToPgn(tree: RepertoireTree, color: RepertoireColor): string {
+export function exportRepertoireToPgn(tree: RepertoireTree, color: RepertoireColor, lines: PgnExportLine[] = []): string {
   const out: string[] = []
-  walk(tree, START_FEN, 1, 'w', new Set(), true, out)
+  const labels = new Map(lines.map((line) => [line.uciPath, { label: line.label, annotations: line.annotations }]))
+  walk(tree, START_FEN, 1, 'w', new Set(), true, out, [], labels)
   const movetext = out.join(' ')
   const body = movetext ? `${movetext} *` : '*'
   return `${buildHeaders(color)}\n\n${body}\n`

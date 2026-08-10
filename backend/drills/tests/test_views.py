@@ -6,9 +6,9 @@ from rest_framework.test import APIClient
 from accounts.models import User
 from common.fen import normalize_fen
 from drills.models import DrillAttempt, DrillLineResult, DrillSession
-from repertoire.models import Repertoire
+from repertoire.models import OpeningTemplate, OpeningTemplateRelease, Repertoire
 
-FEN_AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+FEN_AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 FEN_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
@@ -84,6 +84,53 @@ def test_create_session_rejects_another_users_repertoire(client, other_repertoir
     response = client.post("/api/v1/drills/sessions/", {"repertoireId": other_repertoire.id}, format="json")
     assert response.status_code == 400
     assert not DrillSession.objects.filter(repertoire=other_repertoire).exists()
+
+
+def test_create_composed_selected_position_session(client, repertoire, black_repertoire):
+    response = client.post(
+        "/api/v1/drills/sessions/",
+        {
+            "repertoireIds": [repertoire.id, black_repertoire.id],
+            "startMode": "selected_position",
+            "selectedFen": FEN_AFTER_E4,
+            "selectedPly": 1,
+            "prefixUci": ["e2e4"],
+        },
+        format="json",
+    )
+    assert response.status_code == 201
+    session = DrillSession.objects.get(pk=response.data["id"])
+    assert set(session.repertoire_sources.values_list("repertoire_id", flat=True)) == {
+        repertoire.id,
+        black_repertoire.id,
+    }
+    assert session.start_mode == "selected_position"
+    assert session.prefix_uci == ["e2e4"]
+
+
+def test_create_template_only_session(client):
+    template = OpeningTemplate.objects.create(
+        slug="stonewall", name="Stonewall", color="white", is_published=True
+    )
+    origin = normalize_fen(FEN_START)
+    resulting = normalize_fen(FEN_AFTER_E4)
+    edge = {"san": "e4", "uci": "e2e4", "resultingFen": resulting}
+    release = OpeningTemplateRelease.objects.create(
+        template=template,
+        version=1,
+        tree={origin: [edge]},
+        lines=[
+            {
+                "id": "stonewall-source-test",
+                "steps": [{"originFen": origin, **edge}],
+            }
+        ],
+    )
+    response = client.post("/api/v1/drills/sessions/", {"templateReleaseIds": [release.id]}, format="json")
+    assert response.status_code == 201
+    session = DrillSession.objects.get(pk=response.data["id"])
+    assert session.repertoire is None
+    assert session.template_sources.get().release == release
 
 
 # --- attempts ------------------------------------------------------------

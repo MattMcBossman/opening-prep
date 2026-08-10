@@ -4,14 +4,77 @@ import type { Repertoire, RepertoireColor, RepertoireMove, RepertoireTree } from
 export type RepertoireSummary = {
   id: number
   name: string
+  description?: string
   color: RepertoireColor
   moveCount: number
   createdAt: string
   updatedAt: string
 }
 
+export type ProfileModuleSummary = {
+  id: number
+  name: string
+  description: string
+  color: RepertoireColor
+  moveCount: number
+  lineCount: number
+  sortOrder: number
+  enabled: boolean
+}
+
+export type RepertoireProfileSummary = {
+  id: number
+  name: string
+  description: string
+  modules: ProfileModuleSummary[]
+  templateReleases?: ProfileTemplateReleaseSummary[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type ProfileTemplateReleaseSummary = {
+  id: number
+  templateSlug: string
+  name: string
+  version: number
+  color: RepertoireColor
+  sortOrder: number
+  enabled: boolean
+}
+
+export type OpeningTemplateSummary = {
+  slug: string
+  name: string
+  description: string
+  color: RepertoireColor
+  latestRelease: { id: number; version: number; publishedAt: string } | null
+}
+
+export type OpeningTemplateRelease = {
+  id: number
+  templateSlug: string
+  name: string
+  changelog: string
+  color: RepertoireColor
+  version: number
+  publishedAt: string
+  tree: RepertoireTree
+  lines: Array<{ id: string; label: string; source: string; sortOrder: number; steps: MoveEdge[] }>
+}
+
 /** One edge to add, as the `moves/` endpoint expects it - see API_CONTRACT.md. */
 export type MoveEdge = RepertoireMove & { originFen: string }
+
+export type RepertoireLine = {
+  id: string
+  lineKey: string
+  uciPath: string
+  label: string
+  annotations: Array<{ ply: number; comment?: string; nags?: number[] }>
+  source: 'manual' | 'pgn_import' | 'migrated'
+  sortOrder: number
+  steps: Array<MoveEdge & { ply: number }>
+}
 
 export type ImportResult = { imported: number; skipped: number }
 export type ImportSummary = { white: ImportResult; black: ImportResult }
@@ -20,12 +83,142 @@ export function listRepertoires(signal?: AbortSignal): Promise<RepertoireSummary
   return apiRequest('/repertoires/', { signal })
 }
 
-export function createRepertoire(color: RepertoireColor, name = 'Default'): Promise<RepertoireSummary> {
-  return apiRequest('/repertoires/', { method: 'POST', body: { name, color } })
+export function createRepertoire(
+  color: RepertoireColor,
+  name = 'Default',
+  description = '',
+): Promise<RepertoireSummary> {
+  return apiRequest('/repertoires/', {
+    method: 'POST',
+    body: { name, color, ...(description ? { description } : {}) },
+  })
+}
+
+export function updateRepertoire(
+  id: number,
+  fields: { name?: string; description?: string },
+): Promise<RepertoireSummary> {
+  return apiRequest(`/repertoires/${id}/`, { method: 'PATCH', body: fields })
+}
+
+export function deleteRepertoire(id: number): Promise<void> {
+  return apiRequest(`/repertoires/${id}/`, { method: 'DELETE' })
+}
+
+export function listRepertoireProfiles(signal?: AbortSignal): Promise<RepertoireProfileSummary[]> {
+  return apiRequest('/repertoires/profiles/', { signal })
+}
+
+export function createRepertoireProfile(name: string, description = ''): Promise<RepertoireProfileSummary> {
+  return apiRequest('/repertoires/profiles/', { method: 'POST', body: { name, description } })
+}
+
+export function updateRepertoireProfile(
+  id: number,
+  fields: { name?: string; description?: string },
+): Promise<RepertoireProfileSummary> {
+  return apiRequest(`/repertoires/profiles/${id}/`, { method: 'PATCH', body: fields })
+}
+
+export function deleteRepertoireProfile(id: number): Promise<void> {
+  return apiRequest(`/repertoires/profiles/${id}/`, { method: 'DELETE' })
+}
+
+export function setProfileModule(
+  profileId: number,
+  moduleId: number,
+  sortOrder: number,
+  enabled = true,
+): Promise<RepertoireProfileSummary> {
+  return apiRequest(`/repertoires/profiles/${profileId}/modules/`, {
+    method: 'POST',
+    body: { moduleId, sortOrder, enabled },
+  })
+}
+
+export function removeProfileModule(profileId: number, moduleId: number): Promise<RepertoireProfileSummary> {
+  return apiRequest(`/repertoires/profiles/${profileId}/modules/`, {
+    method: 'DELETE',
+    body: { moduleId },
+  })
+}
+
+export function listOpeningTemplates(signal?: AbortSignal): Promise<OpeningTemplateSummary[]> {
+  return apiRequest('/opening-templates/', { signal })
+}
+
+export function fetchOpeningTemplateRelease(
+  slug: string,
+  version: number,
+  signal?: AbortSignal,
+): Promise<OpeningTemplateRelease> {
+  return apiRequest(`/opening-templates/${encodeURIComponent(slug)}/releases/${version}/`, { signal })
+}
+
+export function pinTemplateRelease(
+  profileId: number,
+  releaseId: number,
+  sortOrder = 0,
+  enabled = true,
+): Promise<RepertoireProfileSummary> {
+  return apiRequest(`/repertoires/profiles/${profileId}/template-releases/`, {
+    method: 'POST',
+    body: { templateReleaseId: releaseId, sortOrder, enabled },
+  })
+}
+
+export function unpinTemplateRelease(profileId: number, releaseId: number): Promise<RepertoireProfileSummary> {
+  return apiRequest(`/repertoires/profiles/${profileId}/template-releases/`, {
+    method: 'DELETE',
+    body: { templateReleaseId: releaseId },
+  })
+}
+
+export function copyOpeningTemplateRelease(
+  slug: string,
+  version: number,
+  profileId?: number,
+): Promise<RepertoireSummary> {
+  return apiRequest(`/opening-templates/${encodeURIComponent(slug)}/releases/${version}/copy/`, {
+    method: 'POST',
+    body: profileId === undefined ? {} : { profileId },
+  })
+}
+
+export function copyMissingOpeningTemplateLines(
+  slug: string,
+  version: number,
+  moduleId: number,
+): Promise<{ added: number; skipped: number }> {
+  return apiRequest(`/opening-templates/${encodeURIComponent(slug)}/releases/${version}/copy-missing/`, {
+    method: 'POST',
+    body: { moduleId },
+  })
 }
 
 export function fetchRepertoireTree(id: number, signal?: AbortSignal): Promise<RepertoireTree> {
   return apiRequest(`/repertoires/${id}/tree/`, { signal })
+}
+
+export function listRepertoireLines(id: number, signal?: AbortSignal): Promise<RepertoireLine[]> {
+  return apiRequest(`/repertoires/${id}/lines/`, { signal })
+}
+
+export function addRepertoireLine(
+  id: number,
+  steps: MoveEdge[],
+  label = '',
+  source: RepertoireLine['source'] = 'manual',
+  annotations: RepertoireLine['annotations'] = [],
+): Promise<RepertoireLine[]> {
+  return apiRequest(`/repertoires/${id}/lines/`, {
+    method: 'POST',
+    body: { label, source, annotations, steps },
+  })
+}
+
+export function deleteRepertoireLine(id: number, lineId: string): Promise<void> {
+  return apiRequest(`/repertoires/${id}/lines/${lineId}/`, { method: 'DELETE' })
 }
 
 /**

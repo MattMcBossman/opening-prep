@@ -10,6 +10,7 @@
 .app-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
@@ -27,6 +28,150 @@
   align-items: center;
   gap: 16px;
   margin-left: auto;
+}
+
+.repertoire-profile-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 4px;
+}
+
+.repertoire-profile-controls label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.repertoire-profile-controls select {
+  max-width: 160px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-h);
+}
+
+.repertoire-profile-controls select:disabled {
+  opacity: 0.6;
+}
+
+.profile-manage-button,
+.profile-manager button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-h);
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.profile-manager {
+  position: absolute;
+  z-index: 20;
+  top: 64px;
+  left: max(16px, calc(50% - 330px));
+  width: min(660px, calc(100vw - 32px));
+  max-height: calc(100vh - 90px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 35px rgb(0 0 0 / 25%);
+}
+
+.profile-manager-heading,
+.manager-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-manager-heading {
+  justify-content: space-between;
+}
+
+.profile-manager form {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.profile-manager input[type='text'],
+.profile-manager form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px;
+  background: var(--surface);
+  color: var(--text-h);
+}
+
+.profile-manager h4 {
+  margin: 16px 0 8px;
+}
+
+.manager-row {
+  min-height: 34px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.manager-row > span:first-child {
+  flex: 1;
+}
+
+.manager-row small {
+  color: var(--text);
+}
+
+.profile-manager .danger {
+  color: var(--error, #b42318);
+}
+
+.template-preview {
+  position: relative;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.template-preview > button {
+  float: right;
+}
+
+.coverage-dashboard h3 {
+  margin-top: 0;
+}
+
+.coverage-score {
+  font-size: 1.05rem;
+  margin-bottom: 0.35rem;
+}
+
+@media (max-width: 700px) {
+  .repertoire-profile-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .repertoire-profile-controls label {
+    flex: 1;
+  }
+
+  .profile-manager {
+    top: 110px;
+  }
+
+  .manager-row {
+    flex-wrap: wrap;
+  }
 }
 
 .header-toggle {
@@ -421,14 +566,23 @@
 }
 
 .explorer-filters-month {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
   font-size: 12px;
   color: var(--text);
 }
 
-.explorer-filters-month input {
+.explorer-filters-month legend {
+  margin-bottom: 3px;
+}
+
+.explorer-filters-month div {
+  display: flex;
+  gap: 4px;
+}
+
+.explorer-filters-month select {
   padding: 4px 6px;
   border-radius: 4px;
   border: 1px solid var(--border);

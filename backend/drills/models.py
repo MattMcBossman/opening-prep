@@ -5,6 +5,8 @@ from django.db import models
 
 
 class DrillSession(models.Model):
+    START_BEGINNING = "beginning"
+    START_SELECTED = "selected_position"
     """
     One run through `useDrillSession` (frontend/src/hooks/useDrillSession.ts),
     from "start" to either "finish" or abandonment.
@@ -20,9 +22,21 @@ class DrillSession(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="drill_sessions"
     )
     repertoire = models.ForeignKey(
-        "repertoire.Repertoire", on_delete=models.CASCADE, related_name="drill_sessions"
+        "repertoire.Repertoire",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="drill_sessions",
     )
     is_retry_pass = models.BooleanField(default=False)
+    start_mode = models.CharField(
+        max_length=20,
+        choices=[(START_BEGINNING, "Beginning"), (START_SELECTED, "Selected position")],
+        default=START_BEGINNING,
+    )
+    selected_fen = models.CharField(max_length=100, null=True, blank=True)  # noqa: DJ001
+    selected_ply = models.PositiveIntegerField(null=True, blank=True)
+    prefix_uci = models.JSONField(default=list)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
@@ -32,6 +46,36 @@ class DrillSession(models.Model):
 
     def __str__(self) -> str:
         return f"DrillSession({self.id}) user={self.user_id} repertoire={self.repertoire_id}"
+
+
+class DrillSessionRepertoire(models.Model):
+    session = models.ForeignKey(DrillSession, on_delete=models.CASCADE, related_name="repertoire_sources")
+    repertoire = models.ForeignKey(
+        "repertoire.Repertoire", on_delete=models.CASCADE, related_name="drill_source_links"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["session", "repertoire"], name="unique_session_repertoire_source")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} -> repertoire {self.repertoire_id}"
+
+
+class DrillSessionTemplateRelease(models.Model):
+    session = models.ForeignKey(DrillSession, on_delete=models.CASCADE, related_name="template_sources")
+    release = models.ForeignKey(
+        "repertoire.OpeningTemplateRelease", on_delete=models.PROTECT, related_name="drill_source_links"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["session", "release"], name="unique_session_template_source")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} -> template release {self.release_id}"
 
 
 class DrillLineResult(models.Model):

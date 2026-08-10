@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { collectDrillLines } from './repertoireDrills'
+import { collectDrillLines, createDrillStartContext, mergeDrillLines, prepareDrillLines } from './repertoireDrills'
+import type { DrillLine, DrillStep } from './repertoireDrills'
 import { START_FEN } from '../hooks/useGame'
 import { normalizeFen } from './chessUtils'
 import type { RepertoireMove, RepertoireTree } from '../types'
@@ -106,5 +107,92 @@ describe('collectDrillLines', () => {
     }
     expect(() => collectDrillLines('white', continuationsFrom(tree))).not.toThrow()
     expect(collectDrillLines('white', continuationsFrom(tree))).toEqual([])
+  })
+})
+
+function step(fen: string, uci: string, resultingFen: string, mover: 'own' | 'opponent'): DrillStep {
+  return { fen, san: uci, uci, resultingFen, mover }
+}
+
+const FULL_LINE: DrillLine = {
+  id: 'line-a',
+  steps: [
+    step(START_FEN, 'e2e4', AFTER_E4, 'own'),
+    step(AFTER_E4, 'e7e5', AFTER_E4_E5, 'opponent'),
+    step(AFTER_E4_E5, 'g1f3', AFTER_NF3, 'own'),
+  ],
+  sources: [{ kind: 'repertoire', id: 1, lineId: 'line-a' }],
+}
+
+describe('mergeDrillLines', () => {
+  it('drills an identical composed line once and retains every source', () => {
+    const duplicate = { ...FULL_LINE, id: 'line-b', sources: [{ kind: 'template_release' as const, id: 7, lineId: 'line-b' }] }
+    const merged = mergeDrillLines([FULL_LINE, duplicate])
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe('e2e4 e7e5 g1f3')
+    expect(merged[0].sources).toEqual([
+      { kind: 'repertoire', id: 1, lineId: 'line-a' },
+      { kind: 'template_release', id: 7, lineId: 'line-b' },
+    ])
+  })
+})
+
+describe('prepareDrillLines', () => {
+  const selectedFen = `${AFTER_E4_E5} 0 2`
+  const context = { selectedFen, selectedPly: 2, prefixUci: ['e2e4', 'e7e5'] }
+
+  it('uses exact prefix matching to select authored move order through a transposition', () => {
+    const alternate = {
+      ...FULL_LINE,
+      id: 'alternate',
+      steps: [step(START_FEN, 'd2d4', AFTER_D4, 'own'), ...FULL_LINE.steps.slice(1)],
+    }
+    const prepared = prepareDrillLines([FULL_LINE, alternate], 'beginning', context)
+    expect(prepared.lines.map((line) => line.steps.map((item) => item.uci))).toEqual([
+      ['e2e4', 'e7e5', 'g1f3'],
+    ])
+    expect(prepared.rootFen).toBe(START_FEN)
+  })
+
+  it('starts at the complete selected FEN and slices away the entry path', () => {
+    const prepared = prepareDrillLines([FULL_LINE], 'selected_position', context)
+    expect(prepared.rootFen).toBe(selectedFen)
+    expect(prepared.lines[0].steps.map((item) => item.uci)).toEqual(['g1f3'])
+    expect(prepared.lines[0].sources).toEqual(FULL_LINE.sources)
+  })
+
+  it('keeps the full eligible line in start-from-move-one mode', () => {
+    const prepared = prepareDrillLines([FULL_LINE], 'beginning', context)
+    expect(prepared.lines[0].steps).toHaveLength(3)
+  })
+
+  it('falls back to selected ply and normalized FEN without explorer history', () => {
+    const prepared = prepareDrillLines(
+      [FULL_LINE],
+      'selected_position',
+      { selectedFen, selectedPly: 2, prefixUci: [] },
+    )
+    expect(prepared.lines[0].steps.map((item) => item.uci)).toEqual(['g1f3'])
+  })
+
+  it('excludes a line that ends exactly at the selected position', () => {
+    const short = { ...FULL_LINE, steps: FULL_LINE.steps.slice(0, 2) }
+    expect(prepareDrillLines([short], 'selected_position', context).lines).toEqual([])
+  })
+})
+
+describe('explorer drill handoff', () => {
+  it('captures only the played prefix at the selected history pointer', () => {
+    expect(
+      createDrillStartContext('selected complete fen', 2, [
+        { uci: 'e2e4' },
+        { uci: 'e7e5' },
+        { uci: 'g1f3' },
+      ]),
+    ).toEqual({
+      selectedFen: 'selected complete fen',
+      selectedPly: 2,
+      prefixUci: ['e2e4', 'e7e5'],
+    })
   })
 })

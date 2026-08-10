@@ -9,6 +9,7 @@ import { useDrillSessionRecording } from '../hooks/useDrillSessionRecording'
 import { useExplorerStats } from '../hooks/useExplorerStats'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { sideToMove } from '../lib/chessUtils'
+import type { DrillLine, DrillStartContext, DrillStartMode } from '../lib/repertoireDrills'
 import type { AuthUser } from '../lib/authApi'
 import type { RepertoireColor } from '../types'
 import { DrillFeedbackPanel } from './DrillFeedbackPanel'
@@ -32,6 +33,13 @@ type Props = {
   user: AuthUser | null
   /** The signed-in user's server-side repertoire id for `color`, if known - see useDrillSessionRecording. */
   repertoireId: number | null
+  /** All personal/global sources in a composed drill. Legacy callers may omit these. */
+  repertoireIds?: number[]
+  templateReleaseIds?: number[]
+  /** Source-authored full lines, including provenance; graph leaves remain the fallback. */
+  drillLines?: DrillLine[]
+  /** Explorer occurrence used by "Drill from here". */
+  startContext?: DrillStartContext
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
@@ -44,6 +52,7 @@ const HINT_SQUARE_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(76, 
 // Distinct from the green save-hint squares above - this is a warning about an
 // unprepped opponent try, not a hint about the user's own next move.
 const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
+const EMPTY_SOURCE_IDS: number[] = []
 
 /**
  * Drill mode: practices saved repertoire lines for `color`, isolated from the
@@ -59,13 +68,34 @@ export function DrillView({
   lichessToken,
   user,
   repertoireId,
+  repertoireIds,
+  templateReleaseIds = EMPTY_SOURCE_IDS,
+  drillLines,
+  startContext,
 }: Props) {
+  const [startMode, setStartMode] = useState<DrillStartMode>(startContext ? 'selected_position' : 'beginning')
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
   const onStepApplied = useCallback((step: { san: string }) => playMoveSound(step.san), [playMoveSound])
-  const recording = useDrillSessionRecording(user !== null && repertoireId !== null, repertoireId)
+  const recordingConfig = useMemo(() => {
+    const ids = repertoireIds ?? (repertoireId === null ? [] : [repertoireId])
+    if (ids.length === 0 && templateReleaseIds.length === 0) return null
+    return {
+      repertoireIds: ids,
+      templateReleaseIds,
+      isRetryPass: false,
+      startMode,
+      selectedFen: startContext?.selectedFen ?? null,
+      selectedPly: startContext?.selectedPly ?? null,
+      prefixUci: startContext?.prefixUci ?? [],
+    }
+  }, [repertoireIds, repertoireId, templateReleaseIds, startMode, startContext])
+  const recording = useDrillSessionRecording(user !== null && recordingConfig !== null, recordingConfig)
   const session = useDrillSession({
     color,
     getContinuations,
+    lines: drillLines,
+    startMode,
+    startContext,
     onStepApplied,
     onLineComplete: playDrillCompleteSound,
     recording,
@@ -84,7 +114,7 @@ export function DrillView({
   const reviewFen = session.completionFen
   const reviewExplorer = useExplorerStats(reviewFen ?? '', lichessToken, isPaused, user !== null)
   const isReviewMoveSaved = useCallback(
-    (uci: string) => (reviewFen ? repertoire.isMoveSaved(color, reviewFen, uci) : false),
+    (uci: string) => (reviewFen ? repertoire.isMoveInActiveProfile(color, reviewFen, uci) : false),
     [repertoire, color, reviewFen],
   )
 
@@ -179,7 +209,9 @@ export function DrillView({
     return (
       <div className="panel drill-empty">
         <p className="panel-status">
-          No saved {color} repertoire yet. Save some moves in the explorer first, then come back to drill them.
+          {startContext
+            ? `No saved ${color} lines continue through this selected position.`
+            : `No saved ${color} repertoire yet. Save some moves in the explorer first, then come back to drill them.`}
         </p>
       </div>
     )
@@ -228,6 +260,31 @@ export function DrillView({
           )}
         </div>
         <div className="board-controls">
+          {startContext ? (
+            <fieldset className="drill-start-mode">
+              <legend>Drill from selected position</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="drill-start-mode"
+                  value="selected_position"
+                  checked={startMode === 'selected_position'}
+                  onChange={() => setStartMode('selected_position')}
+                />
+                Start at this position
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="drill-start-mode"
+                  value="beginning"
+                  checked={startMode === 'beginning'}
+                  onChange={() => setStartMode('beginning')}
+                />
+                Start from move 1
+              </label>
+            </fieldset>
+          ) : null}
           <button type="button" onClick={session.startNewSession}>
             Restart session
           </button>

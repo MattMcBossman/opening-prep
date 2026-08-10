@@ -7,9 +7,8 @@ from rest_framework import serializers
 
 from .models import EngineLineCache
 
-# Lichess's own rating-bracket markers and perf/speed types for the `/lichess`
-# database endpoint (see cache.py) - not accepted at all by the player-scoped
-# `/player` endpoint, so these only ever appear on ExplorerStatsQuerySerializer.
+# Lichess's rating-bracket markers and perf/speed types. Ratings apply only to
+# `/lichess`; speeds are also accepted by the player-scoped `/player` endpoint.
 ALLOWED_RATINGS = {"1600", "1800", "2000", "2200", "2500"}
 ALLOWED_SPEEDS = {"ultraBullet", "bullet", "blitz", "rapid", "classical", "correspondence"}
 _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -104,6 +103,7 @@ class MyGamesExplorerResponseSerializer(ExplorerResponseSerializer):
     """
 
     stillIndexing = serializers.BooleanField(required=False, default=False)
+    queuePosition = serializers.IntegerField(required=False, min_value=0)
 
 
 class MyGamesExplorerQuerySerializer(serializers.Serializer):
@@ -114,6 +114,7 @@ class MyGamesExplorerQuerySerializer(serializers.Serializer):
     color = serializers.ChoiceField(choices=["white", "black"])
     since = serializers.CharField(required=False, validators=[validate_month])
     until = serializers.CharField(required=False, validators=[validate_month])
+    speeds = serializers.CharField(required=False, validators=[validate_speeds])
 
 
 class EngineEvalQuerySerializer(serializers.Serializer):

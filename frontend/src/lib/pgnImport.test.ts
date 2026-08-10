@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePgnMovetext } from './pgnImport'
+import { parsePgnLines, parsePgnLinesWithMetadata, parsePgnMovetext } from './pgnImport'
 import { exportRepertoireToPgn } from './pgnExport'
 import { addMoveToTree } from './repertoireTree'
 import { START_FEN } from '../hooks/useGame'
@@ -96,5 +96,37 @@ describe('parsePgnMovetext', () => {
 
     const normalize = (list: typeof edges) => list.map((e) => `${e.originFen}|${e.san}|${e.resultingFen}`).sort()
     expect(normalize(reimported)).toEqual(normalize(edges))
+  })
+})
+
+describe('parsePgnLines', () => {
+  it('keeps PGN variations as distinct explicit root-to-leaf paths', () => {
+    expect(parsePgnLines('1. e4 e5 (1...c5 2. Nf3) 2. Nf3 *').map((line) => line.map((edge) => edge.san))).toEqual([
+      ['e4', 'e5', 'Nf3'],
+      ['e4', 'c5', 'Nf3'],
+    ])
+  })
+
+  it('restores an opening-prep line label without treating its comment as moves', () => {
+    const pgn = '1. e4 e5 {[%opening-prep-line e2e4%20e7e5|Vienna%3A%20main]} *'
+    expect(parsePgnLinesWithMetadata(pgn)).toMatchObject([
+      { label: 'Vienna: main', steps: [{ uci: 'e2e4' }, { uci: 'e7e5' }] },
+    ])
+  })
+
+  it('captures standard comments and numeric annotation glyphs by ply', () => {
+    const [line] = parsePgnLinesWithMetadata('1. e4 $1 {Controls the center} e5 $6 2. Nf3 *')
+    expect(line.annotations).toEqual([
+      { ply: 0, comment: 'Controls the center', nags: [1] },
+      { ply: 1, nags: [6] },
+    ])
+  })
+
+  it('captures semicolon comments and symbolic annotation glyphs', () => {
+    const [line] = parsePgnLinesWithMetadata('1. e4! ; central space\ne5?! *')
+    expect(line.annotations).toEqual([
+      { ply: 0, comment: 'central space', nags: [1] },
+      { ply: 1, nags: [6] },
+    ])
   })
 })

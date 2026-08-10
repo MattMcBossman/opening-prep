@@ -7,9 +7,22 @@ export type ParsedPgnEdge = {
   san: string
   uci: string
   resultingFen: string
+  comment?: string
+  nags?: number[]
+}
+export type ParsedPgnLine = {
+  steps: ParsedPgnEdge[]
+  label: string
+  annotations: Array<{ ply: number; comment?: string; nags?: number[] }>
 }
 
-type Token = { type: 'move'; value: string } | { type: 'open' } | { type: 'close' } | { type: 'result' }
+type Token =
+  | { type: 'move'; value: string }
+  | { type: 'comment'; value: string }
+  | { type: 'nag'; value: number }
+  | { type: 'open' }
+  | { type: 'close' }
+  | { type: 'result' }
 
 const RESULT_TOKENS = new Set(['1-0', '0-1', '1/2-1/2', '*'])
 
@@ -49,11 +62,14 @@ function tokenize(movetext: string): Token[] {
     }
     if (ch === '{') {
       const end = movetext.indexOf('}', i + 1)
+      const value = movetext.slice(i + 1, end === -1 ? n : end).trim()
+      if (!value.startsWith('[%opening-prep-line ')) tokens.push({ type: 'comment', value })
       i = end === -1 ? n : end + 1
       continue
     }
     if (ch === ';') {
       const end = movetext.indexOf('\n', i + 1)
+      tokens.push({ type: 'comment', value: movetext.slice(i + 1, end === -1 ? n : end).trim() })
       i = end === -1 ? n : end + 1
       continue
     }
@@ -69,7 +85,9 @@ function tokenize(movetext: string): Token[] {
     }
     if (ch === '$') {
       i += 1
+      const start = i
       while (i < n && /[0-9]/.test(movetext[i])) i += 1
+      if (i > start) tokens.push({ type: 'nag', value: Number(movetext.slice(start, i)) })
       continue
     }
     let j = i
@@ -92,7 +110,13 @@ function tokenize(movetext: string): Token[] {
     // as "0-0"/"0-0-0" (digits with a dash, no dot), which falls through to
     // the plain-move case below and is handled by chess.js's own move parser.
     const glued = word.match(/^\d+\.+([A-Za-zO].*)$/)
-    tokens.push({ type: 'move', value: glued ? glued[1] : word })
+    const moveWord = glued ? glued[1] : word
+    const symbolic = moveWord.match(/^(.*?)(!!|\?\?|!\?|\?!|!|\?)$/)
+    tokens.push({ type: 'move', value: symbolic ? symbolic[1] : moveWord })
+    if (symbolic) {
+      const nag = ({ '!': 1, '?': 2, '!!': 3, '??': 4, '!?': 5, '?!': 6 } as Record<string, number>)[symbolic[2]]
+      tokens.push({ type: 'nag', value: nag })
+    }
   }
   return tokens
 }
@@ -113,6 +137,7 @@ function tokenize(movetext: string): Token[] {
 function parseSequence(tokens: Token[], cursor: { pos: number }, startFen: string, out: ParsedPgnEdge[]): void {
   const chess = new Chess(startFen)
   let beforeMoveFen = startFen
+  let lastEdgeIndex: number | null = null
 
   while (cursor.pos < tokens.length) {
     const token = tokens[cursor.pos]
@@ -123,6 +148,16 @@ function parseSequence(tokens: Token[], cursor: { pos: number }, startFen: strin
       parseSequence(tokens, cursor, beforeMoveFen, out)
       if (cursor.pos < tokens.length && tokens[cursor.pos].type === 'close') {
         cursor.pos += 1
+      }
+      continue
+    }
+
+    if (token.type === 'comment' || token.type === 'nag') {
+      cursor.pos += 1
+      if (lastEdgeIndex !== null) {
+        const edge = out[lastEdgeIndex]
+        if (token.type === 'comment') edge.comment = edge.comment ? `${edge.comment}\n${token.value}` : token.value
+        else edge.nags = [...(edge.nags ?? []), token.value]
       }
       continue
     }
@@ -148,6 +183,7 @@ function parseSequence(tokens: Token[], cursor: { pos: number }, startFen: strin
       uci: `${move.from}${move.to}${move.promotion ?? ''}`,
       resultingFen: normalizeFen(chess.fen()),
     })
+    lastEdgeIndex = out.length - 1
   }
 }
 
@@ -165,4 +201,48 @@ export function parsePgnMovetext(pgn: string): ParsedPgnEdge[] {
   const out: ParsedPgnEdge[] = []
   parseSequence(tokens, { pos: 0 }, START_FEN, out)
   return out
+}
+
+/** Reconstructs stable root-to-leaf authored paths from imported PGN edges. */
+export function parsePgnLines(pgn: string): ParsedPgnEdge[][] {
+  const edges = parsePgnMovetext(pgn)
+  const byOrigin = new Map<string, ParsedPgnEdge[]>()
+  for (const edge of edges) {
+    const siblings = byOrigin.get(edge.originFen) ?? []
+    if (!siblings.some((candidate) => candidate.uci === edge.uci)) siblings.push(edge)
+    byOrigin.set(edge.originFen, siblings)
+  }
+  const lines: ParsedPgnEdge[][] = []
+  const walk = (fen: string, path: ParsedPgnEdge[], visited: ReadonlySet<string>) => {
+    const continuations = byOrigin.get(normalizeFen(fen)) ?? []
+    if (continuations.length === 0) {
+      if (path.length > 0) lines.push(path)
+      return
+    }
+    for (const edge of continuations) {
+      if (visited.has(edge.resultingFen)) continue
+      walk(edge.resultingFen, [...path, edge], new Set(visited).add(edge.originFen))
+    }
+  }
+  walk(START_FEN, [], new Set())
+  return lines
+}
+
+export function parsePgnLinesWithMetadata(pgn: string): ParsedPgnLine[] {
+  const labels = new Map<string, string>()
+  const pattern = /\{\[%opening-prep-line\s+([^|\]}]+)\|([^\]}]*)\]\}/g
+  for (const match of pgn.matchAll(pattern)) {
+    try {
+      labels.set(decodeURIComponent(match[1]), decodeURIComponent(match[2]))
+    } catch {
+      // Ignore malformed custom metadata while retaining the legal moves.
+    }
+  }
+  return parsePgnLines(pgn).map((steps) => ({
+    steps,
+    label: labels.get(steps.map((step) => step.uci).join(' ')) ?? '',
+    annotations: steps.flatMap((step, ply) =>
+      step.comment || step.nags?.length ? [{ ply, ...(step.comment ? { comment: step.comment } : {}), ...(step.nags?.length ? { nags: step.nags } : {}) }] : [],
+    ),
+  }))
 }

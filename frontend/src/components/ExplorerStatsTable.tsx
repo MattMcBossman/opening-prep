@@ -19,6 +19,8 @@ type Props = {
   isPolling?: boolean
   /** True once automatic re-polling has given up while still indexing - shows a manual "Try again" button. */
   pollExhausted?: boolean
+  /** True when consecutive upstream snapshots are identical and automatic polling has paused. */
+  pollStalled?: boolean
   /** Restarts polling - only used/shown when `pollExhausted`. */
   onRetry?: () => void
 }
@@ -60,15 +62,25 @@ function ResultBar({ move }: { move: ExplorerMoveStat }) {
   )
 }
 
-function StillIndexingNote({ isPolling, pollExhausted, onRetry }: Pick<Props, 'isPolling' | 'pollExhausted' | 'onRetry'>) {
+function StillIndexingNote({
+  data,
+  isPolling,
+  pollExhausted,
+  pollStalled,
+  onRetry,
+}: Pick<Props, 'data' | 'isPolling' | 'pollExhausted' | 'pollStalled' | 'onRetry'>) {
+  const queueText = data?.queuePosition === undefined ? '' : ` Queue position: ${data.queuePosition}.`
   return (
     <p className="panel-status">
-      {pollExhausted
-        ? "Lichess is still indexing your games — this is taking longer than usual."
+      {pollStalled
+        ? `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games.`
+        : pollExhausted
+        ? `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games currently available. Lichess still reports background indexing.`
         : isPolling
-          ? 'Still indexing your games on Lichess — checking again shortly…'
-          : 'Still indexing your games on Lichess.'}
-      {pollExhausted && onRetry && (
+          ? `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games currently available; checking Lichess for updates…`
+          : `Showing ${formatCompactNumber(data?.totalGames ?? 0)} matching games currently available. Lichess reports background indexing.`}
+      {queueText}
+      {(pollExhausted || pollStalled) && onRetry && (
         <>
           {' '}
           <button type="button" onClick={onRetry}>
@@ -89,6 +101,7 @@ export function ExplorerStatsTable({
   isMyMove,
   isPolling,
   pollExhausted,
+  pollStalled,
   onRetry,
 }: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
@@ -96,7 +109,7 @@ export function ExplorerStatsTable({
   if (!data || data.moves.length === 0) {
     return (
       <>
-        {data?.stillIndexing && <StillIndexingNote isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />}
+        {data?.stillIndexing && <StillIndexingNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} pollStalled={pollStalled} onRetry={onRetry} />}
         <p className="panel-status">No Lichess game data for this position.</p>
       </>
     )
@@ -104,7 +117,7 @@ export function ExplorerStatsTable({
 
   return (
     <>
-      {data.stillIndexing && <StillIndexingNote isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />}
+      {data.stillIndexing && <StillIndexingNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} pollStalled={pollStalled} onRetry={onRetry} />}
       <table className="explorer-table">
         <thead>
           <tr>

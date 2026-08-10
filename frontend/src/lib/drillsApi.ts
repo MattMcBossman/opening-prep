@@ -3,8 +3,31 @@ import type { DrillOutcome } from './drillSessionLogic'
 
 export type CreateDrillSessionResponse = { id: number; startedAt: string }
 
-export function createDrillSession(repertoireId: number, isRetryPass: boolean): Promise<CreateDrillSessionResponse> {
-  return apiRequest('/drills/sessions/', { method: 'POST', body: { repertoireId, isRetryPass } })
+export type CreateDrillSessionPayload = {
+  repertoireIds: number[]
+  templateReleaseIds?: number[]
+  isRetryPass: boolean
+  startMode?: 'beginning' | 'selected_position'
+  selectedFen?: string | null
+  selectedPly?: number | null
+  prefixUci?: string[]
+}
+
+export function createDrillSession(
+  repertoireIdOrPayload: number | CreateDrillSessionPayload,
+  legacyIsRetryPass?: boolean,
+): Promise<CreateDrillSessionResponse> {
+  const body = typeof repertoireIdOrPayload === 'number'
+    ? { repertoireId: repertoireIdOrPayload, isRetryPass: legacyIsRetryPass ?? false }
+    : {
+        templateReleaseIds: [],
+        startMode: 'beginning',
+        selectedFen: null,
+        selectedPly: null,
+        prefixUci: [],
+        ...repertoireIdOrPayload,
+      }
+  return apiRequest('/drills/sessions/', { method: 'POST', body })
 }
 
 export type DrillAttemptPayload = {

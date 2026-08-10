@@ -1,19 +1,22 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { exportRepertoireToPgn } from '../lib/pgnExport'
-import { parsePgnMovetext } from '../lib/pgnImport'
-import type { ParsedPgnEdge } from '../lib/pgnImport'
-import type { RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
+import { parsePgnLinesWithMetadata } from '../lib/pgnImport'
+import type { ParsedPgnEdge, ParsedPgnLine } from '../lib/pgnImport'
+import type { PgnExportLine } from '../lib/pgnExport'
+import type { RepertoireColor, RepertoireTree } from '../types'
 
 type Props = {
   color: RepertoireColor
   getTree: (color: RepertoireColor) => RepertoireTree
+  getLines: (color: RepertoireColor) => PgnExportLine[]
   isMoveSaved: (color: RepertoireColor, fen: string, uci: string) => boolean
-  addMove: (color: RepertoireColor, fen: string, move: RepertoireMove) => void
+  addLine: (color: RepertoireColor, steps: ParsedPgnEdge[], source?: 'manual' | 'pgn_import', label?: string, annotations?: ParsedPgnLine['annotations']) => void
 }
 
 type Preview = {
   edges: ParsedPgnEdge[]
+  lines: ParsedPgnLine[]
   newCount: number
   savedCount: number
 }
@@ -36,7 +39,7 @@ function downloadTextFile(filename: string, text: string): void {
  * safe to import into a non-empty repertoire, and re-importing the same PGN
  * twice changes nothing the second time.
  */
-export function PgnImportExportPanel({ color, getTree, isMoveSaved, addMove }: Props) {
+export function PgnImportExportPanel({ color, getTree, getLines, isMoveSaved, addLine }: Props) {
   const [importOpen, setImportOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -44,9 +47,9 @@ export function PgnImportExportPanel({ color, getTree, isMoveSaved, addMove }: P
   const [confirmedCount, setConfirmedCount] = useState<number | null>(null)
 
   const handleExport = useCallback(() => {
-    const pgn = exportRepertoireToPgn(getTree(color), color)
+    const pgn = exportRepertoireToPgn(getTree(color), color, getLines(color))
     downloadTextFile(`${color}-repertoire.pgn`, pgn)
-  }, [getTree, color])
+  }, [getTree, getLines, color])
 
   const openImport = useCallback(() => {
     setImportOpen(true)
@@ -74,7 +77,8 @@ export function PgnImportExportPanel({ color, getTree, isMoveSaved, addMove }: P
 
   const handlePreview = useCallback(() => {
     setConfirmedCount(null)
-    const edges = parsePgnMovetext(draft)
+    const lines = parsePgnLinesWithMetadata(draft)
+    const edges = lines.flatMap((line) => line.steps)
     if (edges.length === 0) {
       setPreview(null)
       setError('No moves found in that PGN.')
@@ -82,18 +86,16 @@ export function PgnImportExportPanel({ color, getTree, isMoveSaved, addMove }: P
     }
     const savedCount = edges.filter((edge) => isMoveSaved(color, edge.originFen, edge.uci)).length
     setError(null)
-    setPreview({ edges, newCount: edges.length - savedCount, savedCount })
+    setPreview({ edges, lines, newCount: edges.length - savedCount, savedCount })
   }, [draft, color, isMoveSaved])
 
   const handleConfirm = useCallback(() => {
     if (!preview) return
-    for (const edge of preview.edges) {
-      addMove(color, edge.originFen, { san: edge.san, uci: edge.uci, resultingFen: edge.resultingFen })
-    }
+    for (const line of preview.lines) addLine(color, line.steps, 'pgn_import', line.label, line.annotations)
     setConfirmedCount(preview.newCount)
     setPreview(null)
     setDraft('')
-  }, [preview, color, addMove])
+  }, [preview, color, addLine])
 
   const colorLabel = useMemo(() => (color === 'white' ? 'White' : 'Black'), [color])
 

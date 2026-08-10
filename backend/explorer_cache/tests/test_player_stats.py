@@ -30,7 +30,7 @@ def _ndjson(*objects) -> str:
 
 
 @responses.activate
-def test_returns_final_line_once_queue_position_clears(user):
+def test_returns_first_snapshot_immediately_so_progress_can_render(user):
     responses.add(
         responses.GET,
         player_stats.PLAYER_EXPLORER_URL,
@@ -43,16 +43,13 @@ def test_returns_final_line_once_queue_position_clears(user):
 
     data = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
 
-    assert data["totalGames"] == 15
-    assert data["moves"] == [
-        {"san": "e4", "uci": "e2e4", "white": 10, "draws": 0, "black": 0, "totalGames": 10}
-    ]
-    assert "stillIndexing" not in data
+    assert data["totalGames"] == 1
+    assert data["stillIndexing"] is True
+    assert data["queuePosition"] == 5
 
 
 @responses.activate
-def test_flags_still_indexing_when_the_time_budget_expires(user, monkeypatch):
-    monkeypatch.setattr(player_stats, "STREAM_BUDGET_SECONDS", 0)
+def test_flags_still_indexing_on_the_current_snapshot(user):
     responses.add(
         responses.GET,
         player_stats.PLAYER_EXPLORER_URL,
@@ -66,9 +63,25 @@ def test_flags_still_indexing_when_the_time_budget_expires(user, monkeypatch):
     data = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
 
     assert data["stillIndexing"] is True
-    # Stops after the first line once the (already-expired) budget is checked,
-    # rather than draining the whole stream.
+    assert data["queuePosition"] == 90
+    # Returns promptly instead of hiding this usable count while the stream
+    # remains open for later indexing updates.
     assert data["totalGames"] == 1
+
+
+@responses.activate
+def test_zero_queue_position_is_still_indexing_until_lichess_sends_final_line(user):
+    responses.add(
+        responses.GET,
+        player_stats.PLAYER_EXPLORER_URL,
+        body=_ndjson({"white": 8, "draws": 1, "black": 2, "moves": [], "queuePosition": 0}),
+        status=200,
+    )
+
+    data = player_stats.fetch_player_stats(user, START_FEN, 12, "white")
+
+    assert data["stillIndexing"] is True
+    assert data["queuePosition"] == 0
 
 
 @responses.activate
@@ -85,7 +98,7 @@ def test_skips_blank_and_unparseable_lines(user):
 
 
 @responses.activate
-def test_since_until_are_forwarded_to_upstream(user):
+def test_since_until_and_speeds_are_forwarded_to_upstream(user):
     responses.add(
         responses.GET,
         player_stats.PLAYER_EXPLORER_URL,
@@ -93,11 +106,14 @@ def test_since_until_are_forwarded_to_upstream(user):
         status=200,
     )
 
-    player_stats.fetch_player_stats(user, START_FEN, 12, "white", since="2020-01", until="2021-06")
+    player_stats.fetch_player_stats(
+        user, START_FEN, 12, "white", since="2020-01", until="2021-06", speeds="bullet,rapid"
+    )
 
     request_url = responses.calls[0].request.url
     assert "since=2020-01" in request_url
     assert "until=2021-06" in request_url
+    assert "speeds=bullet%2Crapid" in request_url
 
 
 def test_no_linked_account_raises_token_required(db):

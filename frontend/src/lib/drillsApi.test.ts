@@ -23,6 +23,31 @@ describe('createDrillSession', () => {
     expect(url).toBe('/api/v1/drills/sessions/')
     expect(JSON.parse(init.body)).toEqual({ repertoireId: 1, isRetryPass: false })
   })
+
+  it('POSTs composed sources and selected-position launch context', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 8, startedAt: '2026-01-01T00:00:00Z' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createDrillSession({
+      repertoireIds: [1, 2],
+      templateReleaseIds: [7],
+      isRetryPass: false,
+      startMode: 'selected_position',
+      selectedFen: 'selected fen',
+      selectedPly: 4,
+      prefixUci: ['e2e4', 'e7e5'],
+    })
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({
+      repertoireIds: [1, 2],
+      templateReleaseIds: [7],
+      isRetryPass: false,
+      startMode: 'selected_position',
+      selectedFen: 'selected fen',
+      selectedPly: 4,
+      prefixUci: ['e2e4', 'e7e5'],
+    })
+  })
 })
 
 describe('submitDrillAttempts', () => {

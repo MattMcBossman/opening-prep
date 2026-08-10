@@ -170,22 +170,38 @@ describe('fetchMyGamesExplorerStats (signed-in, own games)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('sends since/until filters as query params', async () => {
+  it('sends since/until and game-speed filters as query params', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(EXPECTED_RESPONSE))
     vi.stubGlobal('fetch', fetchMock)
 
     await fetchMyGamesExplorerStats('filtered-my-games-fen w KQkq -', 'white', undefined, {
-      since: '2020-01',
-      until: '2021-06',
+      since: '2020-01-17',
+      until: '2021-06-03',
+      speeds: ['bullet', 'rapid'],
     })
 
     const [url] = fetchMock.mock.calls[0]
     expect(url).toContain('since=2020-01')
     expect(url).toContain('until=2021-06')
+    expect(url).not.toContain('2020-01-17')
+    expect(url).not.toContain('2021-06-03')
+    expect(url).toContain('speeds=bullet%2Crapid')
   })
 })
 
 describe('LichessDatabaseFilters passthrough (since/until/ratings/speeds)', () => {
+  it('preserves Retry-After when the direct explorer rate-limits coverage requests', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, {
+      status: 429,
+      headers: { 'Retry-After': '9' },
+    })))
+
+    await expect(fetchLichessExplorer('rate-limited-fen w KQkq -', 'lip_token')).rejects.toMatchObject({
+      status: 429,
+      retryAfterSeconds: 9,
+    })
+  })
+
   it('fetchLichessExplorer includes them in the direct-to-Lichess request', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(RAW_EXPLORER_RESPONSE))
     vi.stubGlobal('fetch', fetchMock)
@@ -214,9 +230,8 @@ describe('LichessDatabaseFilters passthrough (since/until/ratings/speeds)', () =
     })
 
     const [url] = fetchMock.mock.calls[0]
-    expect(url).toBe(
-      '/api/v1/explorer/stats/?fen=filters-backend-fen+w+KQkq+-&moves=12&ratings=1600&speeds=bullet',
-    )
+    expect(url).toContain('ratings=1600')
+    expect(url).toContain('speeds=bullet')
   })
 
   it('an empty ratings/speeds array omits the param entirely (no filter)', async () => {

@@ -8,8 +8,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from common.fen import normalize_fen
+from repertoire.models import OpeningTemplateRelease, Repertoire
 
-from .models import DrillAttempt, DrillLineResult, DrillSession
+from .models import (
+    DrillAttempt,
+    DrillLineResult,
+    DrillSession,
+    DrillSessionRepertoire,
+    DrillSessionTemplateRelease,
+)
 from .repertoire_link import resolve_repertoire_id
 from .serializers import (
     DrillAttemptsBatchSerializer,
@@ -61,11 +68,38 @@ class DrillSessionListCreateView(APIView):
         body = DrillSessionCreateSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
-        repertoire_id = resolve_repertoire_id(body.validated_data["repertoireId"], request.user)
+        repertoire_ids = [
+            resolve_repertoire_id(value, request.user) for value in body.validated_data["repertoireIds"]
+        ]
+        releases = list(
+            OpeningTemplateRelease.objects.filter(
+                id__in=body.validated_data["templateReleaseIds"], template__is_published=True
+            )
+        )
+        if len(releases) != len(set(body.validated_data["templateReleaseIds"])):
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"templateReleaseIds": "No such published template release."})
+        # Legacy FK remains populated for old consumers; composed attribution uses joins.
+        fallback = (
+            repertoire_ids[0]
+            if repertoire_ids
+            else Repertoire.objects.filter(owner=request.user).values_list("id", flat=True).first()
+        )
         session = DrillSession.objects.create(
             user=request.user,
-            repertoire_id=repertoire_id,
+            repertoire_id=fallback,
             is_retry_pass=body.validated_data["is_retry_pass"],
+            start_mode=body.validated_data["start_mode"],
+            selected_fen=body.validated_data["selected_fen"],
+            selected_ply=body.validated_data["selected_ply"],
+            prefix_uci=body.validated_data["prefix_uci"],
+        )
+        DrillSessionRepertoire.objects.bulk_create(
+            DrillSessionRepertoire(session=session, repertoire_id=value) for value in repertoire_ids
+        )
+        DrillSessionTemplateRelease.objects.bulk_create(
+            DrillSessionTemplateRelease(session=session, release=release) for release in releases
         )
         return Response(DrillSessionCreatedSerializer(session).data, status=201)
 
@@ -157,7 +191,10 @@ class DrillStatsView(APIView):
         attempts = DrillAttempt.objects.filter(session__user=request.user)
         repertoire_id = query.validated_data.get("repertoire")
         if repertoire_id is not None:
-            attempts = attempts.filter(session__repertoire_id=repertoire_id)
+            attempts = attempts.filter(
+                Q(session__repertoire_id=repertoire_id)
+                | Q(session__repertoire_sources__repertoire_id=repertoire_id)
+            ).distinct()
 
         aggregates = list(
             attempts.values("origin_fen").annotate(

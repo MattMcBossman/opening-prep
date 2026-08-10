@@ -20,6 +20,7 @@ def health(_request):
 api_v1_patterns = [
     path("auth/", include("accounts.urls")),
     path("repertoires/", include("repertoire.urls")),
+    path("opening-templates/", include("repertoire.global_urls")),
     path("explorer/", include("explorer_cache.urls")),
     path("drills/", include("drills.urls")),
 ]

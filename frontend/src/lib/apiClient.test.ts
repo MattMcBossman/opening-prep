@@ -55,6 +55,15 @@ describe('apiRequest', () => {
     })
   })
 
+  it('preserves Retry-After seconds on rate limits', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(
+      { detail: 'Slow down' },
+      { status: 429, headers: { 'Retry-After': '17' } },
+    )))
+
+    await expect(apiRequest('/explorer/stats/')).rejects.toMatchObject({ status: 429, retryAfterSeconds: 17 })
+  })
+
   it('returns undefined for 204 responses without parsing JSON', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
 

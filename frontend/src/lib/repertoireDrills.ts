@@ -19,6 +19,117 @@ export type DrillLine = {
   /** Stable identity for this line within one enumeration - the played UCI sequence. */
   id: string
   steps: DrillStep[]
+  /** Every personal module/global release that contributed this identical line. */
+  sources?: DrillLineSource[]
+}
+
+export type DrillLineSource =
+  | { kind: 'repertoire'; id: number; lineId?: string; name?: string }
+  | { kind: 'template_release'; id: number; lineId?: string; name?: string }
+
+export type DrillStartMode = 'beginning' | 'selected_position'
+
+export type DrillStartContext = {
+  /** Complete six-field FEN used when starting at the selected position. */
+  selectedFen: string
+  selectedPly: number
+  /** Moves from the initial position through the selected occurrence. */
+  prefixUci: string[]
+}
+
+/** Captures the exact explorer occurrence used by the "Drill from here" handoff. */
+export function createDrillStartContext(
+  selectedFen: string,
+  selectedPly: number,
+  history: readonly { uci: string }[],
+): DrillStartContext {
+  return {
+    selectedFen,
+    selectedPly,
+    prefixUci: history.slice(0, selectedPly).map((move) => move.uci),
+  }
+}
+
+export type PreparedDrill = {
+  lines: DrillLine[]
+  rootFen: string
+}
+
+function lineKey(line: DrillLine): string {
+  return line.steps.map((step) => step.uci).join(' ')
+}
+
+/** Deduplicates identical played lines while retaining all source provenance. */
+export function mergeDrillLines(lines: readonly DrillLine[]): DrillLine[] {
+  const merged = new Map<string, DrillLine>()
+  for (const line of lines) {
+    const key = lineKey(line)
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, { ...line, id: key, steps: [...line.steps], sources: [...(line.sources ?? [])] })
+      continue
+    }
+    const sourceKeys = new Set((existing.sources ?? []).map((source) => `${source.kind}:${source.id}:${source.lineId ?? ''}`))
+    for (const source of line.sources ?? []) {
+      const sourceKey = `${source.kind}:${source.id}:${source.lineId ?? ''}`
+      if (!sourceKeys.has(sourceKey)) {
+        existing.sources?.push(source)
+        sourceKeys.add(sourceKey)
+      }
+    }
+  }
+  return [...merged.values()]
+}
+
+function normalizedFenMatches(left: string, right: string): boolean {
+  try {
+    return normalizeFen(left) === normalizeFen(right)
+  } catch {
+    return left === right
+  }
+}
+
+/**
+ * Filters full authored lines through a selected explorer occurrence and then
+ * presents them either from move one or from that position. Exact prefix
+ * matching is deliberately preferred: FEN alone loses authored move order at
+ * transpositions and can be ambiguous in repetitions.
+ */
+export function prepareDrillLines(
+  lines: readonly DrillLine[],
+  mode: DrillStartMode = 'beginning',
+  context?: DrillStartContext,
+): PreparedDrill {
+  const deduped = mergeDrillLines(lines)
+  if (!context) return { lines: deduped, rootFen: START_FEN }
+
+  const prefixLength = context.prefixUci.length
+  let eligible = prefixLength > 0
+    ? deduped.filter((line) =>
+        context.prefixUci.every((uci, index) => line.steps[index]?.uci === uci)
+        && normalizedFenMatches(line.steps[prefixLength - 1]?.resultingFen ?? '', context.selectedFen),
+      )
+    : []
+
+  // Launches from dashboards may have no explorer history. Match the selected
+  // occurrence by ply/FEN in that case; selectedPly disambiguates repetitions.
+  if (prefixLength === 0) {
+    eligible = deduped.filter((line) => {
+      if (context.selectedPly === 0) return normalizedFenMatches(context.selectedFen, START_FEN)
+      return normalizedFenMatches(line.steps[context.selectedPly - 1]?.resultingFen ?? '', context.selectedFen)
+    })
+  }
+
+  if (mode === 'beginning') return { lines: eligible, rootFen: START_FEN }
+
+  const sliced = eligible
+    .map((line) => {
+      const steps = line.steps.slice(prefixLength || context.selectedPly)
+      return { ...line, id: lineKey({ ...line, steps }), steps }
+    })
+    // A line ending exactly at the selected position has nothing left to drill.
+    .filter((line) => line.steps.length > 0)
+  return { lines: mergeDrillLines(sliced), rootFen: context.selectedFen }
 }
 
 /**

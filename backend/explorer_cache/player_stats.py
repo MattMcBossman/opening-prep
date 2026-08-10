@@ -12,12 +12,12 @@ counts down to done, and a line without one is the finished result. In
 practice this can take a while (or apparently never fully resolve for some
 accounts - see
 https://lichess.org/forum/lichess-feedback/lichess-api-player-games-endpoint-is-non-functional),
-so this only waits up to `STREAM_BUDGET_SECONDS` and returns Lichess's best
-answer so far, flagged as `stillIndexing`, rather than blocking indefinitely.
+so the proxy returns the first current snapshot promptly, flagged as
+`stillIndexing`, and lets the browser poll for later snapshots rather than
+holding one request open indefinitely.
 """
 
 import json
-import time
 
 import requests
 
@@ -28,10 +28,6 @@ from .cache import TokenRequired, UpstreamRateLimited, UpstreamUnavailable
 from .response_shape import to_explorer_response
 
 UPSTREAM_TIMEOUT_SECONDS = 8
-# Total wall-clock budget for draining the ND-JSON stream, across every line -
-# a player Lichess hasn't finished indexing might genuinely take a while, but
-# a request handler can't block forever waiting for `queuePosition` to clear.
-STREAM_BUDGET_SECONDS = 15
 PLAYER_EXPLORER_URL = "https://explorer.lichess.org/player"
 
 
@@ -42,6 +38,7 @@ def fetch_player_stats(
     color: str,
     since: str | None = None,
     until: str | None = None,
+    speeds: str | None = None,
 ) -> dict:
     """
     Returns an `ExplorerResponse`-shaped dict (see response_shape.py) built
@@ -77,6 +74,8 @@ def fetch_player_stats(
         params["since"] = since
     if until:
         params["until"] = until
+    if speeds:
+        params["speeds"] = speeds
 
     try:
         response = requests.get(
@@ -94,25 +93,28 @@ def fetch_player_stats(
     if not response.ok:
         raise UpstreamUnavailable()
 
-    latest = _drain_ndjson(response)
-    if latest is None:
+    snapshot = _read_ndjson_snapshot(response)
+    if snapshot is None:
         raise UpstreamUnavailable()
 
-    result = to_explorer_response(latest)
-    if "queuePosition" in latest:
+    result = to_explorer_response(snapshot)
+    if "queuePosition" in snapshot:
         result["stillIndexing"] = True
+        # This is the only progress signal Lichess exposes. Keep it separate
+        # from totalGames: that count is for the selected position and may be
+        # partial, not the number of account games indexed globally.
+        result["queuePosition"] = snapshot["queuePosition"]
     return result
 
 
-def _drain_ndjson(response: requests.Response) -> dict | None:
+def _read_ndjson_snapshot(response: requests.Response) -> dict | None:
     """
-    Reads `response` line by line, keeping the most recently parsed JSON
-    object, until the stream ends, a line with no `queuePosition` is seen (the
-    finished result), or `STREAM_BUDGET_SECONDS` elapses. Returns `None` only
-    if not a single line could be parsed at all.
+    Return the first parseable snapshot from Lichess's stream. Lichess sends
+    the current aggregate immediately, then may hold the connection open while
+    indexing more games. Returning that first snapshot lets the browser show a
+    real game count during indexing; bounded frontend polling requests later
+    snapshots instead of one Django request hiding progress for ~15 seconds.
     """
-    latest: dict | None = None
-    deadline = time.monotonic() + STREAM_BUDGET_SECONDS
     try:
         for line in response.iter_lines(decode_unicode=True):
             if not line:
@@ -121,11 +123,9 @@ def _drain_ndjson(response: requests.Response) -> dict | None:
                 parsed = json.loads(line)
             except ValueError:
                 continue
-            latest = parsed
-            if "queuePosition" not in parsed or time.monotonic() >= deadline:
-                break
+            return parsed
     except requests.RequestException:
-        pass  # Best-effort: fall through with whatever `latest` was captured so far.
+        pass
     finally:
         response.close()
-    return latest
+    return None
