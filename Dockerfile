@@ -4,6 +4,9 @@ FROM node:24-bookworm-slim AS frontend
 
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
+# npm ci runs the frontend postinstall hook, so the hook must exist in this
+# dependency-cache layer before the rest of the source tree is copied.
+COPY frontend/scripts/copy-engine.mjs ./scripts/copy-engine.mjs
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
