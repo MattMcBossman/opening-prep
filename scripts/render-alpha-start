@@ -4,6 +4,7 @@ set -eu
 # Render's free web plan has no pre-deploy command. This is safe only for the
 # disposable, single-instance alpha described in deployment-plan.md.
 python manage.py migrate --noinput
+python manage.py seed_opening_templates
 exec gunicorn opening_prep.wsgi:application \
   --bind "0.0.0.0:${PORT:-8000}" \
   --workers 1 \

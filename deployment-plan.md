@@ -160,8 +160,9 @@ this branch into the eventual production branch. For the free alpha:
    same region.
 2. Remove `preDeployCommand`: Render only provides pre-deploy commands to paid
    web services. For the single-instance alpha only, use a small entrypoint that
-   runs `python manage.py migrate --noinput` before starting Gunicorn. Return
-   migrations to the pre-deploy phase before upgrading to production.
+   runs `python manage.py migrate --noinput` and the idempotent starter-library
+   seed before starting Gunicorn. Return migrations and seeding to explicit
+   release operations before upgrading to production.
 3. Start with one Gunicorn worker on the free instance. Increase it only after
    observing memory and latency; three workers are the paid-instance default.
 4. Keep `/api/v1/health/` as Render's database-independent health check. Verify

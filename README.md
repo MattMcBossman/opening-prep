@@ -97,7 +97,7 @@ denial cannot leave a partial development stack behind.
 
 The `render-launch` branch configures one free Render Web Service and one free
 Render Postgres database for a small, disposable invited alpha. Render runs
-migrations before starting a single Gunicorn worker; the app exposes liveness
+migrations and the idempotent starter-library seed before starting a single Gunicorn worker; the app exposes liveness
 at `/api/v1/health/`, database readiness at `/api/v1/ready/`, and the alpha
 privacy notice at `/privacy/`. Alpha data has no durability guarantee. See the
 launch and expiry checklist in [deployment-plan.md](deployment-plan.md) before
