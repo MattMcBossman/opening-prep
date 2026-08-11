@@ -10,6 +10,7 @@ from django.contrib import admin
 from django.db import connection
 from django.http import FileResponse, Http404, JsonResponse
 from django.urls import include, path, re_path
+from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 
@@ -48,6 +49,7 @@ api_v1_patterns = [
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("privacy/", TemplateView.as_view(template_name="privacy.html"), name="privacy"),
     path("api/v1/health/", health, name="health"),
     path("api/v1/ready/", readiness, name="readiness"),
     path("api/v1/schema/", SpectacularAPIView.as_view(), name="schema"),

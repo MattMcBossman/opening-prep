@@ -3,10 +3,10 @@
 ## Status and objective
 
 **The remote-development foundation is implemented; mobile optimization is now
-the active milestone in [mobile-plan.md](mobile-plan.md).** This document remains
-the operating plan for running the current application and PostgreSQL on the
-developer's laptop and reaching it securely from the developer's phone without
-paying for cloud hosting.
+the active milestone in [mobile-plan.md](mobile-plan.md).** This document covers
+three deliberately separate stages: laptop-hosted private development, a
+disposable free-Render alpha for invited friends, and paid production once data
+durability and predictable availability matter.
 
 The cached analysis roadmap is in
 [position-analysis-plan.md](position-analysis-plan.md). Its basic release keeps
@@ -120,6 +120,95 @@ the following local values in the developer's untracked environment file:
 | `FRONTEND_URL` | Exact Tailscale development origin. |
 | `LICHESS_REDIRECT_URI` | `<tailscale-origin>/api/v1/auth/lichess/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Existing local Fernet key; never commit it. |
+
+## Invited alpha — free Render services
+
+### Purpose and expectations
+
+Before paying for production, run a small, explicitly temporary alpha on **one
+Free Render Web Service and one Free Render Postgres database**. Keep the
+combined React/Django same-origin architecture and browser-side Stockfish. This
+phase is for usability feedback from a few trusted friends, not durable hosting
+or a public launch.
+
+Set expectations before inviting anyone:
+
+- the web service sleeps after 15 minutes without inbound traffic, and the next
+  visit can take about a minute to wake it;
+- Render may restart the service, so brief unavailability is normal;
+- the free database is limited to 1 GB, has no managed backups, and expires 30
+  days after creation; after its 14-day upgrade grace period, Render deletes it;
+- alpha repertoire/account data is disposable unless the database is upgraded
+  or exported before expiry;
+- the free web instance has 512 MB RAM and substantially less CPU than Starter,
+  so this phase tests product behavior, not production performance.
+
+The client-side engine makes this viable: Stockfish consumes the user's device,
+not Render CPU. A few friends performing ordinary repertoire and drill actions
+should fit the free service, but cold starts and concurrent Django/API requests
+will be visibly slower. Monitor Render's included instance hours, bandwidth,
+build minutes, and service-initiated traffic rather than using artificial
+keep-awake requests.
+
+### Free-tier deployment changes
+
+The `render-launch` branch's committed `render.yaml` is the reviewed alpha
+definition. Restore the paid-production values described below before merging
+this branch into the eventual production branch. For the free alpha:
+
+1. Set both Blueprint plans to `free`. Keep the web service and database in the
+   same region.
+2. Remove `preDeployCommand`: Render only provides pre-deploy commands to paid
+   web services. For the single-instance alpha only, use a small entrypoint that
+   runs `python manage.py migrate --noinput` before starting Gunicorn. Return
+   migrations to the pre-deploy phase before upgrading to production.
+3. Start with one Gunicorn worker on the free instance. Increase it only after
+   observing memory and latency; three workers are the paid-instance default.
+4. Keep `/api/v1/health/` as Render's database-independent health check. Verify
+   `/api/v1/ready/` manually after each deploy to confirm PostgreSQL access.
+5. Use the generated `onrender.com` HTTPS origin for allowed hosts, CSRF,
+   frontend redirects, and the Lichess callback. A custom domain is optional in
+   alpha.
+6. Generate a new production-shaped `DJANGO_SECRET_KEY` and Fernet
+   `TOKEN_ENCRYPTION_KEY` in Render. Never reuse laptop secrets or commit them.
+7. Disable pull-request preview environments. They would create unnecessary
+   services and can complicate the one-free-database limit.
+
+Running migrations at web startup is an intentional free-tier compromise, not
+the long-term release design. It is acceptable only while there is one web
+instance, changes are backward-compatible, and losing alpha data is an agreed
+risk.
+
+### Alpha launch and operating checklist
+
+- [ ] Deploy the `render-launch` branch and confirm the Docker build succeeds.
+- [ ] Confirm migrations complete before Gunicorn starts and both health and
+  readiness endpoints return success.
+- [ ] Smoke-test SPA deep links, admin static assets, registration/OAuth,
+  Chess.com username linking, CSRF-protected saves, explorer requests,
+  Stockfish assets, drills, audio, and mobile layout.
+- [ ] Tell invited users that the service may take about a minute to wake and
+  that alpha data is not guaranteed to survive.
+- [x] Publish the minimal privacy statement at `/privacy/`.
+- [ ] Keep the alpha invite-only and avoid collecting data that cannot safely be
+  lost. Include the privacy URL with every invitation.
+- [ ] Record the database creation and expiry dates. Set reminders seven days
+  before expiry and before the end of the upgrade grace period.
+- [ ] Review logs and usage weekly for memory pressure, repeated 5xx responses,
+  upstream 429/502 responses, bandwidth, build minutes, and database growth.
+- [ ] Before the free database expires, choose one outcome: upgrade it in place,
+  export the data and migrate to a paid database, or deliberately delete the
+  disposable alpha and notify testers.
+
+### Exit gate to paid production
+
+Move to the paid topology below before promising availability or retaining
+meaningful user data. Upgrade no later than the first of: approaching database
+expiry, users treating repertoires as durable, cold starts disrupting testing,
+free CPU/memory limiting normal use, or invitations expanding beyond a small
+trusted group. After upgrading, restore pre-deploy migrations, use the paid
+worker count, enable database recovery/backups, perform a restore test, and run
+the full production launch gates.
 
 ## Actual production deployment
 

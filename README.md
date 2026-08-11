@@ -40,7 +40,10 @@ positions are discounted.
 - `frontend/` — React + TypeScript + Vite app. See [frontend/README.md](frontend/README.md) for template-specific notes (this will likely be replaced with app-specific docs as the project grows).
 - `backend/` — Django + DRF + PostgreSQL app (accounts/Lichess OAuth, repertoire persistence, explorer/engine-eval and MultiPV position-analysis caches, drill statistics). See [backend/README.md](backend/README.md) for setup and [backend/API_CONTRACT.md](backend/API_CONTRACT.md) for the endpoint contract.
 - `openingtree/` — git submodule; a pre-existing React app used as a **reference implementation only** for Lichess/Chess.com game-history iteration and PGN parsing (see [AGENTS.md](AGENTS.md#inspiration-source-openingtree-submodule)). Not built or run directly as part of this app.
-- `deployment-plan.md` — operating plan for private Tailscale development access plus the concrete Render production topology, release runbook, security/configuration contract, rollback, and launch gates.
+- `deployment-plan.md` — operating plan for private Tailscale development,
+  a disposable free-Render invited alpha, and the paid Render production
+  topology, release runbook, security/configuration contract, rollback, and
+  launch gates.
 - `mobile-plan.md` — completed mobile engineering record plus the physical-phone acceptance matrix.
 - `position-analysis-plan.md` — phased cached end-of-drill analysis, recurring plans, and deterministic positional features.
 
@@ -89,6 +92,16 @@ sudo tailscale set --operator="$USER"
 Run that once, then rerun `./scripts/remote-dev`. The wrapper configures
 Tailscale Serve before starting either long-running app process, so an access
 denial cannot leave a partial development stack behind.
+
+## Invited alpha deployment
+
+The `render-launch` branch configures one free Render Web Service and one free
+Render Postgres database for a small, disposable invited alpha. Render runs
+migrations before starting a single Gunicorn worker; the app exposes liveness
+at `/api/v1/health/`, database readiness at `/api/v1/ready/`, and the alpha
+privacy notice at `/privacy/`. Alpha data has no durability guarantee. See the
+launch and expiry checklist in [deployment-plan.md](deployment-plan.md) before
+sharing the service URL.
 
 Frontend, in another terminal:
 

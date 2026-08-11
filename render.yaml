@@ -2,12 +2,12 @@ services:
   - type: web
     name: mainline
     runtime: docker
-    plan: starter
+    plan: free
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
+    dockerCommand: ./scripts/render-alpha-start
     healthCheckPath: /api/v1/health/
-    preDeployCommand: python manage.py migrate --noinput
     envVars:
       - key: DJANGO_ENV
         value: production
@@ -28,7 +28,7 @@ services:
 
 databases:
   - name: mainline-db
-    plan: basic-256mb
+    plan: free
     region: oregon
     databaseName: mainline
     user: mainline

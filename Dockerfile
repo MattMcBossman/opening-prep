@@ -21,6 +21,7 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend/ ./
+COPY scripts/render-alpha-start ./scripts/render-alpha-start
 COPY --from=frontend /build/frontend/dist ./frontend_dist
 RUN uv sync --frozen --no-dev
 RUN DJANGO_ENV=development \
@@ -33,5 +34,6 @@ USER appuser
 
 EXPOSE 8000
 
-# Schema migrations run as Render's pre-deploy command, never at web startup.
+# Paid production uses Render's pre-deploy migration phase. The disposable
+# single-instance alpha overrides this command with scripts/render-alpha-start.
 CMD ["sh", "-c", "gunicorn opening_prep.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 3 --access-logfile - --error-logfile -"]
