@@ -33,10 +33,20 @@ set. This is the app's bootstrap call.
 ```json
 {
   "authenticated": true,
-  "user": { "id": 1, "username": "DrNykterstein", "lichessUsername": "DrNykterstein" }
+  "user": { "id": 1, "username": "DrNykterstein", "lichessUsername": "DrNykterstein", "chessComUsername": "hikaru" }
 }
 ```
 When signed out: `{"authenticated": false, "user": null}`.
+
+### `PUT /api/v1/auth/chess-com/`
+Authenticated. Accepts `{"username":"hikaru"}`, validates it against
+Chess.com's public player endpoint, and stores the canonical public username.
+Returns the updated session user shape. A missing player is `400`; an upstream
+failure/rate limit is `503`. This is not OAuth or proof of account ownership:
+Chess.com's generally available Published Data API is read-only.
+
+### `DELETE /api/v1/auth/chess-com/`
+Authenticated. Removes the connected public username. `204 No Content`.
 
 ### `GET /api/v1/auth/lichess/start/`
 Anonymous-safe. Generates the PKCE `code_verifier` and `state`, stashes them in

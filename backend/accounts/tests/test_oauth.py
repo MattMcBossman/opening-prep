@@ -54,7 +54,12 @@ def test_session_reports_user_and_lichess_username_when_signed_in(db):
 
     assert response.json() == {
         "authenticated": True,
-        "user": {"id": user.id, "username": "DrNykterstein", "lichessUsername": "DrNykterstein"},
+        "user": {
+            "id": user.id,
+            "username": "DrNykterstein",
+            "lichessUsername": "DrNykterstein",
+            "chessComUsername": None,
+        },
     }
 
 

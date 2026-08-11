@@ -72,6 +72,15 @@ Coverage reliability: aggregate scoring now paces position requests and honors
 Lichess `Retry-After` responses with a visible countdown and automatic resume,
 rather than aborting the calculation on its first rate limit.
 
+Coverage redesign progress: the dashboard now uses a named 95% practical
+full-coverage target, weights the profile aggregate by matching-game volume,
+and reports fully covered, partially covered, and no-data positions separately.
+Positions are now ranked by uncovered matching-game count adjusted for the
+repertoire side's cached engine advantage, with one-tap Explorer navigation.
+Equal or worse positions retain their full exposure while already-winning
+positions are progressively discounted. Per-reply gap details, rare-tail
+treatment, and minimum-sample confidence remain.
+
 ### Coverage-analysis redesign (next product follow-up)
 
 This is the next feature area to revisit after the current analysis/comparison
@@ -82,20 +91,25 @@ The current dashboard calls a position “fully covered” only at effectively
 100% (`>= 99.999%`) and averages position percentages equally. Replace those
 rules with an exposure-oriented model:
 
-- Use **95% covered reply mass as the proposed default “fully covered” target**,
+- [x] Use **95% covered reply mass as the proposed default “fully covered” target**,
   subject to fixture/user testing. Make the target a named constant and show it
   in explanatory UI rather than implying that every returned move is required.
-- Compute the profile aggregate as `sum(coveredGames) / sum(totalGames)` across
+- [x] Compute the profile aggregate as `sum(coveredGames) / sum(totalGames)` across
   scored positions. This intentionally gives positions with larger matching
   Lichess samples more influence instead of treating a rare deep position like
   a common early position.
-- Show both the weighted aggregate and distribution: fully covered positions,
+- [x] Show both the weighted aggregate and distribution: fully covered positions,
   partially covered positions, and positions with no reliable sample. Do not
   collapse “no data” into 0% preparation.
-- Rank uncovered replies by **impact** (`position exposure × reply frequency`,
-  represented initially by the reply's matching-game count) so the next action
-  is the gap most likely to occur, not merely the largest percentage at an
-  obscure position.
+- [x] Rank uncovered positions by **impact** (uncovered matching games adjusted
+  by cached engine evaluation from the repertoire side's perspective) so a
+  common but already-winning position does not outrank a smaller equal-position
+  gap merely due to database volume. Missing evaluations remain neutral rather
+  than triggering many battery-heavy Stockfish searches. Rank individual
+  replies within those positions in the next slice.
+- Rank individual uncovered replies within those positions. The reply-level
+  metric remains `position exposure × reply frequency`, represented initially
+  by the reply's matching-game count.
 - Treat the low-frequency tail explicitly. Proposed starting rule: moves below
   1% of the returned position sample do not prevent the “fully covered” label,
   but remain visible under “rare uncovered replies.” Revisit the threshold

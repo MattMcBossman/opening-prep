@@ -134,9 +134,7 @@ class PositionFeatureSet(models.Model):
                 fields=["fen", "extractor_version"], name="unique_position_feature_set_key"
             )
         ]
-        indexes = [
-            models.Index(fields=["fen", "extractor_version"], name="explorer_ca_feature_key_idx")
-        ]
+        indexes = [models.Index(fields=["fen", "extractor_version"], name="explorer_ca_feature_key_idx")]
 
     def __str__(self) -> str:
         return f"{self.extractor_version}:{self.fen}"

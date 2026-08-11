@@ -25,6 +25,7 @@ import { EvalBar } from './components/EvalBar'
 import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
 import { AuthControl } from './components/AuthControl'
+import { ChessComAccountControl } from './components/ChessComAccountControl'
 import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
@@ -235,6 +236,10 @@ function App() {
     (positionFen: string) => getRepertoireContinuations(boardColor, positionFen),
     [boardColor, getRepertoireContinuations],
   )
+  const openCoveragePosition = useCallback((positionFen: string) => {
+    if (!loadPosition(positionFen)) return
+    setMobileExplorerSection('stats')
+  }, [loadPosition])
 
   const playRepertoirePath = useCallback((path: RepertoireMove[]) => {
     if (!loadContinuationPath(path.map((move) => move.uci))) return
@@ -438,6 +443,7 @@ function App() {
           />
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          {auth.user && <ChessComAccountControl username={auth.user.chessComUsername} onLink={auth.linkChessCom} onUnlink={auth.unlinkChessCom} />}
           <AuthControl user={auth.user} loading={auth.loading} onLogin={() => auth.login()} onLogout={auth.logout} />
         </div>
       </header>
@@ -617,6 +623,7 @@ function App() {
                 signedIn={isSignedIn}
                 filters={explorerFiltersBySource.lichess}
                 getContinuations={coverageContinuations}
+                onOpenPosition={openCoveragePosition}
               />
             </section>
             <section className="panel">

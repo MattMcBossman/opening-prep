@@ -14,6 +14,7 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
+    DJANGO_ENV=(str, "development"),
     DJANGO_DEBUG=(bool, False),
     DJANGO_ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     DJANGO_CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:5173"]),
@@ -22,6 +23,8 @@ env = environ.Env(
     LICHESS_HOST=(str, "https://lichess.org"),
     LICHESS_EXPLORER_URL=(str, "https://explorer.lichess.org/lichess"),
     LICHESS_CLIENT_ID=(str, "opening-prep-local"),
+    CHESS_COM_API_URL=(str, "https://api.chess.com/pub"),
+    CHESS_COM_USER_AGENT=(str, "Mainline/0.1 (opening repertoire app)"),
     EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 60 * 24),
     PLAYER_EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 10),
 )
@@ -34,6 +37,21 @@ if env_file.exists():
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-secret-key")
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
+ENVIRONMENT = env("DJANGO_ENV").lower()
+
+if ENVIRONMENT == "production":
+    if DEBUG:
+        raise ValueError("DJANGO_DEBUG must be False in production")
+    if SECRET_KEY == "dev-only-insecure-secret-key" or len(SECRET_KEY) < 32:
+        raise ValueError("DJANGO_SECRET_KEY must be a strong, non-default production secret")
+
+# Render supplies this automatically. Adding it here lets the first deployment
+# work on its temporary onrender.com hostname without hard-coding a service
+# name into the image or Blueprint.
+RENDER_EXTERNAL_HOSTNAME = env("RENDER_EXTERNAL_HOSTNAME", default="").strip()
+RENDER_ORIGIN = f"https://{RENDER_EXTERNAL_HOSTNAME}" if RENDER_EXTERNAL_HOSTNAME else ""
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, RENDER_EXTERNAL_HOSTNAME]
 
 # `scripts/remote-dev` sets one HTTPS Tailscale origin for the lifetime of a
 # remote-development session. Keeping this additive preserves the usual
@@ -66,6 +84,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -118,6 +137,14 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+FRONTEND_DIST_DIR = BASE_DIR / "frontend_dist"
+WHITENOISE_ROOT = FRONTEND_DIST_DIR
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -135,6 +162,19 @@ CSRF_COOKIE_SECURE = not DEBUG
 CSRF_TRUSTED_ORIGINS = env("DJANGO_CSRF_TRUSTED_ORIGINS")
 if REMOTE_DEV_ORIGIN:
     CSRF_TRUSTED_ORIGINS = [*CSRF_TRUSTED_ORIGINS, REMOTE_DEV_ORIGIN]
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS = [
+        *CSRF_TRUSTED_ORIGINS,
+        f"https://{RENDER_EXTERNAL_HOSTNAME}",
+    ]
+
+if ENVIRONMENT == "production":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = env.int("DJANGO_SECURE_HSTS_SECONDS", default=0)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+    SECURE_HSTS_PRELOAD = False
+    X_FRAME_OPTIONS = "DENY"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -187,20 +227,38 @@ LOGGING = {
 # Explorer needs no scopes at all - only that a token exists.
 LICHESS_HOST = env("LICHESS_HOST")
 LICHESS_EXPLORER_URL = env("LICHESS_EXPLORER_URL")
-LICHESS_CLIENT_ID = env("LICHESS_CLIENT_ID")
+LICHESS_CLIENT_ID = env(
+    "LICHESS_CLIENT_ID",
+    default=RENDER_ORIGIN or "opening-prep-local",
+)
+CHESS_COM_API_URL = env("CHESS_COM_API_URL")
+CHESS_COM_USER_AGENT = env("CHESS_COM_USER_AGENT")
 LICHESS_REDIRECT_URI = (
     f"{REMOTE_DEV_ORIGIN}/api/v1/auth/lichess/callback"
     if REMOTE_DEV_ORIGIN
     else env(
         "LICHESS_REDIRECT_URI",
-        default="http://localhost:5173/api/v1/auth/lichess/callback",
+        default=f"{RENDER_ORIGIN or 'http://localhost:5173'}/api/v1/auth/lichess/callback",
     )
 )
-FRONTEND_URL = REMOTE_DEV_ORIGIN or env("FRONTEND_URL")
+FRONTEND_URL = REMOTE_DEV_ORIGIN or env(
+    "FRONTEND_URL",
+    default=RENDER_ORIGIN or "http://localhost:5173",
+)
 
 # Fernet key used to encrypt stored Lichess access tokens at rest. Generate with:
 #   uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 TOKEN_ENCRYPTION_KEY = env("TOKEN_ENCRYPTION_KEY", default="")
+
+if ENVIRONMENT == "production":
+    production_origin = urlparse(FRONTEND_URL)
+    if production_origin.scheme != "https" or not production_origin.hostname:
+        raise ValueError("FRONTEND_URL must be a complete HTTPS origin in production")
+    redirect_uri = urlparse(LICHESS_REDIRECT_URI)
+    if redirect_uri.scheme != "https" or not redirect_uri.hostname:
+        raise ValueError("LICHESS_REDIRECT_URI must be an HTTPS URL in production")
+    if not TOKEN_ENCRYPTION_KEY:
+        raise ValueError("TOKEN_ENCRYPTION_KEY is required in production")
 
 EXPLORER_CACHE_TTL_SECONDS = env("EXPLORER_CACHE_TTL_SECONDS")
 PLAYER_EXPLORER_CACHE_TTL_SECONDS = env("PLAYER_EXPLORER_CACHE_TTL_SECONDS")

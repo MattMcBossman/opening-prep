@@ -1,8 +1,9 @@
 """DRF views for the accounts app. See backend/API_CONTRACT.md for the endpoints."""
 
 from datetime import timedelta
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
+import requests
 from django.conf import settings
 from django.contrib.auth import login, logout
 from django.http import HttpResponseRedirect
@@ -16,8 +17,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import oauth
-from .models import LichessAccount, User
-from .serializers import SessionSerializer, UserSerializer
+from .models import ChessComAccount, LichessAccount, User
+from .serializers import ChessComLinkSerializer, SessionSerializer, UserSerializer
 
 # Session key the PKCE verifier/state pair (and the recorded `next` redirect
 # path) are stashed under between `lichess_start` and `lichess_callback`.
@@ -148,4 +149,46 @@ class LogoutView(APIView):
     @extend_schema(summary="Log out.", request=None, responses={204: None})
     def post(self, request):
         logout(request)
+        return Response(status=204)
+
+
+class ChessComAccountView(APIView):
+    """Attach or remove a Chess.com public username from the signed-in user."""
+
+    @extend_schema(
+        summary="Validate and link a public Chess.com username.",
+        request=ChessComLinkSerializer,
+        responses={200: UserSerializer},
+    )
+    def put(self, request):
+        serializer = ChessComLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_username = serializer.validated_data["username"]
+        url = f"{settings.CHESS_COM_API_URL.rstrip('/')}/player/{quote(requested_username, safe='')}"
+        try:
+            upstream = requests.get(
+                url,
+                headers={"User-Agent": settings.CHESS_COM_USER_AGENT, "Accept": "application/json"},
+                timeout=10,
+            )
+        except requests.RequestException:
+            return Response({"detail": "Chess.com is currently unavailable."}, status=503)
+
+        if upstream.status_code in (404, 410):
+            return Response({"username": ["Chess.com could not find that player."]}, status=400)
+        if upstream.status_code == 429:
+            return Response({"detail": "Chess.com rate-limited this request. Try again shortly."}, status=503)
+        if not upstream.ok:
+            return Response({"detail": "Chess.com is currently unavailable."}, status=503)
+        try:
+            canonical_username = upstream.json()["username"]
+        except (ValueError, KeyError, TypeError):
+            return Response({"detail": "Chess.com returned an invalid player profile."}, status=503)
+
+        ChessComAccount.objects.update_or_create(user=request.user, defaults={"username": canonical_username})
+        return Response(UserSerializer(request.user).data)
+
+    @extend_schema(summary="Disconnect the linked Chess.com username.", request=None, responses={204: None})
+    def delete(self, request):
+        ChessComAccount.objects.filter(user=request.user).delete()
         return Response(status=204)

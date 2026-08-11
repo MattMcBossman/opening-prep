@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregatePositionCoverage, calculatePositionCoverage, opponentPositions } from './repertoireCoverage'
+import { aggregatePositionCoverage, calculatePositionCoverage, coverageGapImpact, opponentPositions, rankCoverageGaps } from './repertoireCoverage'
 
 describe('calculatePositionCoverage', () => {
   it('weights prepared opponent replies by observed game frequency', () => {
@@ -28,10 +28,53 @@ describe('coverage dashboard helpers', () => {
     expect(opponentPositions(tree, 'black')).toContain('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -')
   })
 
-  it('averages frequency-weighted scores across repertoire positions', () => {
+  it('weights the profile aggregate by each position sample size', () => {
     expect(aggregatePositionCoverage([
       { percent: 50, coveredGames: 50, totalGames: 100, coveredMoves: 1, totalMoves: 2 },
       { percent: 100, coveredGames: 20, totalGames: 20, coveredMoves: 1, totalMoves: 1 },
-    ])).toMatchObject({ percent: 75, coveredPositions: 1, totalPositions: 2 })
+    ])).toMatchObject({
+      percent: 58.333333333333336,
+      coveredPositions: 1,
+      partiallyCoveredPositions: 1,
+      noDataPositions: 0,
+      totalPositions: 2,
+    })
+  })
+
+  it('uses the 95% practical target and reports no-data positions separately', () => {
+    expect(aggregatePositionCoverage([
+      { percent: 95, coveredGames: 95, totalGames: 100, coveredMoves: 2, totalMoves: 3 },
+      { percent: 94.9, coveredGames: 949, totalGames: 1000, coveredMoves: 2, totalMoves: 3 },
+      { percent: 0, coveredGames: 0, totalGames: 0, coveredMoves: 0, totalMoves: 0 },
+    ])).toMatchObject({
+      coveredPositions: 1,
+      partiallyCoveredPositions: 1,
+      noDataPositions: 1,
+      totalPositions: 3,
+    })
+  })
+
+  it('ranks equal gaps by their absolute number of uncovered games', () => {
+    const lowPercentageButSmallSample = { fen: 'small', percent: 0, coveredGames: 0, totalGames: 100, coveredMoves: 0, totalMoves: 1 }
+    const highImpact = { fen: 'large', percent: 90, coveredGames: 9000, totalGames: 10000, coveredMoves: 1, totalMoves: 2 }
+    const complete = { fen: 'complete', percent: 100, coveredGames: 50000, totalGames: 50000, coveredMoves: 1, totalMoves: 1 }
+
+    expect(rankCoverageGaps([lowPercentageButSmallSample, highImpact, complete], 'white').map((position) => position.fen))
+      .toEqual(['large', 'small'])
+  })
+
+  it('discounts a winning position below a smaller equal position', () => {
+    const winning = {
+      fen: 'winning', percent: 0, coveredGames: 0, totalGames: 100_000, coveredMoves: 0, totalMoves: 1,
+      evaluation: { scoreType: 'cp' as const, scoreValue: 500 },
+    }
+    const equal = {
+      fen: 'equal', percent: 0, coveredGames: 0, totalGames: 3_000, coveredMoves: 0, totalMoves: 1,
+      evaluation: { scoreType: 'cp' as const, scoreValue: 0 },
+    }
+
+    expect(coverageGapImpact(winning, 'white')).toBeLessThan(coverageGapImpact(equal, 'white'))
+    expect(rankCoverageGaps([winning, equal], 'white').map((position) => position.fen)).toEqual(['equal', 'winning'])
+    expect(rankCoverageGaps([winning, equal], 'black').map((position) => position.fen)).toEqual(['winning', 'equal'])
   })
 })

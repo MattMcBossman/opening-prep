@@ -13,14 +13,23 @@ class UserSerializer(serializers.ModelSerializer):
     """
 
     lichessUsername = serializers.SerializerMethodField()
+    chessComUsername = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "lichessUsername"]
+        fields = ["id", "username", "lichessUsername", "chessComUsername"]
 
     def get_lichessUsername(self, obj: User) -> str | None:
         account = getattr(obj, "lichess_account", None)
         return account.lichess_username if account else None
+
+    def get_chessComUsername(self, obj: User) -> str | None:
+        account = getattr(obj, "chess_com_account", None)
+        return account.username if account else None
+
+
+class ChessComLinkSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=64, trim_whitespace=True)
 
 
 class SessionSerializer(serializers.Serializer):

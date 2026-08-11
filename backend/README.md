@@ -1,7 +1,7 @@
 # Mainline backend
 
 Django + Django REST Framework + PostgreSQL. Provides user accounts (Lichess
-OAuth), server-side repertoire storage, a caching Lichess explorer proxy, and
+OAuth plus a validated public Chess.com username), server-side repertoire storage, a caching Lichess explorer proxy, and
 persistent drill statistics. See [../AGENTS.md](../AGENTS.md) for the wider
 project reference and [API_CONTRACT.md](API_CONTRACT.md) for the endpoints.
 
@@ -104,6 +104,10 @@ shapes; see [`../profile-modules-plan.md`](../profile-modules-plan.md).
 - **Lichess OAuth** is a public-client PKCE flow: no client secret, and no scopes
   at all — the Opening Explorer only requires that a token exists. Access tokens
   are encrypted at rest and never leave the server.
-- **Docker**: `Dockerfile` builds the production image. Development deliberately
+- **Chess.com linking** validates and stores only a public username through the
+  Published Data API. It stores no Chess.com credentials and is not ownership
+  verification; Chess.com authentication requires a separate partner request.
+- **Docker**: the repository-root `Dockerfile` builds the combined React/Django
+  Render image; `backend/Dockerfile` remains a backend-only image. Development deliberately
   runs Django on the host instead, for a faster edit/reload/debug loop; Compose
   only provides PostgreSQL.

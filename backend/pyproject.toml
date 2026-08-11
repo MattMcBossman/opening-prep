@@ -13,6 +13,7 @@ dependencies = [
     "requests>=2.32",
     "chess>=1.11",
     "gunicorn>=23.0",
+    "whitenoise>=6.8",
 ]
 
 [dependency-groups]

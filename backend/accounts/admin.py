@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import LichessAccount, User
+from .models import ChessComAccount, LichessAccount, User
 
 # The admin doubles as a dev-time inspector for repertoire trees and cached data
 # (see AGENTS.md), so every model added in this phase should be registered.
@@ -20,3 +20,9 @@ class LichessAccountAdmin(admin.ModelAdmin):
     fields = ["user", "lichess_id", "lichess_username", "token_expires_at"]
     readonly_fields = ["lichess_id"]
     search_fields = ["lichess_username", "user__username"]
+
+
+@admin.register(ChessComAccount)
+class ChessComAccountAdmin(admin.ModelAdmin):
+    list_display = ["username", "user", "updated_at"]
+    search_fields = ["username", "user__username"]

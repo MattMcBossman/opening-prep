@@ -4,6 +4,7 @@ export type AuthUser = {
   id: number
   username: string
   lichessUsername: string
+  chessComUsername: string | null
 }
 
 export type SessionResponse = {
@@ -22,6 +23,14 @@ export function fetchSession(signal?: AbortSignal): Promise<SessionResponse> {
 
 export function logout(): Promise<void> {
   return apiRequest('/auth/logout/', { method: 'POST' })
+}
+
+export function linkChessCom(username: string): Promise<AuthUser> {
+  return apiRequest('/auth/chess-com/', { method: 'PUT', body: { username } })
+}
+
+export function unlinkChessCom(): Promise<void> {
+  return apiRequest('/auth/chess-com/', { method: 'DELETE' })
 }
 
 /**

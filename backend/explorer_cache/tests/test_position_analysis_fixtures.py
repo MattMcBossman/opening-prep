@@ -6,20 +6,19 @@ import pytest
 
 from explorer_cache.serializers import PositionAnalysisUploadSerializer, derive_recurring_moves
 
-
-FIXTURES = json.loads(
-    (Path(__file__).parent / "fixtures" / "position_analysis_cases.json").read_text()
-)
+FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "position_analysis_cases.json").read_text())
 
 
 @pytest.mark.parametrize("case", FIXTURES, ids=lambda case: case["name"])
 def test_analysis_fixture_replays_and_documents_only_expected_evidence(case):
-    serializer = PositionAnalysisUploadSerializer(data={
-        "fen": case["fen"],
-        "engineVersion": "stockfish-18-lite-single",
-        "analysisProfile": "drill-review-basic-v1",
-        "candidates": case["candidates"],
-    })
+    serializer = PositionAnalysisUploadSerializer(
+        data={
+            "fen": case["fen"],
+            "engineVersion": "stockfish-18-lite-single",
+            "analysisProfile": "drill-review-basic-v1",
+            "candidates": case["candidates"],
+        }
+    )
     assert serializer.is_valid(), serializer.errors
 
     recurring = derive_recurring_moves(case["fen"], serializer.validated_data["candidates"])

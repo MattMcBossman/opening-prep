@@ -3,8 +3,10 @@ import {
   describeAuthError,
   fetchSession,
   lichessLoginUrl,
+  linkChessCom as linkChessComRequest,
   logout as logoutRequest,
   parseAuthErrorFromSearch,
+  unlinkChessCom as unlinkChessComRequest,
 } from '../lib/authApi'
 import type { AuthUser } from '../lib/authApi'
 
@@ -66,5 +68,15 @@ export function useAuth() {
 
   const dismissAuthError = useCallback(() => setAuthError(null), [])
 
-  return { user, loading, authError, login, logout, dismissAuthError }
+  const linkChessCom = useCallback(async (username: string) => {
+    const updatedUser = await linkChessComRequest(username)
+    setUser(updatedUser)
+  }, [])
+
+  const unlinkChessCom = useCallback(async () => {
+    await unlinkChessComRequest()
+    setUser((current) => current ? { ...current, chessComUsername: null } : current)
+  }, [])
+
+  return { user, loading, authError, login, logout, dismissAuthError, linkChessCom, unlinkChessCom }
 }

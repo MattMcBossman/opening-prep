@@ -1,4 +1,4 @@
-# Remote development hosting plan
+# Deployment plan
 
 ## Status and objective
 
@@ -121,24 +121,184 @@ the following local values in the developer's untracked environment file:
 | `LICHESS_REDIRECT_URI` | `<tailscale-origin>/api/v1/auth/lichess/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Existing local Fernet key; never commit it. |
 
-## Deferred production hosting
+## Actual production deployment
 
-Render is **not required or planned for the current development milestone**.
-When the project is ready for other users and independent uptime, revisit a
-managed deployment. The previously evaluated Render shape was a paid Starter
-Web Service plus a separate smallest paid persistent Render Postgres database;
-those payments buy always-on compute and a database that does not depend on the
-developer's laptop. Re-evaluate Render and alternatives at that time instead of
-committing to them now.
+### Decision
 
-Future production work includes a production image, fail-closed settings,
-health checks, CI/CD, managed secrets, migrations, monitoring, rollback, a
-canonical domain, and a narrow-screen launch smoke test.
+Use **one paid Render Web Service plus one paid Render Postgres database**, in
+the same Render region and workspace. Serve the compiled React application and
+the Django API from the same HTTPS origin. Keep Stockfish in the browser and do
+not add a worker, Redis, object store, or persistent web-service disk for the
+first release.
 
-## Way-back-burner — PostgreSQL backups and disaster recovery
+This is the smallest production topology that preserves Mainline's existing
+same-origin session/CSRF design. It also gives the application independent
+uptime, managed TLS, a private database connection, health checks, pre-deploy
+migrations, deploy history, and rollback without operating a VM. Render's free
+web/database products are evaluation tiers, not this plan: free web services
+sleep and free databases expire. Check the live price before purchase; in July
+2026, Render described the smallest always-on web service plus paid PostgreSQL
+as roughly **$13/month before bandwidth and storage growth**.
 
-Backups, point-in-time recovery policy, off-platform logical exports, and
-restore drills are explicitly not requirements for remote development or the
-first production experiment. Revisit them when the application holds meaningful
-user data, before charging for the service, or when the owner promotes this
-item.
+Authoritative references:
+
+- [Render web services](https://render.com/docs/web-services)
+- [Render deploy and pre-deploy behavior](https://render.com/docs/deploys)
+- [Render Postgres](https://render.com/docs/postgresql)
+- [Render custom domains and managed TLS](https://render.com/docs/custom-domains)
+- [Render free-tier limitations](https://render.com/docs/free)
+
+Do not split the frontend onto a separate static-site origin. It would require
+cross-origin credentials/CORS and different cookie semantics for no useful
+launch benefit. A CDN or separate frontend can be reconsidered only if measured
+traffic makes it worthwhile.
+
+### Production-enablement implementation
+
+The repository-root `Dockerfile` and `render.yaml` now implement the combined
+Render topology. The older `backend/Dockerfile` remains useful as a backend-only
+image. The production implementation:
+
+1. Uses a multi-stage root production image: run `npm ci` and `npm run build`
+   in `frontend/`, retain the existing locked `uv` backend build, and copy the
+   compiled frontend into the final image.
+2. Serves `/api/`, `/admin/`, and Django static assets through Django/Gunicorn,
+   and serves frontend assets plus an `index.html` fallback for non-API SPA
+   routes. WhiteNoise is appropriate at this scale; hashed Vite assets should
+   receive long immutable caching while `index.html` must not.
+3. Binds Gunicorn to Render's `PORT` value, adds access/error logging to stdout,
+   and keeps migrations out of the container startup command.
+4. Adds proxy-aware HTTPS settings (`SECURE_PROXY_SSL_HEADER`), HSTS after the
+   custom domain is verified, secure session/CSRF cookies, and an HTTPS redirect.
+   Production configuration must reject an insecure/default Django secret, an
+   empty token-encryption key, `DJANGO_DEBUG=True`, and incomplete canonical
+   URLs. Run `manage.py check --deploy` in CI and during image validation.
+5. Makes `/api/v1/health/` a liveness endpoint that does not depend on an
+   upstream API. Add a separate readiness check or deployment smoke command
+   that executes `SELECT 1` against PostgreSQL.
+6. Adds a root `render.yaml` with explicit starter choices (`mainline`,
+   `mainline-db`, Oregon). Change those choices before applying the Blueprint if
+   needed. Secrets remain in Render and the database uses its private URL.
+
+The existing data model stores no user uploads, so Render's ephemeral service
+filesystem is correct. Opening-template JSON and Stockfish assets are immutable
+build artifacts. Do not attach a persistent disk.
+
+### Production configuration contract
+
+Use one canonical value such as `https://mainline.example.com` consistently.
+The temporary `*.onrender.com` hostname may be used for the first smoke test,
+but OAuth should be registered against the final domain before inviting users.
+
+| Variable | Production value/rule |
+| --- | --- |
+| `DJANGO_ENV` | `production`; enables fail-closed production validation and HTTPS settings. |
+| `DJANGO_DEBUG` | `False`; startup fails if true. |
+| `DJANGO_SECRET_KEY` | Render-generated secret, distinct from every development environment. |
+| `TOKEN_ENCRYPTION_KEY` | New production Fernet key; losing it makes stored OAuth tokens unreadable. |
+| `DATABASE_URL` | Render Postgres **internal** connection URL. |
+| `DJANGO_ALLOWED_HOSTS` | Canonical hostname and, during bring-up only, the exact Render hostname. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Exact canonical HTTPS origin (plus temporary Render HTTPS origin during bring-up). |
+| `FRONTEND_URL` | Exact canonical HTTPS origin. |
+| `LICHESS_CLIENT_ID` | Stable production identifier, conventionally the canonical URL. |
+| `LICHESS_REDIRECT_URI` | `<canonical-origin>/api/v1/auth/lichess/callback`. |
+| `LICHESS_HOST` / `LICHESS_EXPLORER_URL` | Keep the documented public defaults. |
+
+Render's `RENDER_EXTERNAL_HOSTNAME` automatically supplies the temporary host,
+CSRF origin, frontend origin, and default Lichess callback during bring-up.
+Explicit canonical-domain values replace those defaults later.
+`REMOTE_DEV_ORIGIN` must remain unset in production. Keep all secrets in
+Render's environment manager, never in `.env`, Blueprint YAML, logs, or issue
+text.
+
+### Provisioning and first release runbook
+
+No external resources should be created until the production-enablement PR has
+passed its gates below.
+
+1. Choose the Render region nearest the expected initial users and create paid
+   PostgreSQL there. Pin a currently supported PostgreSQL major version and use
+   its internal URL from the web service.
+2. Create the paid Docker Web Service from the protected production branch.
+   Configure `/api/v1/health/` as its health-check path and enable deploys only
+   after required CI checks pass.
+3. Enter the production configuration above. Set the pre-deploy command to
+   `python manage.py migrate --noinput`; it must finish successfully before the
+   new image receives traffic. Seed global opening releases as a separate,
+   explicitly run idempotent command after the first migration, not on every
+   process start.
+4. Deploy first to the Render hostname. Verify health, SPA deep-link refreshes,
+   Django admin assets, database writes, CSRF-protected mutations, Stockfish
+   worker/WASM loading, and Lichess explorer behavior. Do not invite users yet.
+5. Attach the chosen custom domain, update DNS, wait for Render's managed TLS,
+   replace temporary host/origin values, and register the exact production
+   Lichess OAuth callback. Then test login, callback, logout, and a fresh-browser
+   session on the canonical domain.
+6. Run the desktop and phone launch smoke matrix: anonymous persistence, account
+   migration, repertoire/profile/module CRUD, PGN import/export, coverage,
+   selected-position and full drills, audio, engine analysis/cache upload, and
+   upstream failure/rate-limit states.
+7. Create an admin account through a one-off Render shell command. Never expose
+   a default credential or automate a fixed admin password.
+
+### CI, release, and rollback gates
+
+Before automatic production deployment, CI must pass backend tests, frontend
+unit/lint/build tests, the core Playwright suite, a production image build, and
+`manage.py check --deploy` against non-secret placeholder production values.
+Pin deploys to a protected branch and require CI success.
+
+Every schema change must be backward-compatible with the currently running
+application during a zero-downtime deploy. Use expand/migrate/contract across
+multiple releases for destructive column/table changes. A failed pre-deploy
+migration stops the release; investigate it rather than starting the new image
+manually.
+
+For an application regression, roll Render back to the preceding successful
+image. A code rollback does **not** reverse a migration. Only apply a tested
+forward repair migration unless a specific reversible migration and data impact
+have been reviewed. Keep the prior image available until the new release has
+passed smoke testing.
+
+### Operations for the first real users
+
+- Send application and Gunicorn logs to Render stdout and alert on repeated 5xx
+  responses, failed deploys, unhealthy instances, database capacity, and
+  explorer upstream 429/502 rates. Avoid logging OAuth tokens, cookies, request
+  bodies, PGNs, or database URLs.
+- Start with one web instance and the current three Gunicorn workers, then check
+  memory and database-connection use under concurrent Stockfish clients before
+  changing worker count. Stockfish CPU remains on each user's device.
+- Establish a monthly spend alert and review bandwidth, build minutes, database
+  storage, connections, slow queries, and cache growth.
+- Before storing invited users' meaningful repertoires, enable the paid
+  database's available recovery features and make an encrypted off-platform
+  `pg_dump`. Before public launch, perform and time one restore into a separate
+  database. Document retention and recovery-point/recovery-time objectives from
+  the paid plan actually purchased.
+- Publish a minimal privacy statement covering OAuth identity/token storage,
+  repertoire/game-derived data, logs, deletion requests, and third-party
+  Lichess/Chess.com calls before accepting users beyond the owner.
+
+### Launch gates and unresolved owner choices
+
+Production is ready only when all of these are true:
+
+- [ ] Production-enablement image/settings changes pass CI and local container smoke testing.
+- [ ] Paid web/database plan, region, service names, and monthly budget are approved.
+- [ ] Canonical domain is selected and controlled by the owner.
+- [ ] Lichess production callback works on that domain.
+- [ ] Migration, seed, health/readiness, desktop, and real-phone smoke tests pass.
+- [ ] Alerting and a tested database restore exist before invited-user data matters.
+- [ ] Rollback owner and incident contact path are written down.
+
+The choices intentionally left to the owner are the domain, Render region,
+monthly budget ceiling, whether the first release is owner-only or invite-only,
+and the database recovery/retention tier. None requires changing the application
+architecture above.
+
+## Development-only note on backups
+
+Backups remain unnecessary for disposable laptop development data. They are no
+longer deferred for actual production: follow the production operations and
+launch gates above before entrusted user data accumulates.

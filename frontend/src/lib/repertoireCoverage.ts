@@ -1,13 +1,45 @@
 import { START_FEN } from '../hooks/useGame'
 import { normalizeFen, sideToMove } from './chessUtils'
-import type { ExplorerMoveStat, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
+import type { EngineEvaluation, ExplorerMoveStat, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
 
 export type PositionCoverage = {
+  fen?: string
+  openingName?: string
+  evaluation?: Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null
   coveredGames: number
   totalGames: number
   percent: number
   coveredMoves: number
   totalMoves: number
+}
+
+export const FULLY_COVERED_TARGET_PERCENT = 95
+
+/**
+ * Turns raw uncovered-game exposure into a practical priority. Engine scores are
+ * from White's perspective, so first convert them to the repertoire side's view.
+ * A favorable position is easier to handle and is exponentially discounted;
+ * equal or worse positions retain their full observed exposure.
+ */
+export function coverageGapImpact(position: PositionCoverage, color: RepertoireColor): number {
+  const uncoveredGames = position.totalGames - position.coveredGames
+  if (!position.evaluation) return uncoveredGames
+  const repertoireSign = color === 'white' ? 1 : -1
+  if (position.evaluation.scoreType === 'mate') {
+    return position.evaluation.scoreValue * repertoireSign > 0 ? uncoveredGames * 0.01 : uncoveredGames
+  }
+  const repertoireAdvantage = (position.evaluation.scoreValue * repertoireSign) / 100
+  const favorableAdvantage = Math.min(5, Math.max(0, repertoireAdvantage))
+  return uncoveredGames * Math.exp(-0.8 * favorableAdvantage)
+}
+
+export function rankCoverageGaps(positions: readonly PositionCoverage[], color: RepertoireColor): PositionCoverage[] {
+  return [...positions]
+    .filter((position) => position.totalGames - position.coveredGames > 0)
+    .sort((left, right) =>
+      coverageGapImpact(right, color) - coverageGapImpact(left, color)
+      || right.totalGames - left.totalGames,
+    )
 }
 
 export function opponentPositions(tree: RepertoireTree, color: RepertoireColor): string[] {
@@ -26,6 +58,8 @@ export function opponentPositions(tree: RepertoireTree, color: RepertoireColor):
 export type CoverageDashboardSummary = {
   percent: number
   coveredPositions: number
+  partiallyCoveredPositions: number
+  noDataPositions: number
   totalPositions: number
   coveredReplyWeight: number
   totalReplyWeight: number
@@ -35,10 +69,13 @@ export function aggregatePositionCoverage(positions: readonly PositionCoverage[]
   const scored = positions.filter((position) => position.totalGames > 0)
   const coveredReplyWeight = scored.reduce((sum, position) => sum + position.coveredGames, 0)
   const totalReplyWeight = scored.reduce((sum, position) => sum + position.totalGames, 0)
+  const coveredPositions = scored.filter((position) => position.percent >= FULLY_COVERED_TARGET_PERCENT).length
   return {
-    percent: scored.length === 0 ? 0 : scored.reduce((sum, position) => sum + position.percent, 0) / scored.length,
-    coveredPositions: scored.filter((position) => position.percent >= 99.999).length,
-    totalPositions: scored.length,
+    percent: totalReplyWeight === 0 ? 0 : (coveredReplyWeight / totalReplyWeight) * 100,
+    coveredPositions,
+    partiallyCoveredPositions: scored.length - coveredPositions,
+    noDataPositions: positions.length - scored.length,
+    totalPositions: positions.length,
     coveredReplyWeight,
     totalReplyWeight,
   }

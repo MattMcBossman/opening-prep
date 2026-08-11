@@ -31,7 +31,12 @@ def _replace(row: PositionAnalysis, candidates: list[dict], recurring_moves: lis
 
 
 def upsert_position_analysis(
-    *, fen: str, engine_version: str, analysis_profile: str, candidates: list[dict], recurring_moves: list[dict]
+    *,
+    fen: str,
+    engine_version: str,
+    analysis_profile: str,
+    candidates: list[dict],
+    recurring_moves: list[dict],
 ) -> tuple[PositionAnalysis, bool]:
     normalized = normalize_fen(fen)
     lookup = {"fen": normalized, "engine_version": engine_version, "analysis_profile": analysis_profile}
@@ -39,7 +44,9 @@ def upsert_position_analysis(
         existing = PositionAnalysis.objects.select_for_update().filter(**lookup).first()
         if existing:
             if quality(existing.candidates) >= quality(candidates):
-                if existing.recurring_moves != recurring_moves and quality(existing.candidates) == quality(candidates):
+                if existing.recurring_moves != recurring_moves and quality(existing.candidates) == quality(
+                    candidates
+                ):
                     existing.recurring_moves = recurring_moves
                     existing.save(update_fields=["recurring_moves", "updated_at"])
                 return existing, False

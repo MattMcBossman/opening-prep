@@ -1,0 +1,11 @@
+.git
+.agents
+.codex
+backend/.env
+backend/.venv
+backend/**/__pycache__
+backend/.pytest_cache
+frontend/dist
+frontend/node_modules
+frontend/test-results
+openingtree
