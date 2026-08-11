@@ -1,7 +1,7 @@
 .profile-manager-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 200;
   display: grid;
   place-items: center;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
@@ -176,6 +176,15 @@
   .profile-manager input,
   .profile-manager select {
     min-height: 44px;
+  }
+
+  .profile-manager .manager-form > label {
+    display: block;
+    width: 100%;
+    max-width: none;
+    font-size: 14px;
+    line-height: 1.35;
+    white-space: nowrap;
   }
 
   .manager-section-heading {

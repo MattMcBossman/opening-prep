@@ -72,7 +72,11 @@ Coverage reliability: aggregate scoring now paces position requests and honors
 Lichess `Retry-After` responses with a visible countdown and automatic resume,
 rather than aborting the calculation on its first rate limit.
 
-### Coverage-analysis redesign (planned)
+### Coverage-analysis redesign (next product follow-up)
+
+This is the next feature area to revisit after the current analysis/comparison
+work. Preserve the shipped on-demand dashboard while replacing its aggregate
+and reliability rules incrementally.
 
 The current dashboard calls a position “fully covered” only at effectively
 100% (`>= 99.999%`) and averages position percentages equally. Replace those

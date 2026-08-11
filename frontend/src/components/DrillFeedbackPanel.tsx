@@ -3,6 +3,7 @@ import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
 import { practicalMoveOutcome } from '../lib/drillPositionAssessment'
 import { formatCompactNumber } from '../lib/formatNumber'
 import type { DrillFeedback } from '../lib/drillSessionLogic'
+import type { DrillStartMode } from '../lib/repertoireDrills'
 import type { SimilarPositionHint } from '../hooks/useDrillSession'
 import type { ExplorerResponse, RepertoireColor } from '../types'
 
@@ -12,6 +13,11 @@ type Props = {
   color: RepertoireColor
   lichessData?: ExplorerResponse | null
   lichessLoading?: boolean
+  comparisonOpen?: boolean
+  onComparisonOpenChange?: (open: boolean) => void
+  startMode: DrillStartMode
+  opponentMovePending: boolean
+  readyForNextMove: boolean
 }
 
 /**
@@ -20,7 +26,7 @@ type Props = {
  * bad); attempts 2+ additionally reveal square hints (handled by the board via
  * `feedback.hintFrom`/`hintTo` - this panel only covers the textual side).
  */
-export function DrillFeedbackPanel({ feedback, similarPosition, color, lichessData, lichessLoading = false }: Props) {
+export function DrillFeedbackPanel({ feedback, similarPosition, color, startMode, opponentMovePending, readyForNextMove, lichessData, lichessLoading = false, comparisonOpen = false, onComparisonOpenChange }: Props) {
   const pvText = useMemo(() => {
     if (feedback?.kind !== 'wrong' || !feedback.bestResponseLine) return ''
     const sanMoves = uciLineToSan(feedback.bestResponseLine.fen, feedback.bestResponseLine.pvUci)
@@ -32,7 +38,17 @@ export function DrillFeedbackPanel({ feedback, similarPosition, color, lichessDa
   }, [feedback])
 
   if (!feedback || feedback.kind === 'correct') {
-    return <p className="panel-status">{feedback ? 'Correct - keep going.' : 'Play the first move of the line.'}</p>
+    return (
+      <p className="panel-status">
+        {opponentMovePending
+          ? 'Opponent is moving…'
+          : readyForNextMove || (!feedback && startMode === 'selected_position')
+            ? 'Play the next move.'
+            : feedback
+              ? 'Correct - keep going.'
+              : 'Play the first move of the line.'}
+      </p>
+    )
   }
 
   if (feedback.kind === 'alreadyDrilled') {
@@ -73,11 +89,38 @@ export function DrillFeedbackPanel({ feedback, similarPosition, color, lichessDa
         </p>
       )}
       {similarPosition && (
-        <p className="drill-feedback-similar">
-          {similarPosition.matchesPlayedMove
-            ? "This move is saved in a very similar position elsewhere in your prep - could be a transposition."
-            : `There's a similar position in your prep (${similarPosition.differingSquares.length} square${similarPosition.differingSquares.length === 1 ? '' : 's'} differ).`}
-        </p>
+        <div className="drill-feedback-similar">
+          <p>
+            {similarPosition.matchesPlayedMove
+              ? 'This move is prepared in a nearby position. Compare the evidence before treating it as a transposition.'
+              : `There's a nearby position in your prep (${similarPosition.differingSquares.length} square${similarPosition.differingSquares.length === 1 ? '' : 's'} differ).`}
+          </p>
+          <button
+            type="button"
+            aria-expanded={comparisonOpen}
+            onClick={() => onComparisonOpenChange?.(!comparisonOpen)}
+          >
+            {comparisonOpen ? 'Hide comparison' : 'Compare positions'}
+          </button>
+          {comparisonOpen && (
+            <div className="position-comparison-details">
+              <p className="score-label">Purple outlines mark every changed square on the board.</p>
+              <ul>
+                {similarPosition.squareDifferences.map((difference) => (
+                  <li key={difference.square}>
+                    <strong>{difference.square}</strong>: {difference.current} → {difference.matched}
+                  </li>
+                ))}
+                {similarPosition.ruleDifferences.map((difference) => (
+                  <li key={difference.kind}>
+                    <strong>{difference.kind === 'turn' ? 'Turn' : difference.kind === 'castling' ? 'Castling' : 'En passant'}</strong>
+                    : {difference.current} → {difference.matched}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

@@ -1,5 +1,5 @@
 """
-Django settings for the opening-prep backend.
+Django settings for the Mainline backend.
 
 Configuration comes from the environment (see `.env.example`), read via
 django-environ. Day-to-day development runs this on the host against a local or
@@ -150,11 +150,15 @@ REST_FRAMEWORK = {
         # Guards the Lichess proxy so one client can't burn the shared upstream
         # rate limit for everyone.
         "explorer": "120/min",
+        # Browser-computed MultiPV uploads are comparatively large and create
+        # globally shared cache rows. Reads share this scope to cap automated
+        # position-key enumeration as well as writes.
+        "position_analysis": "30/min",
     },
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "opening-prep API",
+    "TITLE": "Mainline API",
     "DESCRIPTION": "Accounts, repertoire storage, explorer caching, and drill statistics.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,

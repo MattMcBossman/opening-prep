@@ -1,0 +1,70 @@
+[
+  {
+    "name": "quiet_development",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 24, "bestMoveUci": "e2e4", "pvUci": ["e2e4", "e7e5", "g1f3"]},
+      {"rank": 2, "depth": 18, "scoreType": "cp", "scoreValue": 18, "bestMoveUci": "g1f3", "pvUci": ["g1f3", "d7d5", "d2d4"]},
+      {"rank": 3, "depth": 18, "scoreType": "cp", "scoreValue": 12, "bestMoveUci": "d2d4", "pvUci": ["d2d4", "g8f6", "g1f3"]}
+    ],
+    "expected": {"recurring": ["d2d4", "g1f3"], "unsupportedClaims": []}
+  },
+  {
+    "name": "tactical_forced_capture",
+    "fen": "4k3/8/8/8/8/8/3q4/3RK3 w - - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 0, "bestMoveUci": "d1d2", "pvUci": ["d1d2", "e8f7"]}
+    ],
+    "expected": {"firstMove": "d1d2", "unsupportedClaims": ["White has a lasting initiative"]}
+  },
+  {
+    "name": "forced_check_reply",
+    "fen": "4k3/8/8/8/8/8/4R3/4K3 b - - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 500, "bestMoveUci": "e8d7", "pvUci": ["e8d7", "e2e7"]}
+    ],
+    "expected": {"firstMove": "e8d7", "unsupportedClaims": []}
+  },
+  {
+    "name": "castling_rights",
+    "fen": "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 0, "bestMoveUci": "e1c1", "pvUci": ["e1c1", "e8g8"]}
+    ],
+    "expected": {"firstMove": "e1c1", "unsupportedClaims": []}
+  },
+  {
+    "name": "en_passant",
+    "fen": "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 80, "bestMoveUci": "e5d6", "pvUci": ["e5d6", "e8d7"]}
+    ],
+    "expected": {"firstMove": "e5d6", "unsupportedClaims": []}
+  },
+  {
+    "name": "promotion",
+    "fen": "4k3/P7/8/8/8/8/8/4K3 w - - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 900, "bestMoveUci": "a7a8q", "pvUci": ["a7a8q", "e8d7"]}
+    ],
+    "expected": {"firstMove": "a7a8q", "unsupportedClaims": []}
+  },
+  {
+    "name": "transposed_move_order",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 20, "bestMoveUci": "g1f3", "pvUci": ["g1f3", "d7d5", "d2d4"]},
+      {"rank": 2, "depth": 18, "scoreType": "cp", "scoreValue": 15, "bestMoveUci": "d2d4", "pvUci": ["d2d4", "d7d5", "g1f3"]}
+    ],
+    "expected": {"sameResultingFen": [1, 2], "recurring": ["d2d4", "d7d5", "g1f3"], "unsupportedClaims": []}
+  },
+  {
+    "name": "misleading_recurrence",
+    "fen": "4k3/8/8/8/3P4/8/8/4K3 w - - 0 1",
+    "candidates": [
+      {"rank": 1, "depth": 18, "scoreType": "cp", "scoreValue": 30, "bestMoveUci": "d4d5", "pvUci": ["d4d5", "e8d7", "e1d2"]},
+      {"rank": 2, "depth": 18, "scoreType": "cp", "scoreValue": 25, "bestMoveUci": "e1d2", "pvUci": ["e1d2", "e8d7", "d4d5"]}
+    ],
+    "expected": {"recurring": ["d4d5", "e1d2", "e8d7"], "unsupportedClaims": ["The passed pawn is a lasting strength"]}
+  }
+]

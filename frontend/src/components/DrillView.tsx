@@ -7,14 +7,21 @@ import type { Square } from 'chess.js'
 import { useDrillSession } from '../hooks/useDrillSession'
 import { useDrillSessionRecording } from '../hooks/useDrillSessionRecording'
 import { useExplorerStats } from '../hooks/useExplorerStats'
-import { useDrillFollowupStats } from '../hooks/useDrillFollowupStats'
+import { useEngineComparison } from '../hooks/useEngineComparison'
+import type { MoveComparisonResult } from '../hooks/useEngineComparison'
+import { usePositionAnalysis } from '../hooks/usePositionAnalysis'
+import { usePositionFeatures } from '../hooks/usePositionFeatures'
+import { useMoveFeatureComparison } from '../hooks/useMoveFeatureComparison'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { denormalizeFen, sideToMove } from '../lib/chessUtils'
 import { completedDrillHistoryUci } from '../lib/repertoireDrills'
-import { canonicalArrowUci, commonContinuations, continuationArrowColor, playerContinuationArrowColor } from '../lib/drillPositionAssessment'
+import { pendingAutoPlayStep } from '../lib/drillSessionLogic'
+import { analysisArrowMoves } from '../lib/positionAnalysis'
+import { canonicalArrowUci, playerContinuationArrowColor } from '../lib/drillPositionAssessment'
 import type { DrillLine, DrillStartContext, DrillStartMode } from '../lib/repertoireDrills'
 import type { AuthUser } from '../lib/authApi'
-import type { RepertoireColor } from '../types'
+import type { PositionAnalysis, PositionFact, RepertoireColor } from '../types'
 import { DrillFeedbackPanel } from './DrillFeedbackPanel'
 import { DrillLineCompletePanel } from './DrillLineCompletePanel'
 import { DrillSummary } from './DrillSummary'
@@ -48,6 +55,7 @@ type Props = {
   drillLines?: DrillLine[]
   /** Explorer occurrence used by "Drill from here". */
   startContext?: DrillStartContext
+  startMode: DrillStartMode
   /** Opens the completed line's final position in the main explorer. */
   onViewInExplorer: (historyUci: string[], finalFen: string) => void
   onResetStartPosition: () => void
@@ -62,13 +70,22 @@ const CAPTURE_TARGET_STYLE: CSSProperties = {
   backgroundImage: 'radial-gradient(circle closest-side, rgba(0, 0, 0, 0.2) 0 calc(100% - 1px), transparent 100%)',
 }
 // Progressive wrong-attempt hints (2nd attempt: origin square, 3rd+: origin + destination).
-const HINT_SQUARE_STYLE: CSSProperties = { boxShadow: 'inset 0 0 0 4px rgba(76, 175, 80, 0.65)' }
+const HINT_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(76, 175, 80, 0.58)' }
 const WRONG_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(239, 92, 92, 0.42)' }
+const FACT_EVIDENCE_SQUARE_STYLE: CSSProperties = {
+  boxShadow: 'inset 0 0 0 5px rgba(155, 113, 255, 0.82)',
+}
 // Distinct from the green save-hint squares above - this is a warning about an
 // unprepped opponent try, not a hint about the user's own next move.
 const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
+const OPPONENT_CONTINUATION_ARROW_COLOR = '#4d86d8'
 const EMPTY_SOURCE_IDS: number[] = []
 const WRONG_MOVE_HOLD_MS = 1_000
+const ARROW_DEPTH_MILESTONES = [8, 16, 24] as const
+
+function arrowDepthMilestone(depth: number): number {
+  return [...ARROW_DEPTH_MILESTONES].reverse().find((milestone) => depth >= milestone) ?? 0
+}
 
 /**
  * Drill mode: practices saved repertoire lines for `color`, isolated from the
@@ -90,10 +107,10 @@ export function DrillView({
   templateReleaseIds = EMPTY_SOURCE_IDS,
   drillLines,
   startContext,
+  startMode,
   onViewInExplorer,
   onResetStartPosition,
 }: Props) {
-  const [startMode, setStartMode] = useState<DrillStartMode>(startContext ? 'selected_position' : 'beginning')
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
   const onStepApplied = useCallback((step: { san: string }) => playMoveSound(step.san), [playMoveSound])
   const recordingConfig = useMemo(() => {
@@ -130,8 +147,20 @@ export function DrillView({
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
+  const isDesktopReview = useMediaQuery('(min-width: 701px)')
   const soundedWrongAttemptRef = useRef<number | null>(null)
-  const completionActionRef = useRef<HTMLButtonElement>(null)
+  const [reviewSection, setReviewSection] = useState<'analysis' | 'stats' | null>(null)
+  const reviewPanelRef = useRef<HTMLDivElement>(null)
+
+  const openReviewSection = useCallback((section: 'analysis' | 'stats') => {
+    setReviewSection(section)
+    requestAnimationFrame(() => {
+      reviewPanelRef.current?.scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      })
+    })
+  }, [])
 
   useEffect(() => {
     if (!wrongMovePreview) return
@@ -153,25 +182,7 @@ export function DrillView({
     playWrongMoveSound()
   }, [feedback, playWrongMoveSound])
 
-  useEffect(() => {
-    if (!isPaused) return
-    const revealAction = () => {
-      const action = completionActionRef.current
-      if (!action) return
-      const bounds = action.getBoundingClientRect()
-      if (bounds.top >= 0 && bounds.bottom <= window.innerHeight) return
-      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      action.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' })
-    }
-    const frame = requestAnimationFrame(revealAction)
-    // Re-check after react-chessboard's final move animation settles; its
-    // changing board geometry could otherwise interrupt the first scroll.
-    const settled = window.setTimeout(revealAction, 350)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.clearTimeout(settled)
-    }
-  }, [isPaused, state.completionPause?.lineId])
+  useEffect(() => setReviewSection(null), [state.completionPause?.lineId])
 
   // Fetch empirical outcomes only after a rejected move. Doing this during
   // normal play would reveal popular continuations and undermine the drill.
@@ -190,14 +201,75 @@ export function DrillView({
   // while paused there: during the drill itself they'd both spoil the prepared
   // move and cost an API call for every position walked through.
   const reviewFen = session.completionFen
-  const reviewExplorer = useExplorerStats(reviewFen ?? '', lichessToken, isPaused, user !== null)
-  const reviewFollowups = useDrillFollowupStats(
+  const reviewExplorer = useExplorerStats(
     reviewFen ?? '',
-    reviewExplorer.data,
     lichessToken,
+    isPaused && (isDesktopReview || reviewSection === 'stats'),
     user !== null,
+  )
+  const positionAnalysis = usePositionAnalysis(
+    reviewFen ?? '',
+    isPaused,
+    user !== null,
+  )
+  const positionFeatures = usePositionFeatures(reviewFen ?? '', isPaused)
+  const completionMove = state.playedSteps.at(-1)
+  const moveComparison = useMoveFeatureComparison(
+    completionMove?.fen ?? '',
+    completionMove?.uci ?? '',
     isPaused,
   )
+  const [selectedFact, setSelectedFact] = useState<PositionFact | null>(null)
+  useEffect(() => setSelectedFact(null), [reviewFen])
+  const [similarComparisonOpen, setSimilarComparisonOpen] = useState(false)
+  const wrongAttemptToken = feedback?.kind === 'wrong' ? feedback.attemptToken : null
+  useEffect(() => setSimilarComparisonOpen(false), [wrongAttemptToken])
+  const { compare: compareCompletionMove } = useEngineComparison(user !== null)
+  const [completionMoveQuality, setCompletionMoveQuality] = useState<MoveComparisonResult | null>(null)
+  useEffect(() => {
+    setCompletionMoveQuality(null)
+    if (!isPaused || !reviewFen || !completionMove) return
+    let cancelled = false
+    void compareCompletionMove(
+      completionMove.fen,
+      reviewFen,
+      sideToMove(completionMove.fen),
+    ).then((result) => {
+      if (!cancelled) setCompletionMoveQuality(result)
+    }, () => undefined)
+    return () => { cancelled = true }
+  }, [compareCompletionMove, completionMove, isPaused, reviewFen])
+  const currentPositionFeatures = positionFeatures.features?.fen === reviewFen
+    ? positionFeatures.features
+    : null
+  const currentPositionAnalysis = positionAnalysis.analysis?.fen === reviewFen
+    ? positionAnalysis.analysis
+    : null
+  const [arrowAnalysis, setArrowAnalysis] = useState<PositionAnalysis | null>(null)
+  useEffect(() => setArrowAnalysis(null), [reviewFen])
+  useEffect(() => {
+    if (!currentPositionAnalysis || arrowDepthMilestone(currentPositionAnalysis.depth) === 0) return
+    setArrowAnalysis((previous) => {
+      if (!previous || previous.fen !== currentPositionAnalysis.fen) return currentPositionAnalysis
+      return arrowDepthMilestone(currentPositionAnalysis.depth) > arrowDepthMilestone(previous.depth)
+        ? currentPositionAnalysis
+        : previous
+    })
+  }, [currentPositionAnalysis])
+  const reviewEvaluation = useMemo(() => {
+    const analysis = positionAnalysis.analysis
+    const best = analysis?.candidates.find((candidate) => candidate.rank === 1) ?? analysis?.candidates[0]
+    if (!analysis || !best) return null
+    return {
+      fen: analysis.fen,
+      depth: best.depth,
+      scoreType: best.scoreType,
+      scoreValue: best.scoreValue,
+      bestMoveUci: best.bestMoveUci,
+      pvUci: best.pvUci,
+      thinking: positionAnalysis.loading,
+    }
+  }, [positionAnalysis.analysis, positionAnalysis.loading])
   const isReviewMoveSaved = useCallback(
     (uci: string) => (reviewFen ? repertoire.isMoveInActiveProfile(color, reviewFen, uci) : false),
     [repertoire, color, reviewFen],
@@ -239,42 +311,40 @@ export function DrillView({
       if (feedback.hintFrom) styles[feedback.hintFrom] = { ...styles[feedback.hintFrom], ...HINT_SQUARE_STYLE }
       if (feedback.hintTo) styles[feedback.hintTo] = { ...styles[feedback.hintTo], ...HINT_SQUARE_STYLE }
     }
+    if (isPaused && selectedFact) {
+      for (const square of selectedFact.squares) {
+        styles[square] = { ...styles[square], ...FACT_EVIDENCE_SQUARE_STYLE }
+      }
+    }
+    if (similarComparisonOpen && session.similarPosition) {
+      for (const square of session.similarPosition.differingSquares) {
+        styles[square] = { ...styles[square], ...FACT_EVIDENCE_SQUARE_STYLE }
+      }
+    }
     return styles
-  }, [selectedSquare, legalMoves, feedback, state.lastAppliedSteps, fen])
+  }, [selectedSquare, legalMoves, feedback, state.lastAppliedSteps, fen, isPaused, selectedFact, session.similarPosition, similarComparisonOpen])
 
-  // Drawn only while paused after completing a line. Orange is Stockfish's best
-  // continuation; blue arrows are frequent moves from the Lichess sample. The
-  // latter are empirical alternatives, not claimed strategic "themes".
+  // Drawn only while paused. Rank one remains visually distinct; every
+  // opponent continuation uses one blue so the board does not imply separate
+  // categories among replies. The player's later ideas retain frequency shading.
   const arrows = useMemo<Arrow[]>(() => {
-    const bestMoveUci = isPaused ? (session.completionEval?.bestMoveUci ?? null) : null
-    if (!isPaused) return []
+    const analysis = arrowAnalysis?.fen === reviewFen ? arrowAnalysis : null
+    if (!isPaused || !analysis) return []
     const result: Arrow[] = []
-    if (bestMoveUci) {
-      const arrowUci = canonicalArrowUci(bestMoveUci)
-      result.push({
-        startSquare: arrowUci.slice(0, 2),
-        endSquare: arrowUci.slice(2, 4),
-        color: BEST_RESPONSE_ARROW_COLOR,
-      })
-    }
-    for (const move of commonContinuations(reviewExplorer.data, bestMoveUci)) {
+    for (const move of analysisArrowMoves(analysis, color)) {
       const arrowUci = canonicalArrowUci(move.uci)
       result.push({
         startSquare: arrowUci.slice(0, 2),
         endSquare: arrowUci.slice(2, 4),
-        color: continuationArrowColor(move.percentage),
-      })
-    }
-    for (const move of commonContinuations(reviewFollowups.data, null)) {
-      const arrowUci = canonicalArrowUci(move.uci)
-      result.push({
-        startSquare: arrowUci.slice(0, 2),
-        endSquare: arrowUci.slice(2, 4),
-        color: playerContinuationArrowColor(move.percentage),
+        color: move.isBest
+          ? BEST_RESPONSE_ARROW_COLOR
+          : move.side !== color
+            ? OPPONENT_CONTINUATION_ARROW_COLOR
+            : playerContinuationArrowColor(move.frequency),
       })
     }
     return result
-  }, [isPaused, reviewExplorer.data, reviewFollowups.data, session.completionEval])
+  }, [arrowAnalysis, color, isPaused, reviewFen])
 
   const tryMove = useCallback(
     (candidate: { from: string; to: string; promotion?: string }): boolean => {
@@ -395,57 +465,63 @@ export function DrillView({
               placeholder reserves the same width, so the board doesn't resize
               when the review pause starts and ends. */}
           {isPaused ? (
-            <EvalBar evaluation={session.completionEval} boardColor={color} />
+            <EvalBar evaluation={reviewEvaluation} boardColor={color} />
           ) : (
             <div className="eval-bar-placeholder" aria-hidden="true" />
           )}
         </div>
         <div className="board-controls">
-          {startContext ? (
-            <fieldset className="drill-start-mode">
-              <legend>Drill from selected position</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="drill-start-mode"
-                  value="selected_position"
-                  checked={startMode === 'selected_position'}
-                  onChange={() => setStartMode('selected_position')}
-                />
-                Start at this position
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="drill-start-mode"
-                  value="beginning"
-                  checked={startMode === 'beginning'}
-                  onChange={() => setStartMode('beginning')}
-                />
-                Start from move 1
-              </label>
-            </fieldset>
-          ) : null}
-          <button type="button" onClick={session.startNewSession}>
-            Restart session
-          </button>
+          {isPaused && (
+            <div className="drill-review-actions">
+              <button type="button" onClick={viewCompletionInExplorer}>View in explorer</button>
+              <button type="button" onClick={session.acknowledgeCompletion}>
+                {session.complete ? 'Finish' : 'Next drill'}
+              </button>
+              <button
+                type="button"
+                className="mobile-review-section-button"
+                aria-expanded={reviewSection === 'analysis'}
+                onClick={() => openReviewSection('analysis')}
+              >
+                Analysis
+              </button>
+              <button
+                type="button"
+                className="mobile-review-section-button"
+                aria-expanded={reviewSection === 'stats'}
+                onClick={() => openReviewSection('stats')}
+              >
+                Stats
+              </button>
+              <button type="button" onClick={session.startNewSession}>Restart session</button>
+              <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>Shuffle drills</button>
+            </div>
+          )}
+          {!isPaused && <>
+            <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>Shuffle drills</button>
+            <button type="button" onClick={session.startNewSession}>Restart session</button>
+          </>}
         </div>
       </div>
-      <div className="side-column">
+      {(!isPaused || isDesktopReview || reviewSection !== null) && <div className="side-column">
         {isPaused ? (
-          <div className="drill-review">
-            <DrillLineCompletePanel
-              evaluation={session.completionEval}
-              explorerData={reviewExplorer.data}
-              playerFollowupData={reviewFollowups.data}
-              playerFollowupAfterSans={reviewFollowups.afterSans}
-              leafPly={state.completionPause?.leafPly ?? 0}
-              isLastDrill={session.complete}
-              onNext={session.acknowledgeCompletion}
-              onViewInExplorer={viewCompletionInExplorer}
-              primaryActionRef={completionActionRef}
-            />
-            <section className="panel explorer-panel">
+          <div ref={reviewPanelRef} className="drill-review">
+            {(isDesktopReview || reviewSection === 'analysis') && <DrillLineCompletePanel
+                leafPly={state.completionPause?.leafPly ?? 0}
+                positionAnalysis={currentPositionAnalysis}
+                positionAnalysisLoading={positionAnalysis.loading}
+                positionAnalysisError={positionAnalysis.error}
+                positionFeatures={currentPositionFeatures}
+                positionFeaturesLoading={positionFeatures.loading}
+                positionFeaturesError={positionFeatures.error}
+                moveComparison={moveComparison.comparison}
+                moveComparisonLoading={moveComparison.loading}
+                moveComparisonError={moveComparison.error}
+                selectedFactId={selectedFact?.id ?? null}
+                onSelectFact={setSelectedFact}
+                completionMoveQuality={completionMoveQuality}
+              />}
+            {(isDesktopReview || reviewSection === 'stats') && <section className="panel explorer-panel">
               <h2>Lichess explorer</h2>
               <ExplorerStatsTable
                 data={reviewExplorer.data}
@@ -454,7 +530,7 @@ export function DrillView({
                 isMoveSaved={isReviewMoveSaved}
                 isMyMove={reviewFen ? sideToMove(reviewFen) === color : false}
               />
-            </section>
+            </section>}
           </div>
         ) : session.complete ? (
           <DrillSummary
@@ -468,12 +544,17 @@ export function DrillView({
               feedback={feedback}
               similarPosition={session.similarPosition}
               color={color}
+              startMode={startMode}
+              opponentMovePending={pendingAutoPlayStep(state) !== null}
+              readyForNextMove={state.lastAppliedSteps.at(-1)?.mover === 'opponent'}
               lichessData={wrongMoveExplorer.data}
               lichessLoading={wrongMoveExplorer.loading}
+              comparisonOpen={similarComparisonOpen}
+              onComparisonOpenChange={setSimilarComparisonOpen}
             />
           </div>
         )}
-      </div>
+      </div>}
     </div>
   )
 }

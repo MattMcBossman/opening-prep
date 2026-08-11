@@ -3,6 +3,8 @@ import {
   collectDrillLines,
   completedDrillHistoryUci,
   createDrillStartContext,
+  migrateDrillStartContext,
+  openingDisambiguationLabel,
   mergeDrillLines,
   prepareDrillLines,
 } from './repertoireDrills'
@@ -188,6 +190,39 @@ describe('prepareDrillLines', () => {
 })
 
 describe('explorer drill handoff', () => {
+  const viennaHistory = [
+    { san: 'e4' },
+    { san: 'e5' },
+    { san: 'Nc3' },
+    { san: 'Nf6' },
+    { san: 'f4' },
+    { san: 'd5' },
+    { san: 'fxe5' },
+    { san: 'Bc5' },
+  ]
+
+  it('does not append the move that establishes the exact opening name', () => {
+    expect(openingDisambiguationLabel(viennaHistory, 3, 3)).toBeUndefined()
+  })
+
+  it('identifies an otherwise unnamed selected position by its final move', () => {
+    expect(openingDisambiguationLabel(viennaHistory, 2, null)).toBe('1...e5')
+  })
+
+  it('appends only the final move when an opening name was inherited', () => {
+    expect(openingDisambiguationLabel(viennaHistory, 8, 3)).toBe('4...Bc5')
+  })
+
+  it('drops a redundant move label from legacy persisted drill state', () => {
+    expect(migrateDrillStartContext({
+      selectedFen: AFTER_E4_E5,
+      selectedPly: 3,
+      prefixUci: ['e2e4', 'e7e5', 'b1c3'],
+      openingName: 'Vienna Game',
+      positionMoveLabel: '2. Nc3',
+    })).toMatchObject({ openingName: 'Vienna Game', positionMoveLabel: undefined })
+  })
+
   it('captures only the played prefix at the selected history pointer', () => {
     expect(
       createDrillStartContext('selected complete fen', 2, [

@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics
 from rest_framework import serializers as drf_serializers
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -272,11 +273,14 @@ class RepertoireLineDetailView(APIView):
 
 
 class OpeningTemplateListView(generics.ListAPIView):
+    permission_classes = [AllowAny]
     serializer_class = OpeningTemplateSerializer
     queryset = OpeningTemplate.objects.filter(is_published=True).prefetch_related("releases")
 
 
 class OpeningTemplateReleaseDetailView(APIView):
+    permission_classes = [AllowAny]
+
     @extend_schema(request=None, responses={200: OpeningTemplateReleaseSerializer})
     def get(self, request, slug: str, version: int):
         release = get_object_or_404(

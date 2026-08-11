@@ -63,10 +63,68 @@ export function differingSquares(fenA: string, fenB: string): string[] {
   return squares
 }
 
+const PIECE_NAMES: Record<string, string> = {
+  P: 'white pawn', N: 'white knight', B: 'white bishop', R: 'white rook', Q: 'white queen', K: 'white king',
+  p: 'black pawn', n: 'black knight', b: 'black bishop', r: 'black rook', q: 'black queen', k: 'black king',
+  '1': 'empty',
+}
+
+export type SquareDifference = {
+  square: string
+  current: string
+  matched: string
+}
+
+export type RuleDifference = {
+  kind: 'turn' | 'castling' | 'en_passant'
+  current: string
+  matched: string
+}
+
+export function comparePositionState(fenA: string, fenB: string): {
+  squareDifferences: SquareDifference[]
+  ruleDifferences: RuleDifference[]
+} {
+  const current = expandBoard(fenA)
+  const matched = expandBoard(fenB)
+  const squareDifferences = FEN_SQUARE_ORDER.flatMap((square, index) => (
+    current[index] === matched[index]
+      ? []
+      : [{ square, current: PIECE_NAMES[current[index]] ?? current[index], matched: PIECE_NAMES[matched[index]] ?? matched[index] }]
+  ))
+  const currentFields = fenA.split(' ')
+  const matchedFields = fenB.split(' ')
+  const ruleDifferences: RuleDifference[] = []
+  if (currentFields[1] !== matchedFields[1]) {
+    ruleDifferences.push({
+      kind: 'turn',
+      current: currentFields[1] === 'w' ? 'White to move' : 'Black to move',
+      matched: matchedFields[1] === 'w' ? 'White to move' : 'Black to move',
+    })
+  }
+  if (currentFields[2] !== matchedFields[2]) {
+    ruleDifferences.push({
+      kind: 'castling',
+      current: currentFields[2] === '-' ? 'No castling rights' : currentFields[2],
+      matched: matchedFields[2] === '-' ? 'No castling rights' : matchedFields[2],
+    })
+  }
+  if (currentFields[3] !== matchedFields[3]) {
+    ruleDifferences.push({
+      kind: 'en_passant',
+      current: currentFields[3] === '-' ? 'No en-passant capture' : currentFields[3],
+      matched: matchedFields[3] === '-' ? 'No en-passant capture' : matchedFields[3],
+    })
+  }
+  return { squareDifferences, ruleDifferences }
+}
+
 export type SimilarPositionMatch = {
   fen: string
   distance: number
   differingSquares: string[]
+  squareDifferences: SquareDifference[]
+  ruleDifferences: RuleDifference[]
 }
 
 /**
@@ -87,7 +145,13 @@ export function findNearestSimilarPosition(
     if (distance === 0) continue
     if (distance > maxDistance) continue
     if (!best || distance < best.distance) {
-      best = { fen: candidate, distance, differingSquares: differingSquares(fen, candidate) }
+      const comparison = comparePositionState(fen, candidate)
+      best = {
+        fen: candidate,
+        distance,
+        differingSquares: comparison.squareDifferences.map((difference) => difference.square),
+        ...comparison,
+      }
     }
   }
   return best

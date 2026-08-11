@@ -37,7 +37,28 @@ export type DrillStartContext = {
   prefixUci: string[]
   openingName?: string
   openingEco?: string
+  /** Ply whose exact position supplied openingName; distinguishes a current match from an inherited name. */
+  openingNamePly?: number
   positionMoveLabel?: string
+}
+
+/** Adds move-order context only when an opening name was inherited from an earlier position. */
+export function openingDisambiguationLabel(
+  history: readonly { san: string }[],
+  selectedPly: number,
+  openingNamePly: number | null | undefined,
+): string | undefined {
+  if (selectedPly < 1 || (openingNamePly !== null && (openingNamePly === undefined || openingNamePly >= selectedPly))) return undefined
+  const move = history[selectedPly - 1]
+  if (!move) return undefined
+  const moveNumber = Math.ceil(selectedPly / 2)
+  return selectedPly % 2 === 1 ? `${moveNumber}.${move.san}` : `${moveNumber}...${move.san}`
+}
+
+/** Removes ambiguous labels written before opening-name resolution ply was persisted. */
+export function migrateDrillStartContext(context: DrillStartContext | undefined): DrillStartContext | undefined {
+  if (!context?.openingName || !context.positionMoveLabel || context.openingNamePly !== undefined) return context
+  return { ...context, positionMoveLabel: undefined }
 }
 
 /** Captures the exact explorer occurrence used by the "Drill from here" handoff. */
@@ -45,7 +66,7 @@ export function createDrillStartContext(
   selectedFen: string,
   selectedPly: number,
   history: readonly { uci: string }[],
-  details?: Pick<DrillStartContext, 'openingName' | 'openingEco' | 'positionMoveLabel'>,
+  details?: Pick<DrillStartContext, 'openingName' | 'openingEco' | 'openingNamePly' | 'positionMoveLabel'>,
 ): DrillStartContext {
   return {
     selectedFen,

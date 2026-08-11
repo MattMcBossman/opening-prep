@@ -11,6 +11,7 @@ import {
   currentTargetLine,
   isSessionComplete,
   pendingAutoPlayStep,
+  reorderUpcoming,
   retryFailedLines,
   sessionProgress,
   wouldAcceptOwnMove,
@@ -454,6 +455,19 @@ describe('drillSessionLogic - default ordering is shuffled but complete', () => 
     expect(new Set(state.order)).toEqual(new Set(lines.map((l) => l.id)))
     expect(state.order).toHaveLength(lines.length)
     expect(state.pendingIds.size).toBe(lines.length)
+  })
+
+  it('reorders upcoming drills without resetting the active occurrence or results', () => {
+    const lines = collectDrillLines('white', getContinuations)
+    const initialOrder = lines.map((line) => line.id)
+    const state = createDrillSession(lines, ROOT, initialOrder)
+    const reordered = reorderUpcoming(state, [...initialOrder].reverse())
+
+    expect(reordered.order).toEqual([...initialOrder].reverse())
+    expect(reordered.currentTargetId).toBe(state.currentTargetId)
+    expect(reordered.currentFen).toBe(state.currentFen)
+    expect(reordered.pendingIds).toEqual(state.pendingIds)
+    expect(reordered.results).toEqual(state.results)
   })
 
   it('retryFailedLines reshuffles order while keeping every id present', () => {

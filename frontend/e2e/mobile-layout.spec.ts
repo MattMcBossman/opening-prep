@@ -41,30 +41,71 @@ test('mobile Explorer sections show one workspace at a time and preserve selecti
   await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
 })
 
-test('mobile settings stay reachable without crowding the primary header', async ({ page }) => {
+test('mobile hamburger menu combines repertoire and app settings', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/')
 
-  const title = page.getByRole('heading', { name: 'opening-prep' })
+  const title = page.getByRole('heading', { name: 'Mainline' })
   const mode = page.getByRole('tablist', { name: 'App mode' })
-  const settings = page.getByRole('button', { name: 'Settings' })
-  await expect(settings).toBeVisible()
-  const [titleBox, modeBox, settingsBox] = await Promise.all([
-    title.boundingBox(), mode.boundingBox(), settings.boundingBox(),
+  const menu = page.getByRole('button', { name: 'Open menu' })
+  await expect(menu).toBeVisible()
+  const [titleBox, modeBox, menuBox] = await Promise.all([
+    title.boundingBox(), mode.boundingBox(), menu.boundingBox(),
   ])
-  expect(titleBox && modeBox && settingsBox).toBeTruthy()
+  expect(titleBox && modeBox && menuBox).toBeTruthy()
   expect(Math.abs(titleBox!.y - modeBox!.y)).toBeLessThan(12)
-  expect(Math.abs(modeBox!.y - settingsBox!.y)).toBeLessThan(12)
+  expect(Math.abs(modeBox!.y - menuBox!.y)).toBeLessThan(12)
+  await expect(title).toHaveCSS('text-align', 'center')
+  await expect(title).toHaveCSS('padding-left', '8px')
   await expect(page.locator('#header-settings')).toBeHidden()
-  await settings.click()
+  await menu.click()
   await expect(page.locator('#header-settings')).toBeVisible()
+  await expect(page.locator('#header-settings').getByRole('switch', { name: /White repertoire/ })).toBeVisible()
+  await expect(page.locator('#header-settings').getByRole('button', { name: 'Manage' })).toBeVisible()
+  await expect(page.locator('#header-settings').getByRole('combobox', { name: 'Profile', exact: true })).toBeVisible()
   await expect(page.getByRole('switch', { name: /sound/i })).toBeVisible()
   await expect(page.getByRole('switch', { name: /Light|Dark/ })).toBeVisible()
   await expect(page.locator('#header-settings .header-toggle-label').filter({ hasText: /Sound|Muted/ })).toBeVisible()
   await expect(page.locator('#header-settings .header-toggle-label').filter({ hasText: /Light|Dark/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible()
-  await page.getByRole('button', { name: 'Close' }).click()
+  const menuCoversBoardArrows = await page.evaluate(() => {
+    const menuElement = document.querySelector<HTMLElement>('#header-settings')
+    const boardElement = document.querySelector<HTMLElement>('.board-wrapper')
+    if (!menuElement || !boardElement) return false
+    const menuRect = menuElement.getBoundingClientRect()
+    const boardRect = boardElement.getBoundingClientRect()
+    const left = Math.max(menuRect.left, boardRect.left)
+    const right = Math.min(menuRect.right, boardRect.right)
+    const top = Math.max(menuRect.top, boardRect.top)
+    const bottom = Math.min(menuRect.bottom, boardRect.bottom)
+    if (left >= right || top >= bottom) return false
+    const stack = document.elementsFromPoint((left + right) / 2, (top + bottom) / 2)
+    const menuIndex = stack.findIndex((element) => element === menuElement || menuElement.contains(element))
+    const boardIndex = stack.findIndex((element) => element === boardElement || boardElement.contains(element))
+    return menuIndex >= 0 && boardIndex >= 0 && menuIndex < boardIndex
+  })
+  expect(menuCoversBoardArrows).toBe(true)
+  await page.getByRole('button', { name: 'Close menu' }).click()
   await expect(page.locator('#header-settings')).toBeHidden()
+})
+
+test('drills keep the repertoire toggle inside the mobile menu', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 })
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Drills' }).click()
+
+  await expect(page.locator('.drill-layout .board-heading .board-color-toggle')).toBeHidden()
+  await page.getByRole('button', { name: 'Open menu' }).click()
+  const repertoireToggle = page.locator('#header-settings').getByRole('switch', { name: /White repertoire/ })
+  await expect(repertoireToggle).toBeVisible()
+  const repertoireLabel = repertoireToggle.locator('.board-color-toggle-label')
+  await expect(repertoireLabel).toHaveText('White repertoire')
+  expect(await repertoireLabel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }))
+  expect(dimensions.scrollWidth).toBe(dimensions.clientWidth)
 })
 
 test('mobile primary controls meet the touch target baseline', async ({ page }) => {
@@ -134,14 +175,18 @@ test('selected-position drill survives a mobile Explorer round trip', async ({ p
   await expect(page.getByRole('tab', { name: 'Moves', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('[data-square="e5"] [data-piece="bP"]')).toBeVisible()
   await page.getByRole('button', { name: 'Drill from here' }).click()
-  await expect(page.getByRole('radio', { name: 'Start at this position' })).toBeChecked()
+  await page.getByRole('button', { name: 'Open menu' }).click()
+  await expect(page.getByRole('radio', { name: 'Start at selected position' })).toBeChecked()
+  await page.getByRole('button', { name: 'Close menu' }).click()
   await expect(page.getByText(/Selected position, 1\.\.\.e5/)).toBeVisible()
 
   await page.getByRole('tab', { name: 'Explorer', exact: true }).click()
   await expect(page.getByTestId('drill-chessboard')).toHaveCount(0)
   await page.getByRole('tab', { name: 'Drills', exact: true }).click()
   await expect(page.getByTestId('drill-chessboard')).toBeVisible()
-  await expect(page.getByRole('radio', { name: 'Start at this position' })).toBeChecked()
+  await page.getByRole('button', { name: 'Open menu' }).click()
+  await expect(page.getByRole('radio', { name: 'Start at selected position' })).toBeChecked()
+  await page.getByRole('button', { name: 'Close menu' }).click()
   await expect(page.getByText('Drill 1 of 1')).toBeVisible()
 
   await page.getByRole('tab', { name: 'Explorer', exact: true }).click()

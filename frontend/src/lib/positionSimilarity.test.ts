@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  comparePositionState,
   differingSquares,
   expandBoard,
   findNearestSimilarPosition,
@@ -49,6 +50,34 @@ describe('hammingDistance', () => {
 describe('differingSquares', () => {
   it('reports the specific squares that changed', () => {
     expect(differingSquares(START_FEN, AFTER_E4_FEN).sort()).toEqual(['e2', 'e4'])
+  })
+})
+
+describe('comparePositionState', () => {
+  it('describes changed pieces and rule state deterministically', () => {
+    const comparison = comparePositionState(START_FEN, AFTER_E4_FEN)
+    expect(comparison.squareDifferences).toEqual([
+      { square: 'e4', current: 'empty', matched: 'white pawn' },
+      { square: 'e2', current: 'white pawn', matched: 'empty' },
+    ])
+    expect(comparison.ruleDifferences).toEqual([
+      { kind: 'turn', current: 'White to move', matched: 'Black to move' },
+      { kind: 'en_passant', current: 'No en-passant capture', matched: 'e3' },
+    ])
+  })
+
+  it('returns no evidence for identical normalized position state', () => {
+    expect(comparePositionState(START_FEN, START_FEN)).toEqual({
+      squareDifferences: [],
+      ruleDifferences: [],
+    })
+  })
+
+  it('reports castling rights even when piece placement is identical', () => {
+    const noRights = START_FEN.replace('KQkq', '-')
+    expect(comparePositionState(START_FEN, noRights).ruleDifferences).toEqual([
+      { kind: 'castling', current: 'KQkq', matched: 'No castling rights' },
+    ])
   })
 })
 

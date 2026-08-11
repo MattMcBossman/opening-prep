@@ -38,8 +38,8 @@ import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
 import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
-import { createDrillStartContext } from './lib/repertoireDrills'
-import type { DrillStartContext } from './lib/repertoireDrills'
+import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel } from './lib/repertoireDrills'
+import type { DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import type { ExplorerOpening, RepertoireMove } from './types'
 import './App.css'
@@ -64,21 +64,19 @@ type ViewSession = {
   explorerSource: ExplorerSource
   filters: Record<ExplorerSource, LichessDatabaseFilters>
   drillStartContext?: DrillStartContext
+  drillStartMode?: DrillStartMode
 }
 
 function readViewSession(): Partial<ViewSession> {
   try {
-    return JSON.parse(sessionStorage.getItem(VIEW_SESSION_KEY) ?? '{}') as Partial<ViewSession>
+    const parsed = JSON.parse(sessionStorage.getItem(VIEW_SESSION_KEY) ?? '{}') as Partial<ViewSession>
+    // Prefer the exact name over retaining the known-bad legacy
+    // "Vienna Game, 2. Nc3" label when old state lacks resolution provenance.
+    parsed.drillStartContext = migrateDrillStartContext(parsed.drillStartContext)
+    return parsed
   } catch {
     return {}
   }
-}
-
-function moveLabelAtPly(moves: readonly { san: string }[], pointer: number): string | undefined {
-  if (pointer < 1) return undefined
-  const move = moves[pointer - 1]
-  const moveNumber = Math.ceil(pointer / 2)
-  return pointer % 2 === 1 ? `${moveNumber}.${move.san}` : `${moveNumber}...${move.san}`
 }
 
 function App() {
@@ -121,6 +119,9 @@ function App() {
   const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>(initialView.mobileSection ?? 'stats')
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
   const [drillStartContext, setDrillStartContext] = useState<DrillStartContext | undefined>(initialView.drillStartContext)
+  const [drillStartMode, setDrillStartMode] = useState<DrillStartMode>(
+    initialView.drillStartContext ? (initialView.drillStartMode ?? 'selected_position') : 'beginning',
+  )
   const [drillMounted, setDrillMounted] = useState(initialView.mode === 'drill' || Boolean(initialView.drillStartContext))
 
   const handleModeChange = useCallback((nextMode: AppMode) => {
@@ -129,6 +130,7 @@ function App() {
     // explicit action inside DrillView.
     if (nextMode === 'drill' && !drillMounted) {
       setDrillStartContext(undefined)
+      setDrillStartMode('beginning')
       setDrillMounted(true)
     }
     setMode(nextMode)
@@ -136,6 +138,7 @@ function App() {
 
   const resetDrillStartPosition = useCallback(() => {
     setDrillStartContext(undefined)
+    setDrillStartMode('beginning')
     setDrillMounted(false)
     requestAnimationFrame(() => setDrillMounted(true))
   }, [])
@@ -164,11 +167,12 @@ function App() {
         explorerSource,
         filters: explorerFiltersBySource,
         drillStartContext,
+        drillStartMode,
       } satisfies ViewSession))
     } catch {
       // The page remains usable if tab-scoped storage is unavailable.
     }
-  }, [mode, mobileExplorerSection, explorerSource, explorerFiltersBySource, drillStartContext])
+  }, [mode, mobileExplorerSection, explorerSource, explorerFiltersBySource, drillStartContext, drillStartMode])
 
   // ←/→ step through the current line, mirroring the Back/Forward buttons below the
   // board. Only in the explorer - the drill view has no move history to navigate.
@@ -273,30 +277,32 @@ function App() {
     }
   }, [fen, explorer.data, openingNameCache])
 
-  const resolvedOpening = useMemo<ExplorerOpening>(() => {
+  const resolvedOpening = useMemo<{ opening: NonNullable<ExplorerOpening>, ply: number } | null>(() => {
     const live = explorer.data?.opening ?? null
-    if (live) return live
+    if (live) return { opening: live, ply: pointer }
     for (let ply = pointer - 1; ply >= 0; ply--) {
       const ancestorFen = ply === 0 ? START_FEN : moves[ply - 1].fenAfter
       const cached = openingNameCache.get(ancestorFen)
-      if (cached) return cached
+      if (cached) return { opening: cached, ply }
     }
     return null
   }, [explorer.data, pointer, moves, openingNameCache])
-  const openingResolvedAtCurrentPosition = explorer.data?.opening !== null && explorer.data?.opening !== undefined
+
+  const selectCurrentDrillStartPosition = useCallback(() => {
+    setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
+      openingName: resolvedOpening?.opening.name,
+      openingEco: resolvedOpening?.opening.eco,
+      openingNamePly: resolvedOpening?.ply,
+      positionMoveLabel: openingDisambiguationLabel(moves, pointer, resolvedOpening?.ply ?? null),
+    }))
+    setDrillStartMode('selected_position')
+  }, [fen, moves, pointer, resolvedOpening])
 
   const startDrillFromPosition = useCallback(() => {
-    setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
-      openingName: resolvedOpening?.name,
-      openingEco: resolvedOpening?.eco,
-      // A current-position ECO match already names the exact opening reached by
-      // this move. Add move-order context only when the name was inherited from
-      // an earlier position and would otherwise be ambiguous here.
-      positionMoveLabel: openingResolvedAtCurrentPosition ? undefined : moveLabelAtPly(moves, pointer),
-    }))
+    selectCurrentDrillStartPosition()
     setDrillMounted(true)
     setMode('drill')
-  }, [fen, moves, pointer, resolvedOpening, openingResolvedAtCurrentPosition])
+  }, [selectCurrentDrillStartPosition])
 
   // Any position change (drag move, click-to-move, explorer click, history navigation,
   // reset) invalidates the current selection.
@@ -361,19 +367,49 @@ function App() {
   return (
     <div className="app-layout">
       <header className="app-header">
-        <h1>opening-prep</h1>
+        <h1>Mainline</h1>
         <p>Opening explorer &amp; repertoire builder</p>
         <ModeToggle mode={mode} onChange={handleModeChange} />
         <button
           type="button"
           className="mobile-settings-button"
+          aria-label={mobileSettingsOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={mobileSettingsOpen}
           aria-controls="header-settings"
           onClick={() => setMobileSettingsOpen((open) => !open)}
         >
-          {mobileSettingsOpen ? 'Close' : 'Settings'}
+          <span aria-hidden="true">{mobileSettingsOpen ? '×' : '☰'}</span>
         </button>
-        <RepertoireProfileControls
+        <div id="header-settings" className={`header-controls ${mobileSettingsOpen ? 'mobile-open' : ''}`}>
+          <div className="mobile-repertoire-color">
+            <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
+          </div>
+          {mode === 'drill' && (
+            <fieldset className="header-drill-start-mode">
+              <legend>Drill starting point</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="drill-start-mode"
+                  value="selected_position"
+                  checked={drillStartMode === 'selected_position' && drillStartContext !== undefined}
+                  onChange={selectCurrentDrillStartPosition}
+                />
+                Start at selected position
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="drill-start-mode"
+                  value="beginning"
+                  checked={drillStartMode === 'beginning' || drillStartContext === undefined}
+                  onChange={() => setDrillStartMode('beginning')}
+                />
+                Start from move 1
+              </label>
+            </fieldset>
+          )}
+          <RepertoireProfileControls
             profiles={repertoire.profiles}
             modules={repertoire.modules}
             activeProfileId={repertoire.activeProfileId}
@@ -381,7 +417,8 @@ function App() {
             editingLinePaths={repertoire.editingLinePaths[boardColor] ?? []}
             color={boardColor}
             disabled={repertoire.isSyncing}
-            showGlobalLibrary={isSignedIn}
+            showGlobalLibrary
+            canManageGlobalLibrary={isSignedIn}
             onProfileChange={handleProfileChange}
             onEditingModuleChange={(moduleId) => repertoire.setEditingModule(boardColor, moduleId)}
             onCreateProfile={repertoire.createProfile}
@@ -396,9 +433,9 @@ function App() {
             onUnpinTemplate={repertoire.unpinTemplate}
             onCopyTemplate={repertoire.copyTemplate}
             onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
+            previewRelease={repertoire.previewRelease}
             onPreviewTemplate={repertoire.setPreviewRelease}
           />
-        <div id="header-settings" className={`header-controls ${mobileSettingsOpen ? 'mobile-open' : ''}`}>
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
           <AuthControl user={auth.user} loading={auth.loading} onLogin={() => auth.login()} onLogout={auth.logout} />
@@ -446,6 +483,7 @@ function App() {
               .map((release) => release.id)}
             drillLines={repertoire.drillLines[boardColor]}
             startContext={drillStartContext}
+            startMode={drillStartMode}
             onViewInExplorer={viewDrillCompletionInExplorer}
             onResetStartPosition={resetDrillStartPosition}
           />
@@ -489,7 +527,7 @@ function App() {
 
           <div className="board-column">
             <div className="board-heading">
-              <OpeningName eco={resolvedOpening?.eco ?? null} name={resolvedOpening?.name ?? null} fen={fen} />
+              <OpeningName eco={resolvedOpening?.opening.eco ?? null} name={resolvedOpening?.opening.name ?? null} fen={fen} />
               <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
             </div>
             <div className="board-with-eval">
@@ -531,7 +569,7 @@ function App() {
             <EngineEvalPanel evaluation={evaluation} />
           </div>
 
-          <div className={`side-column ${mobileExplorerSection === 'moves' ? 'mobile-section-container-hidden' : ''}`}>
+          <div className={`side-column ${mobileExplorerSection !== 'stats' ? 'mobile-section-container-hidden' : ''}`}>
             <section
               id="mobile-stats-panel"
               className={`panel explorer-panel mobile-section-panel ${mobileExplorerSection === 'stats' ? 'mobile-active' : ''}`}
@@ -565,11 +603,13 @@ function App() {
                 </p>
               )}
             </section>
-            <section
-              id="mobile-prep-panel"
-              className={`panel mobile-section-panel ${mobileExplorerSection === 'prep' ? 'mobile-active' : ''}`}
-              role="tabpanel"
-            >
+          </div>
+          <div
+            id="mobile-prep-panel"
+            className={`explorer-prep-tools ${mobileExplorerSection !== 'prep' ? 'mobile-section-container-hidden' : ''}`}
+            role="tabpanel"
+          >
+            <section className="panel">
               <CoverageDashboard
                 color={boardColor}
                 tree={repertoire.getTree(boardColor)}
@@ -579,7 +619,7 @@ function App() {
                 getContinuations={coverageContinuations}
               />
             </section>
-            <section className={`panel mobile-section-panel ${mobileExplorerSection === 'prep' ? 'mobile-active' : ''}`}>
+            <section className="panel">
               <h2>PGN</h2>
               <PgnImportExportPanel
                 color={boardColor}

@@ -170,6 +170,10 @@ These routes are mounted at `/api/v1/opening-templates/`. Template creation and
 release publishing are admin-only; the public API only discovers and uses
 published releases.
 
+The list and release-detail `GET` routes are anonymous so signed-out users can
+load a release read-only in the explorer. Profile attachment, copying, and gap
+filling remain authenticated mutations.
+
 ### `GET /api/v1/opening-templates/`
 Lists published templates with metadata for their latest immutable release.
 
@@ -246,6 +250,101 @@ Upserts an evaluation computed by the client's Stockfish worker. **Keeps the
 deepest result per normalized FEN and engine build**: a shallower submission for a position that already has a
 deeper entry is accepted and ignored. Returns the stored (possibly pre-existing,
 deeper) record.
+
+### `GET /api/v1/explorer/position-analyses/?fen=<fen>&engineVersion=<build>&analysisProfile=drill-review-basic-v1`
+
+Returns a cached versioned MultiPV review, or `404` when no compatible result
+exists. Reads are authenticated but objective results are shared across users.
+
+```json
+{
+  "fen": "...",
+  "engineVersion": "stockfish-18-lite-single",
+  "analysisProfile": "drill-review-basic-v1",
+  "depth": 24,
+  "multiPv": 3,
+  "candidates": [
+    {"rank": 1, "depth": 24, "scoreType": "cp", "scoreValue": 31,
+     "bestMoveUci": "g8f6", "pvUci": ["g8f6", "g1f3", "d7d5"]}
+  ],
+  "recurringMoves": [
+    {"uci": "d7d5", "san": "d5", "side": "black", "earliestPly": 1,
+     "latestPly": 3, "lineCount": 2, "totalLines": 3,
+     "timing": "prepared", "prerequisiteLines": [["g8f6", "g1f3"]],
+     "immediateCandidateRank": null, "immediateCentipawnLoss": null}
+  ],
+  "updatedAt": "2026-08-10T12:00:00Z"
+}
+```
+
+`scoreValue` is always from White's perspective. `earliestPly` and
+`latestPly` are zero-based offsets within candidate PVs. Recurring moves are
+deterministically derived evidence, not strategic prose. `timing` is `prepared`
+when every occurrence follows other moves and `mixed` when the move is both an
+immediate candidate and used later. `prerequisiteLines` are exact observed UCI
+prefixes. `immediateCentipawnLoss` is present only when the top candidate and
+the immediate candidate both have centipawn scores; mate scores are never
+coerced into centipawns.
+
+### `PUT /api/v1/explorer/position-analyses/`
+
+Authenticated upload of a browser-computed review. The server validates the
+FEN, supported profile, exactly 1–3 uniquely ranked candidates, numeric bounds,
+and every UCI move by replaying each PV with `python-chess`. Candidate lines are
+limited to 10 plies. Recurring-move evidence is recomputed server-side from the
+validated candidates; client-supplied summaries or prose are not accepted.
+
+Compatibility key: normalized FEN, engine build, and analysis profile. The
+server keeps the strongest compatible result ordered by minimum candidate
+depth, then candidate breadth, then total stored PV plies. A weaker upload is
+accepted but returns the stronger stored row. `drill-review-basic-v1` means
+Stockfish 18, MultiPV up to 3, target depth 24, and a 10-ply PV horizon.
+Reads and writes share an authenticated 30-request-per-minute throttle, and
+this profile accepts only the deployed `stockfish-18-lite-single` build.
+
+### `GET /api/v1/explorer/position-features/?fen=<fen>`
+
+Public, deterministic concrete board facts derived server-side from the
+normalized FEN. Results are globally cached by normalized FEN and extractor
+version; clients cannot upload facts or prose. The A2 extractor ships material,
+pawn structure, open/semi-open files, development/mobility, forcing-move counts,
+castling/check state, and conservative loose/contested/pinned/hanging-piece
+evidence.
+
+```json
+{
+  "fen": "...",
+  "schemaVersion": 1,
+  "extractorVersion": "concrete-v2",
+  "facts": [
+    {
+      "id": "pawns:doubled_pawns:white:a4,a5",
+      "category": "pawns",
+      "kind": "doubled_pawns",
+      "side": "white",
+      "severity": "weakness",
+      "confidence": "certain",
+      "summary": "White has doubled pawns on the a-file.",
+      "squares": ["a4", "a5"],
+      "pieces": ["white pawn", "white pawn"],
+      "evidence": {"file": "a", "count": 2}
+    }
+  ],
+  "checksum": "<sha256>",
+  "updatedAt": "2026-08-10T12:00:00Z"
+}
+```
+
+Every fact has a stable identifier, calibrated severity/confidence, and exact
+square/piece evidence. Missing facts are omitted rather than represented as
+negative claims. Invalid FENs return `400`.
+
+### `GET /api/v1/explorer/move-comparisons/?fen=<fen>&move=<uci>`
+
+Public, deterministic comparison of concrete facts before and after one legal
+move. The response includes normalized origin/result FENs, UCI and SAN labels,
+complete `before` and `after` feature payloads, and exact `addedFacts` and
+`removedFacts`. Invalid FEN/UCI or an illegal move returns `400`.
 
 ## Drills — `drills/urls.py`
 

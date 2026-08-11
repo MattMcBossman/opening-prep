@@ -177,3 +177,36 @@ def test_global_release_rejects_invalid_or_disconnected_snapshots(db):
 def test_unpublished_template_is_not_public(client):
     OpeningTemplate.objects.create(slug="secret", name="Secret", color="black")
     assert client.get("/api/v1/opening-templates/").data == []
+
+
+def test_published_template_and_release_are_public_without_authentication(db):
+    template = OpeningTemplate.objects.create(
+        slug="public-vienna", name="Public Vienna", color="white", is_published=True
+    )
+    release = OpeningTemplateRelease.objects.create(
+        template=template,
+        version=1,
+        tree={normalize_fen(START): [{"san": "e4", "uci": "e2e4", "resultingFen": normalize_fen(AFTER_E4)}]},
+        lines=[
+            {
+                "id": "public-main",
+                "steps": [
+                    {
+                        "originFen": normalize_fen(START),
+                        "san": "e4",
+                        "uci": "e2e4",
+                        "resultingFen": normalize_fen(AFTER_E4),
+                    }
+                ],
+            }
+        ],
+    )
+    anonymous = APIClient()
+
+    listing = anonymous.get("/api/v1/opening-templates/")
+    detail = anonymous.get(f"/api/v1/opening-templates/{template.slug}/releases/{release.version}/")
+
+    assert listing.status_code == 200
+    assert [item["slug"] for item in listing.data] == ["public-vienna"]
+    assert detail.status_code == 200
+    assert detail.data["tree"][normalize_fen(START)][0]["uci"] == "e2e4"

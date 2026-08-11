@@ -1,4 +1,4 @@
-import type { EngineEvaluation } from '../types'
+import type { AnalysisCandidate, EngineEvaluation } from '../types'
 
 // Copied from node_modules/stockfish/bin via `npm run setup:engine` (see scripts/copy-engine.mjs).
 const ENGINE_URL = '/engine/stockfish-18-lite-single.js'
@@ -46,6 +46,11 @@ export class StockfishEngine {
   private currentMaxDepth = 20
   private currentOnUpdate: ((evaluation: EngineEvaluation) => void) | null = null
   private lastInfo: Omit<EngineEvaluation, 'fen' | 'thinking'> | null = null
+  private multiPvLines = new Map<number, AnalysisCandidate>()
+  private currentMultiPvResolve: ((candidates: AnalysisCandidate[]) => void) | null = null
+  private currentMultiPvUpdate: ((candidates: AnalysisCandidate[]) => void) | null = null
+  private currentMultiPv = 1
+  private currentPvHorizon = 10
 
   constructor() {
     this.worker = new Worker(ENGINE_URL)
@@ -81,7 +86,14 @@ export class StockfishEngine {
       this.stopWaiters = []
       for (const resolve of waiters) resolve()
 
-      if (this.currentOnUpdate) {
+      if (this.currentMultiPvResolve) {
+        const resolve = this.currentMultiPvResolve
+        this.currentMultiPvResolve = null
+        this.currentMultiPvUpdate = null
+        const candidates = [...this.multiPvLines.values()].sort((left, right) => left.rank - right.rank)
+        this.worker.postMessage('setoption name MultiPV value 1')
+        resolve(candidates)
+      } else if (this.currentOnUpdate) {
         const [, bestMoveUci] = line.split(' ')
         this.currentOnUpdate({
           fen: this.currentFen,
@@ -105,6 +117,26 @@ export class StockfishEngine {
         this.currentOnUpdate({ ...parsed, fen: this.currentFen, thinking: true })
       }
     }
+    if (line.startsWith('info depth') && this.currentMultiPvResolve) {
+      const sideToMove = this.currentFen.split(' ')[1] === 'b' ? 'b' : 'w'
+      const parsed = parseInfoLine(line, sideToMove)
+      const rank = Number(line.match(/ multipv (\d+)/)?.[1] ?? 1)
+      if (parsed?.bestMoveUci) {
+        this.multiPvLines.set(rank, {
+          rank,
+          depth: parsed.depth,
+          scoreType: parsed.scoreType,
+          scoreValue: parsed.scoreValue,
+          bestMoveUci: parsed.bestMoveUci,
+          pvUci: parsed.pvUci.slice(0, this.currentPvHorizon),
+        })
+        if (rank === this.currentMultiPv && this.multiPvLines.size >= this.currentMultiPv) {
+          this.currentMultiPvUpdate?.(
+            [...this.multiPvLines.values()].sort((left, right) => left.rank - right.rank),
+          )
+        }
+      }
+    }
   }
 
   /**
@@ -125,6 +157,7 @@ export class StockfishEngine {
     this.lastInfo = null
     this.searching = true
 
+    this.worker.postMessage('setoption name MultiPV value 1')
     this.worker.postMessage(`position fen ${fen}`)
     this.worker.postMessage(`go depth ${maxDepth}`)
 
@@ -152,6 +185,36 @@ export class StockfishEngine {
     })
   }
 
+  async evaluateMultiPvOnce(
+    fen: string,
+    depth = 18,
+    multiPv = 3,
+    pvHorizon = 10,
+    onUpdate?: (candidates: AnalysisCandidate[]) => void,
+  ): Promise<AnalysisCandidate[]> {
+    await this.ready
+    if (this.terminated) return []
+    const requestId = ++this.requestId
+    await this.stopAndWaitForIdle()
+    if (this.terminated || requestId !== this.requestId) return []
+
+    this.currentFen = fen
+    this.currentMaxDepth = depth
+    this.currentOnUpdate = null
+    this.multiPvLines.clear()
+    this.currentMultiPv = multiPv
+    this.currentMultiPvUpdate = onUpdate ?? null
+    this.currentPvHorizon = pvHorizon
+    this.searching = true
+
+    return new Promise((resolve) => {
+      this.currentMultiPvResolve = resolve
+      this.worker.postMessage(`setoption name MultiPV value ${multiPv}`)
+      this.worker.postMessage(`position fen ${fen}`)
+      this.worker.postMessage(`go depth ${depth}`)
+    })
+  }
+
   /** Stops whatever is currently being reported, and waits until the engine is idle. */
   private stopAndWaitForIdle(): Promise<void> {
     this.stopCurrent()
@@ -172,6 +235,12 @@ export class StockfishEngine {
 
   private stopCurrent() {
     this.currentOnUpdate = null
+    if (this.currentMultiPvResolve) {
+      const resolve = this.currentMultiPvResolve
+      this.currentMultiPvResolve = null
+      this.currentMultiPvUpdate = null
+      resolve([])
+    }
     if (this.searching) {
       this.worker.postMessage('stop')
     }
@@ -182,6 +251,8 @@ export class StockfishEngine {
     this.requestId++
     this.searching = false
     this.currentOnUpdate = null
+    this.currentMultiPvResolve?.([])
+    this.currentMultiPvResolve = null
     const waiters = this.stopWaiters
     this.stopWaiters = []
     for (const resolve of waiters) resolve()

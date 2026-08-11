@@ -56,7 +56,7 @@ describe('exportRepertoireToPgn', () => {
 
   it('includes minimal headers naming the exported color', () => {
     const pgn = exportRepertoireToPgn({}, 'black')
-    expect(pgn).toContain('[Event "opening-prep Black repertoire"]')
+    expect(pgn).toContain('[Event "Mainline Black repertoire"]')
     expect(pgn).toContain('[Result "*"]')
   })
 

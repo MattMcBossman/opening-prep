@@ -17,14 +17,24 @@ been visually checked at 390px and automatically verified at 320×700, 390×844,
 Moves/Stats/Prep navigation is also shipped with state-preserving tabs. Core
 Explorer rows, filters, source controls, repertoire actions, and PGN controls
 now meet the 44px mobile touch-target baseline. Explorer/view context also
-survives tab refreshes through `sessionStorage`, and long profile/module names
-remain contained without displacing the Manage action. The only remaining acceptance
+survives tab refreshes through `sessionStorage`. A single top-right hamburger
+now contains repertoire color, profile/module selection, Manage, sound, theme,
+and account controls; long names remain contained inside that menu. The only remaining acceptance
 item is a hands-on pass on the physical Android phone over Tailscale; it cannot
 be truthfully simulated from the development workstation.
 
 The target is a high-quality responsive web application, not a separate native
 app. Desktop behavior must remain intact. PWA installation/offline support is a
 later decision after the touch-first web experience is proven.
+
+## Standing design principle
+
+Treat incoming UI direction as mobile-first by default: optimize hierarchy,
+spacing, touch behavior, and progressive disclosure for phones first. This is
+not authorization to neglect desktop. Every mobile-oriented change should also
+leave desktop deliberate and visually balanced, using responsive presentation
+where the two form factors need different layouts and proportionate desktop
+regression checks when shared UI changes.
 
 Mobile board sizing uses near-edge 2px page gutters (while retaining device
 safe-area insets) and a compact 36px evaluation bar, leaving at least the
@@ -54,8 +64,9 @@ On viewports below the final measured breakpoint (start with 700px):
 1. Keep a compact top bar with product identity, Explorer/Drills mode, and an
    overflow/settings control. Theme, sound, authentication, and profile
    management must remain reachable without consuming several header rows.
-2. Put opening name, drill progress, and the White/Black orientation control
-   immediately above the board.
+2. Put opening name and drill progress immediately above the board; keep the
+   White/Black repertoire control in the shared hamburger so it cannot push a
+   drill heading beyond the viewport.
 3. Make the board the first primary workspace, sized from available viewport
    width while reserving the narrow evaluation bar without horizontal scroll.
 4. Put the board's primary actions directly below it with at least 44×44 CSS-px

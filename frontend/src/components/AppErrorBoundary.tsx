@@ -14,7 +14,7 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('opening-prep render failed', error, info)
+    console.error('Mainline render failed', error, info)
     try {
       sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify({
         message: error.message,
@@ -40,7 +40,7 @@ export class AppErrorBoundary extends Component<Props, State> {
     if (!this.state.error) return this.props.children
     return (
       <main className="app-crash-fallback" role="alert">
-        <h1>opening-prep hit an error</h1>
+        <h1>Mainline hit an error</h1>
         <p>The page stopped while rendering. Your repertoire data has not been changed.</p>
         <pre>{this.state.error.name}: {this.state.error.message}</pre>
         <div className="board-controls">

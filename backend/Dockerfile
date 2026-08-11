@@ -1,4 +1,4 @@
-# Production image for the opening-prep backend.
+# Production image for the Mainline backend.
 #
 # Day-to-day development runs Django on the host via `uv run` (see README.md);
 # this exists so production parity isn't deferred to some later phase.

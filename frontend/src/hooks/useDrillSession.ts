@@ -9,6 +9,7 @@ import {
   createDrillSession,
   isSessionComplete,
   pendingAutoPlayStep,
+  reorderUpcoming,
   retryFailedLines as retryFailedLinesLogic,
   sessionProgress,
   wouldAcceptOwnMove,
@@ -20,7 +21,7 @@ import { findNearestSimilarPosition } from '../lib/positionSimilarity'
 import type { SimilarPositionMatch } from '../lib/positionSimilarity'
 import { START_FEN } from './useGame'
 import type { DrillSessionRecording } from './useDrillSessionRecording'
-import type { EngineEvaluation, RepertoireColor, RepertoireMove } from '../types'
+import type { RepertoireColor, RepertoireMove } from '../types'
 
 type UseDrillSessionParams = {
   color: RepertoireColor
@@ -81,7 +82,7 @@ export function useDrillSession({
   recording,
   signedIn = false,
 }: UseDrillSessionParams) {
-  const { compare, evaluatePosition } = useEngineComparison(signedIn)
+  const { compare } = useEngineComparison(signedIn)
   const prepared = useMemo(
     () => prepareDrillLines(lines ?? collectDrillLines(color, getContinuations, rootFen), startMode, startContext),
     // A drill is a snapshot; callers should replace `lines` only to launch a new scope.
@@ -94,11 +95,6 @@ export function useDrillSession({
   // attempt, correct or wrong, needs its own unique key so the recorder's
   // buffer never conflates two attempts (see useDrillSessionRecording).
   const recordingTokenRef = useRef(0)
-  // The opponent's best untried response from the position where the just-completed
-  // line ends - shown as an arrow/PV during the completion pause. Fetched
-  // whenever `state.completionPause` (newly) appears, cleared once it's gone.
-  const [completionEval, setCompletionEval] = useState<EngineEvaluation | null>(null)
-
   // The paused-at position as a complete FEN. `completionPause.leafFen` is a
   // normalized repertoire key (see normalizeFen), which isn't a well-formed FEN
   // for consumers that parse all six fields - the engine and the Lichess
@@ -139,21 +135,6 @@ export function useDrillSession({
     recording?.onSessionStart(next.isRetryPass)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [color, rootFen, startMode, startContext, lines])
-
-  useEffect(() => {
-    if (!completionFen) {
-      setCompletionEval(null)
-      return
-    }
-    let cancelled = false
-    setCompletionEval(null)
-    evaluatePosition(completionFen).then((evaluation) => {
-      if (!cancelled) setCompletionEval(evaluation)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [completionFen, evaluatePosition])
 
   // Mirrors the latest committed state so attemptMove can compute its result up
   // front rather than inside a state updater. attemptMove only ever runs from a DOM
@@ -279,6 +260,17 @@ export function useDrillSession({
     recording?.onSessionStart(next.isRetryPass)
   }, [recording])
 
+  const shuffleOrder = useCallback(() => {
+    setState((prev) => {
+      const order = [...prev.order]
+      for (let index = order.length - 1; index > 0; index--) {
+        const swapIndex = Math.floor(Math.random() * (index + 1))
+        ;[order[index], order[swapIndex]] = [order[swapIndex], order[index]]
+      }
+      return reorderUpcoming(prev, order)
+    })
+  }, [])
+
   const similarPosition = useMemo<SimilarPositionHint | null>(() => {
     const feedback = state.lastFeedback
     if (feedback?.kind !== 'wrong') return null
@@ -295,10 +287,10 @@ export function useDrillSession({
     attemptMove,
     wouldAccept,
     retryFailed,
+    shuffleOrder,
     startNewSession,
     similarPosition,
     completionFen,
-    completionEval,
     acknowledgeCompletion,
   }
 }

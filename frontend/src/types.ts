@@ -64,3 +64,70 @@ export type EngineEvaluation = {
    */
   terminal?: boolean
 }
+
+export type AnalysisCandidate = {
+  rank: number
+  depth: number
+  scoreType: 'cp' | 'mate'
+  scoreValue: number
+  bestMoveUci: string
+  pvUci: string[]
+}
+
+export type RecurringAnalysisMove = {
+  uci: string
+  san: string
+  side: RepertoireColor
+  earliestPly: number
+  latestPly: number
+  lineCount: number
+  totalLines: number
+  timing: 'prepared' | 'mixed'
+  prerequisiteLines: string[][]
+  immediateCandidateRank: number | null
+  immediateCentipawnLoss: number | null
+}
+
+export type PositionAnalysis = {
+  fen: string
+  engineVersion: string
+  analysisProfile: string
+  depth: number
+  multiPv: number
+  candidates: AnalysisCandidate[]
+  recurringMoves: RecurringAnalysisMove[]
+  updatedAt?: string
+}
+
+export type PositionFact = {
+  id: string
+  category: 'material' | 'pawns' | 'files' | 'activity' | 'king' | 'tactics'
+  kind: string
+  side: RepertoireColor | 'both'
+  severity: 'info' | 'advantage' | 'weakness' | 'warning'
+  confidence: 'certain' | 'high' | 'medium'
+  summary: string
+  squares: string[]
+  pieces: string[]
+  evidence: Record<string, unknown>
+}
+
+export type PositionFeatureSet = {
+  fen: string
+  schemaVersion: number
+  extractorVersion: string
+  facts: PositionFact[]
+  checksum: string
+  updatedAt: string
+}
+
+export type MoveFeatureComparison = {
+  originFen: string
+  moveUci: string
+  moveSan: string
+  resultingFen: string
+  before: Omit<PositionFeatureSet, 'updatedAt'>
+  after: Omit<PositionFeatureSet, 'updatedAt'>
+  addedFacts: PositionFact[]
+  removedFacts: PositionFact[]
+}

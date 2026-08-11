@@ -6,7 +6,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from . import cache, player_stats
+from . import analysis_cache, cache, feature_cache, player_stats
+from .position_features import compare_position_features
 from .serializers import (
     EngineEvalQuerySerializer,
     EngineEvaluationSerializer,
@@ -14,6 +15,14 @@ from .serializers import (
     ExplorerStatsQuerySerializer,
     MyGamesExplorerQuerySerializer,
     MyGamesExplorerResponseSerializer,
+    MoveComparisonQuerySerializer,
+    MoveComparisonSerializer,
+    PositionAnalysisQuerySerializer,
+    PositionAnalysisSerializer,
+    PositionAnalysisUploadSerializer,
+    PositionFeatureQuerySerializer,
+    PositionFeatureSetSerializer,
+    derive_recurring_moves,
 )
 
 # DRF's default `{"detail": "..."}` error body, shared by every non-2xx response below.
@@ -174,3 +183,83 @@ class EngineEvalView(APIView):
             pv_uci=data.get("pv_uci") or [],
         )
         return Response(EngineEvaluationSerializer(entry).data)
+
+
+class PositionAnalysisView(APIView):
+    """Authenticated shared objective MultiPV cache."""
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "position_analysis"
+
+    @extend_schema(
+        summary="Fetch a compatible cached position analysis.",
+        parameters=[PositionAnalysisQuerySerializer],
+        responses={200: PositionAnalysisSerializer, 404: NOT_CACHED_RESPONSE},
+    )
+    def get(self, request):
+        query = PositionAnalysisQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+        entry = analysis_cache.get_position_analysis(
+            data["fen"], data["engineVersion"], data["analysisProfile"]
+        )
+        if entry is None:
+            return Response({"detail": "No cached position analysis."}, status=404)
+        return Response(PositionAnalysisSerializer(entry).data)
+
+    @extend_schema(
+        summary="Upsert a validated browser-computed MultiPV position analysis.",
+        request=PositionAnalysisUploadSerializer,
+        responses={200: PositionAnalysisSerializer},
+    )
+    def put(self, request):
+        body = PositionAnalysisUploadSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        candidates = data["candidates"]
+        recurring_moves = derive_recurring_moves(data["fen"], candidates)
+        entry, _ = analysis_cache.upsert_position_analysis(
+            fen=data["fen"],
+            engine_version=data["engineVersion"],
+            analysis_profile=data["analysisProfile"],
+            candidates=candidates,
+            recurring_moves=recurring_moves,
+        )
+        return Response(PositionAnalysisSerializer(entry).data)
+
+
+class PositionFeatureSetView(APIView):
+    """Public deterministic facts computed solely from the requested board."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Fetch versioned concrete board facts for a position.",
+        parameters=[PositionFeatureQuerySerializer],
+        responses={200: PositionFeatureSetSerializer},
+    )
+    def get(self, request):
+        query = PositionFeatureQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        entry = feature_cache.get_or_create_position_features(query.validated_data["fen"])
+        return Response(PositionFeatureSetSerializer(entry).data)
+
+
+class MoveComparisonView(APIView):
+    """Public deterministic fact diff for a legal move from a position."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Compare concrete board facts before and after a legal move.",
+        parameters=[MoveComparisonQuerySerializer],
+        responses={200: MoveComparisonSerializer},
+    )
+    def get(self, request):
+        query = MoveComparisonQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            comparison = compare_position_features(query.validated_data["fen"], query.validated_data["move"])
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(MoveComparisonSerializer(comparison).data)

@@ -81,6 +81,9 @@ function MonthYearSelect({
 
 /** Explorer query filters: since/until and game type apply to both sources; rating bands are public-database-only. */
 export function ExplorerFiltersPanel({ source, filters, onChange }: Props) {
+  // Control disclosure state so Chromium's form-state restoration cannot
+  // occasionally reopen it on a fresh app mount and shift the mobile toolbar.
+  const [open, setOpen] = useState(false)
   const activeCount =
     Number(Boolean(filters.since)) +
     Number(Boolean(filters.until)) +
@@ -88,7 +91,11 @@ export function ExplorerFiltersPanel({ source, filters, onChange }: Props) {
     SPEEDS.filter(({ values }) => values.some((value) => filters.speeds?.includes(value) ?? false)).length
 
   return (
-    <details className="explorer-filters-disclosure">
+    <details
+      className="explorer-filters-disclosure"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary>
         <span>Filters</span>
         {activeCount > 0 && <span className="explorer-filter-count">{activeCount} active</span>}

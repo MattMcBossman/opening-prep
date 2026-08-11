@@ -771,10 +771,26 @@ export function useRepertoire(user: AuthUser | null) {
   // continuations. Signed-in users see the merged enabled-module graph for
   // their active profile; anonymous users retain one local tree per color.
   const activeRepertoire: Repertoire = isAuthenticated ? api.tree : local.repertoire
+  const visibleRepertoire = useMemo<Repertoire>(() => {
+    if (isAuthenticated || !api.previewRelease) return activeRepertoire
+    const preview = api.previewRelease
+    return {
+      ...activeRepertoire,
+      [preview.color]: mergeRepertoireTrees([
+        { moduleId: 0, tree: activeRepertoire[preview.color] },
+        { moduleId: -1_000_000_000 - preview.id, tree: preview.tree },
+      ]),
+    }
+  }, [activeRepertoire, api.previewRelease, isAuthenticated])
 
   const getTree = useCallback(
-    (color: RepertoireColor): RepertoireTree => activeRepertoire[color],
-    [activeRepertoire],
+    (color: RepertoireColor): RepertoireTree => visibleRepertoire[color],
+    [visibleRepertoire],
+  )
+  const getContinuations = useCallback(
+    (color: RepertoireColor, fen: string): RepertoireMove[] =>
+      visibleRepertoire[color][normalizeFen(fen)] ?? [],
+    [visibleRepertoire],
   )
 
   const addLine = useCallback(
@@ -803,7 +819,7 @@ export function useRepertoire(user: AuthUser | null) {
   }
 
   return {
-    getContinuations: active.getContinuations,
+    getContinuations,
     isMoveSaved: active.isMoveSaved,
     isMoveInActiveProfile: isAuthenticated
       ? api.isMoveInActiveProfile

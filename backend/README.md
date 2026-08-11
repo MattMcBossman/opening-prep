@@ -1,4 +1,4 @@
-# opening-prep backend
+# Mainline backend
 
 Django + Django REST Framework + PostgreSQL. Provides user accounts (Lichess
 OAuth), server-side repertoire storage, a caching Lichess explorer proxy, and

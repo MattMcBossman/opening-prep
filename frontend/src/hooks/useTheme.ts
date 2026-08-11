@@ -9,12 +9,9 @@ function getInitialTheme(): Theme {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'light' || stored === 'dark') return stored
   } catch {
-    // localStorage may be unavailable (e.g. private browsing); fall through to system preference.
+    // localStorage may be unavailable (e.g. private browsing); use the app default.
   }
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    return 'dark'
-  }
-  return 'light'
+  return 'dark'
 }
 
 /**

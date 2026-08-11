@@ -104,7 +104,7 @@ function appendLineLabel(out: string[], path: string[], labels: ReadonlyMap<stri
 function buildHeaders(color: RepertoireColor): string {
   const label = color === 'white' ? 'White' : 'Black'
   const tags: Array<[string, string]> = [
-    ['Event', `opening-prep ${label} repertoire`],
+    ['Event', `Mainline ${label} repertoire`],
     ['Site', '?'],
     ['Date', '????.??.??'],
     ['Round', '?'],

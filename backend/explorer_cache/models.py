@@ -88,6 +88,60 @@ class EngineLineCache(models.Model):
         return f"{self.engine_version}:{self.fen} depth={self.depth}"
 
 
+class PositionAnalysis(models.Model):
+    """Versioned browser-computed MultiPV evidence for a normalized position."""
+
+    fen = models.CharField(max_length=100)
+    engine_version = models.CharField(max_length=64)
+    analysis_profile = models.CharField(max_length=64)
+    depth = models.PositiveSmallIntegerField()
+    multi_pv = models.PositiveSmallIntegerField()
+    candidates = models.JSONField(default=list)
+    recurring_moves = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fen", "engine_version", "analysis_profile"],
+                name="unique_position_analysis_key",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["fen", "engine_version", "analysis_profile"],
+                name="explorer_ca_analysis_key_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.engine_version}:{self.analysis_profile}:{self.fen} depth={self.depth}"
+
+
+class PositionFeatureSet(models.Model):
+    """Versioned deterministic board facts derived from a normalized FEN."""
+
+    fen = models.CharField(max_length=100)
+    schema_version = models.PositiveSmallIntegerField()
+    extractor_version = models.CharField(max_length=64)
+    facts = models.JSONField(default=list)
+    checksum = models.CharField(max_length=64)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fen", "extractor_version"], name="unique_position_feature_set_key"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["fen", "extractor_version"], name="explorer_ca_feature_key_idx")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.extractor_version}:{self.fen}"
+
+
 class PlayerStatsCache(models.Model):
     """Short-lived terminal result from Lichess's per-user player explorer."""
 

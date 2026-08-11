@@ -33,6 +33,7 @@ test('anonymous profile and module management survives a refresh', async ({ page
 })
 
 test('a selected explorer position launches only eligible saved drill steps', async ({ page }) => {
+  test.slow()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.addInitScript(({ root, afterE4, afterE4E5, afterNc3 }) => {
     localStorage.setItem('opening-prep:repertoire', JSON.stringify({
@@ -67,8 +68,10 @@ test('a selected explorer position launches only eligible saved drill steps', as
   await page.getByRole('button', { name: 'e5', exact: true }).click()
   await page.getByRole('button', { name: 'Drill from here' }).click()
 
+  await page.getByRole('button', { name: 'Open menu' }).click()
   await expect(page.getByRole('group', { name: 'Drill from selected position' })).toBeVisible()
-  await expect(page.getByRole('radio', { name: 'Start at this position' })).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'Start at selected position' })).toBeChecked()
+  await page.getByRole('button', { name: 'Close menu' }).click()
   await expect(page.getByText('Drill 1 of 1')).toBeVisible()
   const wrongFrom = await page.locator('[data-square="g1"]').boundingBox()
   const wrongTo = await page.locator('[data-square="f3"]').boundingBox()
@@ -87,11 +90,29 @@ test('a selected explorer position launches only eligible saved drill steps', as
   const correctFrom = await page.locator('[data-square="b1"]').boundingBox()
   const correctTo = await page.locator('[data-square="c3"]').boundingBox()
   expect(correctFrom && correctTo).toBeTruthy()
+  const scrollBeforeCompletion = await page.evaluate(() => window.scrollY)
   await page.mouse.move(correctFrom!.x + correctFrom!.width / 2, correctFrom!.y + correctFrom!.height / 2)
   await page.mouse.down()
   await page.mouse.move(correctTo!.x + correctTo!.width / 2, correctTo!.y + correctTo!.height / 2, { steps: 5 })
   await page.mouse.up()
   await expect(page.getByRole('button', { name: 'Finish', exact: true })).toBeInViewport()
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeCompletion)
+  await expect(page.getByRole('heading', { name: 'Candidate continuations' })).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Lichess explorer' })).toBeHidden()
+  await page.getByRole('button', { name: 'Analysis', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Candidate continuations' })).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByRole('heading', { name: 'Concrete board facts' })).toBeVisible()
+  await expect(page.getByText('White has the bishop pair.')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByText(/MultiPV 3 · depth 24/)).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('.analysis-candidates details')).toHaveCount(0)
+  await expect(page.locator('.analysis-candidates .engine-line')).toHaveCount(3)
+  await expect(page.getByRole('heading', { name: 'Candidate continuations' })).toBeInViewport()
+  await page.getByRole('button', { name: 'Analysis', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Candidate continuations' })).toBeVisible()
+  await page.getByRole('button', { name: 'Stats', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Lichess explorer' })).toBeInViewport()
+  await page.getByRole('button', { name: 'Stats', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Lichess explorer' })).toBeVisible()
 })
 
 test('signed-in explorer saving persists an explicit line across refresh', async ({ page }) => {
@@ -197,9 +218,11 @@ test('switching to My games clears public stats and replaces partial snapshots w
   const publicMoveRow = page.getByRole('row', { name: /c4/ })
   await expect(publicMoveRow).toBeVisible()
   const publicCells = publicMoveRow.getByRole('cell')
-  const publicCellBoxes = await Promise.all([0, 1, 2].map((index) => publicCells.nth(index).boundingBox()))
-  expect(publicCellBoxes.every(Boolean)).toBe(true)
-  expect(Math.max(...publicCellBoxes.map((box) => box!.y)) - Math.min(...publicCellBoxes.map((box) => box!.y))).toBeLessThan(5)
+  await expect.poll(async () => {
+    const boxes = await Promise.all([0, 1, 2].map((index) => publicCells.nth(index).boundingBox()))
+    if (!boxes.every(Boolean)) return Number.POSITIVE_INFINITY
+    return Math.max(...boxes.map((box) => box!.y)) - Math.min(...boxes.map((box) => box!.y))
+  }).toBeLessThan(5)
   const sourceToggleBox = await page.getByRole('tablist', { name: 'Explorer data source' }).boundingBox()
   const filtersBox = await page.locator('.explorer-filters-disclosure').boundingBox()
   expect(sourceToggleBox && filtersBox).toBeTruthy()

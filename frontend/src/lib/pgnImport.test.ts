@@ -107,7 +107,7 @@ describe('parsePgnLines', () => {
     ])
   })
 
-  it('restores an opening-prep line label without treating its comment as moves', () => {
+  it('restores a legacy opening-prep line label without treating its comment as moves', () => {
     const pgn = '1. e4 e5 {[%opening-prep-line e2e4%20e7e5|Vienna%3A%20main]} *'
     expect(parsePgnLinesWithMetadata(pgn)).toMatchObject([
       { label: 'Vienna: main', steps: [{ uci: 'e2e4' }, { uci: 'e7e5' }] },

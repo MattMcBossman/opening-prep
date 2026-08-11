@@ -432,6 +432,11 @@ export function retryFailedLines(state: DrillSessionState): DrillSessionState {
   })
 }
 
+/** Changes the presentation order without resetting the current drill or any recorded results. */
+export function reorderUpcoming(state: DrillSessionState, order: string[]): DrillSessionState {
+  return { ...state, order }
+}
+
 export type DrillSessionProgress = {
   /** Number of lines in the current pass (see `passTotal`), not necessarily the whole repertoire. */
   totalLines: number
