@@ -1,35 +1,22 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HistoryEntry } from '../hooks/useGame'
+import { buildContinuationTree } from '../lib/continuationTree'
+import type { ContinuationTreeNode } from '../lib/continuationTree'
 import type { RepertoireColor, RepertoireMove } from '../types'
 
-type Cell =
-  | { kind: 'played'; entry: HistoryEntry; index: number }
-  | { kind: 'continuation'; move: RepertoireMove }
-
-type Row = {
-  moveNumber: number
-  white?: Cell
-  black?: Cell
-}
+type PlayedCell = { entry: HistoryEntry; index: number }
+type PlayedRow = { moveNumber: number; white?: PlayedCell; black?: PlayedCell }
 
 type Props = {
   moves: HistoryEntry[]
   pointer: number
+  currentFen: string
   onSelect: (index: number) => void
-  /** Which repertoire (White's or Black's own moves) is currently active. */
   boardColor: RepertoireColor
-  /** Whether the ply at `moves[index]` (0-based) is saved in the active repertoire. */
   isPlySaved: (index: number) => boolean
-  /** Toggles whether the ply at `moves[index]` (0-based) is saved in the active repertoire. */
   onTogglePlySaved: (index: number) => void
-  /** Saved moves from the current position (tracks `pointer`), rendered right after the played moves. */
-  continuations: RepertoireMove[]
-  /** Plays a saved continuation, extending the line. */
-  onPlayContinuation: (move: RepertoireMove) => void
-  /** Removes a saved continuation without playing it. */
-  onRemoveContinuation: (move: RepertoireMove) => void
-  /** Whether a merged-profile continuation belongs to the module currently being edited. */
-  isContinuationEditable?: (move: RepertoireMove) => boolean
+  getContinuations: (fen: string) => RepertoireMove[]
+  onPlayContinuationPath: (moves: RepertoireMove[]) => void
 }
 
 function StarButton({ saved, onToggle }: { saved: boolean; onToggle: () => void }) {
@@ -46,85 +33,40 @@ function StarButton({ saved, onToggle }: { saved: boolean; onToggle: () => void 
   )
 }
 
-/** Rows for the moves actually played so far (up to `pointer`). */
-function buildPlayedRows(moves: HistoryEntry[], pointer: number): Row[] {
-  const played = moves.slice(0, pointer)
-  const rows: Row[] = []
-  played.forEach((entry, i) => {
-    const cell: Cell = { kind: 'played', entry, index: i }
-    if (i % 2 === 0) {
-      rows.push({ moveNumber: Math.floor(i / 2) + 1, white: cell })
-    } else {
-      rows[rows.length - 1].black = cell
-    }
+function buildPlayedRows(moves: HistoryEntry[], pointer: number): PlayedRow[] {
+  const rows: PlayedRow[] = []
+  moves.slice(0, pointer).forEach((entry, index) => {
+    const cell = { entry, index }
+    if (index % 2 === 0) rows.push({ moveNumber: Math.floor(index / 2) + 1, white: cell })
+    else rows[rows.length - 1].black = cell
   })
   return rows
 }
 
-/**
- * Rows for whatever the repertoire has saved from the position at `pointer`, each on
- * its own row - never sharing a row with an already-played move, even when a
- * continuation would otherwise fill that row's empty cell, so continuations always
- * read as a distinct "available next steps" group below the played line.
- */
-function buildContinuationRows(pointer: number, continuations: RepertoireMove[]): Row[] {
-  const nextIsWhite = pointer % 2 === 0
-  const moveNumber = nextIsWhite ? Math.floor(pointer / 2) + 1 : Math.floor((pointer - 1) / 2) + 1
-  return continuations.map((move) => {
-    const cell: Cell = { kind: 'continuation', move }
-    return nextIsWhite ? { moveNumber, white: cell } : { moveNumber, black: cell }
-  })
+function movePrefix(ply: number): string {
+  const number = Math.floor(ply / 2) + 1
+  return ply % 2 === 0 ? `${number}.` : `${number}...`
 }
 
-type CellButtonProps = {
-  cell: Cell | undefined
-  pointer: number
-  onSelect: (index: number) => void
-  onPlayContinuation: (move: RepertoireMove) => void
-}
-
-function CellButton({ cell, pointer, onSelect, onPlayContinuation }: CellButtonProps) {
-  if (!cell) return <span />
-  if (cell.kind === 'played') {
-    const active = pointer === cell.index + 1
-    return (
-      <button type="button" className={active ? 'move-button active' : 'move-button'} onClick={() => onSelect(cell.index + 1)}>
-        {cell.entry.san}
-      </button>
-    )
-  }
-  return (
-    <button type="button" className="move-button move-button-suggestion" onClick={() => onPlayContinuation(cell.move)}>
-      {cell.move.san}
-    </button>
-  )
-}
-
-/**
- * Only the repertoire owner's own moves can be saved (see AGENTS.md) - the opponent's
- * replies are never saved on their own, they're just the positions that trigger a
- * saved response. So each row gets a single star, tied to whichever column holds
- * "my" move: the white column when building the White repertoire, the black column
- * when building the Black repertoire. It applies the same way to a continuation cell
- * (always shown as saved, since continuations are read from what's already saved;
- * clicking removes it) as to an already-played move (toggles save/unsave).
- */
 export function MoveList({
   moves,
   pointer,
+  currentFen,
   onSelect,
   boardColor,
   isPlySaved,
   onTogglePlySaved,
-  continuations,
-  onPlayContinuation,
-  onRemoveContinuation,
-  isContinuationEditable = () => true,
+  getContinuations,
+  onPlayContinuationPath,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
+  const [expansionOverrides, setExpansionOverrides] = useState<Record<string, boolean>>({})
   const playedRows = buildPlayedRows(moves, pointer)
-  const continuationRows = buildContinuationRows(pointer, continuations)
-  const continuationKey = continuations.map((move) => move.uci).join(' ')
+  const tree = useMemo(
+    () => buildContinuationTree(currentFen, pointer, getContinuations),
+    [currentFen, pointer, getContinuations],
+  )
+  const treeKey = tree.map((node) => node.key).join('|')
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -134,38 +76,88 @@ export function MoveList({
       list.scrollTo({ top: list.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
     })
     return () => cancelAnimationFrame(frame)
-  }, [pointer, continuationKey])
+  }, [pointer, treeKey])
 
-  function renderStar(cell: Cell | undefined) {
-    if (!cell) return null
-    if (cell.kind === 'played') {
-      return <StarButton saved={isPlySaved(cell.index)} onToggle={() => onTogglePlySaved(cell.index)} />
-    }
-    return isContinuationEditable(cell.move) ? (
-      <StarButton saved onToggle={() => onRemoveContinuation(cell.move)} />
-    ) : null
+  function renderPlayedRow(row: PlayedRow, index: number) {
+    const renderCell = (cell?: PlayedCell) => !cell ? <span /> : (
+      <button type="button" className={pointer === cell.index + 1 ? 'move-button active' : 'move-button'} onClick={() => onSelect(cell.index + 1)}>
+        {cell.entry.san}
+      </button>
+    )
+    const star = (cell?: PlayedCell) => cell
+      ? <StarButton saved={isPlySaved(cell.index)} onToggle={() => onTogglePlySaved(cell.index)} />
+      : null
+    return (
+      <div className="move-row" key={`played-${index}`}>
+        <span className="move-star-slot">{boardColor === 'white' ? star(row.white) : null}</span>
+        <span className="move-number">{row.moveNumber}.</span>
+        {renderCell(row.white)}
+        {renderCell(row.black)}
+        <span className="move-star-slot">{boardColor === 'black' ? star(row.black) : null}</span>
+      </div>
+    )
   }
 
-  function renderRow(row: Row, key: string) {
+  function renderTreeNode(node: ContinuationTreeNode, depth: number, parentPath: RepertoireMove[]): React.ReactNode {
+    const path = [...parentPath, ...node.chain.map((item) => item.move)]
+    const expandable = node.childCount > 0
+    const expanded = expansionOverrides[node.key] ?? depth === 0
     return (
-      <div className="move-row" key={key}>
-        <span className="move-star-slot">{boardColor === 'white' ? renderStar(row.white) : null}</span>
-        <span className="move-number">{row.moveNumber}.</span>
-        <CellButton cell={row.white} pointer={pointer} onSelect={onSelect} onPlayContinuation={onPlayContinuation} />
-        <CellButton cell={row.black} pointer={pointer} onSelect={onSelect} onPlayContinuation={onPlayContinuation} />
-        <span className="move-star-slot">{boardColor === 'black' ? renderStar(row.black) : null}</span>
+      <div className="continuation-branch" key={node.key}>
+        <div className="continuation-tree-row" style={{ '--tree-depth': depth } as React.CSSProperties}>
+          <button
+            type="button"
+            className="continuation-disclosure"
+            aria-label={expandable ? `${expanded ? 'Collapse' : 'Expand'} ${node.chain[0].move.san}` : undefined}
+            aria-expanded={expandable ? expanded : undefined}
+            disabled={!expandable}
+            onClick={() => setExpansionOverrides((current) => ({ ...current, [node.key]: !expanded }))}
+          >
+            {expandable ? <span className={expanded ? 'continuation-chevron expanded' : 'continuation-chevron'} /> : <span className="continuation-leaf-dot">·</span>}
+          </button>
+          <span className="continuation-connector" aria-hidden="true">{depth > 0 ? '└' : ''}</span>
+          <div className="continuation-chain">
+            {node.chain.map((item, itemIndex) => (
+              <span className="continuation-move-group" key={`${node.key}-${item.move.uci}`}>
+                <span className="continuation-move-number">{movePrefix(item.ply)}</span>
+                <button
+                  type="button"
+                  className="continuation-move-button"
+                  onClick={() => onPlayContinuationPath([...parentPath, ...node.chain.slice(0, itemIndex + 1).map((part) => part.move)])}
+                >
+                  {item.move.san}
+                </button>
+              </span>
+            ))}
+          </div>
+          {expandable && !expanded && !node.truncated && (
+            <span className="continuation-line-count">
+              {node.leafCount} {node.leafCount === 1 ? 'line' : 'lines'}
+            </span>
+          )}
+        </div>
+        {(node.transposesTo || node.cycle) && (
+          <p className="continuation-transposition" style={{ '--tree-depth': depth + 1 } as React.CSSProperties}>
+            ↪ {node.cycle ? 'Returns to an earlier position' : `Transposes to ${node.transposesTo}`}
+          </p>
+        )}
+        {expandable && expanded && (
+          <div className="continuation-children">
+            {node.children.map((child) => renderTreeNode(child, depth + 1, path))}
+          </div>
+        )}
       </div>
     )
   }
 
   return (
     <div ref={listRef} className="move-list">
-      {playedRows.map((row, i) => renderRow(row, `played-${i}`))}
-      {playedRows.length > 0 && continuationRows.length > 0 && <div className="move-list-divider" />}
-      {continuationRows.map((row, i) => renderRow(row, `continuation-${i}`))}
-      {playedRows.length === 0 && continuationRows.length === 0 && (
-        <p className="panel-status">Play a move to begin.</p>
-      )}
+      {playedRows.map(renderPlayedRow)}
+      {playedRows.length > 0 && tree.length > 0 && <div className="move-list-divider" />}
+      {tree.length > 0 && <p className="continuation-tree-heading">Saved continuations</p>}
+      {tree.map((node) => renderTreeNode(node, 0, []))}
+      {playedRows.length === 0 && tree.length === 0 && <p className="panel-status">Play a move to begin.</p>}
+      {playedRows.length > 0 && tree.length === 0 && <p className="panel-status">No saved continuations from this position.</p>}
     </div>
   )
 }

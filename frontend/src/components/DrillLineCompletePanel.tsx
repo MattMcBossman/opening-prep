@@ -4,6 +4,7 @@ import { formatMoveListFromPly, uciLineToSan } from '../lib/chessUtils'
 import { formatScore } from '../lib/formatScore'
 import { describeCommonContinuations, describePositionEvaluation } from '../lib/drillPositionAssessment'
 import type { EngineEvaluation, ExplorerResponse } from '../types'
+import { ENGINE_DISPLAY_NAME } from '../lib/engineEvaluationCache'
 
 type Props = {
   evaluation: EngineEvaluation | null
@@ -50,11 +51,11 @@ export function DrillLineCompletePanel({ evaluation, explorerData, playerFollowu
         <>
           <p className="drill-line-complete-eval">
             Engine: <strong>{formatScore(evaluation)}</strong>{' '}
-            <span className="score-label">(depth {evaluation.depth})</span>
+            <span className="score-label">({ENGINE_DISPLAY_NAME} · depth {evaluation.depth})</span>
           </p>
           <p className="panel-status">{describePositionEvaluation(evaluation)}</p>
           <p className="panel-status">The orange arrow is Stockfish&apos;s recommended continuation.</p>
-          {pvText && <p className="engine-line">{pvText}</p>}
+          {pvText && <p className="engine-line" title={pvText}>{pvText}</p>}
           {commonMovesText && (
             <p className="panel-status">
               {commonMovesText} Blue arrows show frequent alternatives; they are game statistics, not engine recommendations.
@@ -67,7 +68,7 @@ export function DrillLineCompletePanel({ evaluation, explorerData, playerFollowu
           )}
         </>
       ) : (
-        <p className="panel-status">Checking the engine&apos;s best try for the opponent…</p>
+        <p className="panel-status">Checking {ENGINE_DISPLAY_NAME}&apos;s best try for the opponent…</p>
       )}
       <div className="board-controls">
         <button type="button" onClick={onViewInExplorer}>

@@ -7,6 +7,30 @@
   box-sizing: border-box;
 }
 
+.app-crash-fallback {
+  width: min(620px, calc(100% - 32px));
+  margin: 32px auto;
+  padding: 20px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-h);
+  box-shadow: var(--shadow);
+}
+
+.app-crash-fallback pre {
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--text-h);
+  font: 13px/1.4 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 :where(button, input, select, textarea, [role='tab'], [role='switch']):focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
@@ -44,6 +68,8 @@
   align-items: center;
   gap: 10px;
   padding-left: 4px;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .repertoire-profile-controls label {
@@ -52,15 +78,22 @@
   gap: 5px;
   color: var(--text);
   font-size: 12px;
+  min-width: 0;
 }
 
 .repertoire-profile-controls select {
+  width: 160px;
+  min-width: 0;
   max-width: 160px;
   padding: 5px 7px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text-h);
+}
+
+.profile-manage-button {
+  flex: 0 0 auto;
 }
 
 .repertoire-profile-controls select:disabled {
@@ -167,11 +200,15 @@
 @media (max-width: 700px) {
   .repertoire-profile-controls {
     width: 100%;
-    flex-wrap: wrap;
   }
 
   .repertoire-profile-controls label {
-    flex: 1;
+    flex: 1 1 0;
+  }
+
+  .repertoire-profile-controls select {
+    width: 0;
+    flex: 1 1 0;
   }
 
   .profile-manager {
@@ -562,20 +599,121 @@
   margin: 4px 0;
 }
 
-/* Saved-but-not-yet-played continuations: an accent-tinted dashed border and
-   background make them stand out clearly from the plain, already-played move
-   buttons above them in the same list. */
-.move-button-suggestion {
-  border: 1px dashed var(--accent-border);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 500;
+.continuation-tree-heading {
+  margin: 2px 4px 5px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.move-button-suggestion:hover {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-  color: var(--accent);
+.continuation-branch,
+.continuation-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.continuation-tree-row {
+  display: grid;
+  grid-template-columns: 20px 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-left: min(calc(var(--tree-depth) * 14px), 56px);
+}
+
+.continuation-disclosure {
+  width: 20px;
+  min-width: 20px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.continuation-disclosure:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text-h);
+}
+
+.continuation-disclosure:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.continuation-chevron {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.continuation-chevron.expanded {
+  transform: rotate(45deg);
+}
+
+.continuation-leaf-dot {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.continuation-connector,
+.continuation-move-number {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.continuation-chain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.continuation-move-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.continuation-move-button {
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-h);
+  font-family: var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.continuation-move-button:hover {
+  background: var(--surface-2);
+}
+
+.continuation-line-count {
+  color: var(--text);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.continuation-transposition {
+  margin: 1px 0 3px;
+  padding-left: min(calc(var(--tree-depth) * 14px + 32px), 88px);
+  color: var(--text);
+  font-size: 10px;
 }
 
 .token-settings {
@@ -936,6 +1074,11 @@
   font-family: var(--mono);
   font-size: 13px;
   color: var(--text);
+  min-width: 0;
+  margin-block: 0.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mode-toggle {
@@ -1057,6 +1200,17 @@
   max-width: 480px;
 }
 
+.drill-reset-start {
+  min-height: 44px;
+}
+
+.drill-start-position-name {
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .auth-control {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1110,9 +1264,9 @@
   .app-layout {
     gap: 10px;
     padding-top: max(8px, env(safe-area-inset-top));
-    padding-right: max(8px, env(safe-area-inset-right));
+    padding-right: max(2px, env(safe-area-inset-right));
     padding-bottom: max(12px, env(safe-area-inset-bottom));
-    padding-left: max(8px, env(safe-area-inset-left));
+    padding-left: max(2px, env(safe-area-inset-left));
   }
 
   .app-header {
@@ -1276,17 +1430,17 @@
   .board-with-eval {
     width: 100%;
     min-width: 0;
-    gap: 6px;
+    gap: 4px;
   }
 
   .board-wrapper {
-    width: calc(100% - 38px);
-    max-width: calc(100% - 38px);
+    width: calc(100% - 40px);
+    max-width: calc(100% - 40px);
   }
 
   .eval-bar,
   .eval-bar-placeholder {
-    width: 32px;
+    width: 36px;
   }
 
   .eval-bar-label {
@@ -1317,6 +1471,26 @@
   .move-star {
     width: 44px;
     font-size: 18px;
+  }
+
+  .continuation-tree-row {
+    grid-template-columns: 44px 10px minmax(0, 1fr) auto;
+    padding-left: min(calc(var(--tree-depth) * 10px), 40px);
+  }
+
+  .continuation-disclosure {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .continuation-chain {
+    flex-wrap: wrap;
+  }
+
+  .continuation-move-button {
+    min-height: 44px;
+    padding-inline: 7px;
   }
 
   .mode-toggle-button,
@@ -1387,7 +1561,7 @@
   }
 
   .moves-panel {
-    max-height: min(45svh, 360px);
+    max-height: min(58.5svh, 468px);
   }
 
   .side-column {
@@ -1554,6 +1728,7 @@
   .eval-bar-white,
   .header-toggle-thumb,
   .board-color-toggle-thumb,
+  .continuation-chevron,
   .board-controls button {
     transition-duration: 0.01ms;
   }

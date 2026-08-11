@@ -57,20 +57,45 @@ const CAPTURE_TARGET_STYLE: CSSProperties = {
   backgroundImage: 'radial-gradient(circle closest-side, rgba(0, 0, 0, 0.2) 0 calc(100% - 1px), transparent 100%)',
 }
 
+const VIEW_SESSION_KEY = 'opening-prep:view-session:v1'
+type ViewSession = {
+  mode: AppMode
+  mobileSection: 'moves' | 'stats' | 'prep'
+  explorerSource: ExplorerSource
+  filters: Record<ExplorerSource, LichessDatabaseFilters>
+  drillStartContext?: DrillStartContext
+}
+
+function readViewSession(): Partial<ViewSession> {
+  try {
+    return JSON.parse(sessionStorage.getItem(VIEW_SESSION_KEY) ?? '{}') as Partial<ViewSession>
+  } catch {
+    return {}
+  }
+}
+
+function moveLabelAtPly(moves: readonly { san: string }[], pointer: number): string | undefined {
+  if (pointer < 1) return undefined
+  const move = moves[pointer - 1]
+  const moveNumber = Math.ceil(pointer / 2)
+  return pointer % 2 === 1 ? `${moveNumber}.${move.san}` : `${moveNumber}...${move.san}`
+}
+
 function App() {
-  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition } = useGame()
+  const [initialView] = useState(readViewSession)
+  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition, loadContinuationPath } = useGame()
   const { theme, toggleTheme } = useTheme()
   const { boardColor, toggleBoardColor } = useBoardColor()
   const { token, setToken } = useLichessToken()
   const auth = useAuth()
   const isSignedIn = auth.user !== null
-  const [explorerSource, setExplorerSource] = useState<ExplorerSource>('lichess')
+  const [explorerSource, setExplorerSource] = useState<ExplorerSource>(initialView.explorerSource ?? 'lichess')
   // Signed-out users have no "my games" source at all - always show the public database.
   const effectiveExplorerSource = isSignedIn ? explorerSource : 'lichess'
   // Each source owns its filters independently: switching tabs restores that
   // source's dates/game types instead of silently applying the other source's
   // selection. Rating bands exist only in the public-source entry.
-  const [explorerFiltersBySource, setExplorerFiltersBySource] = useState<Record<ExplorerSource, LichessDatabaseFilters>>({
+  const [explorerFiltersBySource, setExplorerFiltersBySource] = useState<Record<ExplorerSource, LichessDatabaseFilters>>(initialView.filters ?? {
     lichess: {},
     'my-games': {},
   })
@@ -92,11 +117,11 @@ function App() {
   const repertoire = useRepertoire(auth.user)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
-  const [mode, setMode] = useState<AppMode>('explorer')
-  const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>('stats')
+  const [mode, setMode] = useState<AppMode>(initialView.mode ?? 'explorer')
+  const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>(initialView.mobileSection ?? 'stats')
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
-  const [drillStartContext, setDrillStartContext] = useState<DrillStartContext>()
-  const [drillMounted, setDrillMounted] = useState(false)
+  const [drillStartContext, setDrillStartContext] = useState<DrillStartContext | undefined>(initialView.drillStartContext)
+  const [drillMounted, setDrillMounted] = useState(initialView.mode === 'drill' || Boolean(initialView.drillStartContext))
 
   const handleModeChange = useCallback((nextMode: AppMode) => {
     // Mount lazily on the first visit, then keep the drill alive while Explorer
@@ -109,11 +134,11 @@ function App() {
     setMode(nextMode)
   }, [drillMounted])
 
-  const startDrillFromPosition = useCallback(() => {
-    setDrillStartContext(createDrillStartContext(fen, pointer, moves))
-    setDrillMounted(true)
-    setMode('drill')
-  }, [fen, moves, pointer])
+  const resetDrillStartPosition = useCallback(() => {
+    setDrillStartContext(undefined)
+    setDrillMounted(false)
+    requestAnimationFrame(() => setDrillMounted(true))
+  }, [])
 
   const viewDrillCompletionInExplorer = useCallback((historyUci: string[], finalFen: string) => {
     // Prefer the authored occurrence so Back/Forward and the move list remain
@@ -130,6 +155,20 @@ function App() {
   useEffect(() => {
     installAudioUnlock()
   }, [])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(VIEW_SESSION_KEY, JSON.stringify({
+        mode,
+        mobileSection: mobileExplorerSection,
+        explorerSource,
+        filters: explorerFiltersBySource,
+        drillStartContext,
+      } satisfies ViewSession))
+    } catch {
+      // The page remains usable if tab-scoped storage is unavailable.
+    }
+  }, [mode, mobileExplorerSection, explorerSource, explorerFiltersBySource, drillStartContext])
 
   // ←/→ step through the current line, mirroring the Back/Forward buttons below the
   // board. Only in the explorer - the drill view has no move history to navigate.
@@ -187,26 +226,17 @@ function App() {
     reset()
   }, [toggleBoardColor, reset])
 
-  const continuations = useMemo(
-    () => repertoire.getContinuations(boardColor, fen),
-    [repertoire, boardColor, fen],
-  )
   const getRepertoireContinuations = repertoire.getContinuations
   const coverageContinuations = useCallback(
     (positionFen: string) => getRepertoireContinuations(boardColor, positionFen),
     [boardColor, getRepertoireContinuations],
   )
 
-  const playRepertoireMove = useCallback((move: RepertoireMove) => playMove(move.san), [playMove])
-  const removeRepertoireMove = useCallback(
-    (move: RepertoireMove) => repertoire.removeMove(boardColor, fen, move.uci),
-    [repertoire, boardColor, fen],
-  )
-  const isContinuationEditable = useCallback(
-    (move: RepertoireMove) => repertoire.isMoveSaved(boardColor, fen, move.uci),
-    [repertoire, boardColor, fen],
-  )
-
+  const playRepertoirePath = useCallback((path: RepertoireMove[]) => {
+    if (!loadContinuationPath(path.map((move) => move.uci))) return
+    const destination = path.at(-1)
+    if (destination) playMoveSound(destination.san)
+  }, [loadContinuationPath, playMoveSound])
   const isExplorerMoveSaved = useCallback(
     (uci: string) => repertoire.isMoveInActiveProfile(boardColor, fen, uci),
     [repertoire, boardColor, fen],
@@ -253,6 +283,20 @@ function App() {
     }
     return null
   }, [explorer.data, pointer, moves, openingNameCache])
+  const openingResolvedAtCurrentPosition = explorer.data?.opening !== null && explorer.data?.opening !== undefined
+
+  const startDrillFromPosition = useCallback(() => {
+    setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
+      openingName: resolvedOpening?.name,
+      openingEco: resolvedOpening?.eco,
+      // A current-position ECO match already names the exact opening reached by
+      // this move. Add move-order context only when the name was inherited from
+      // an earlier position and would otherwise be ambiguous here.
+      positionMoveLabel: openingResolvedAtCurrentPosition ? undefined : moveLabelAtPly(moves, pointer),
+    }))
+    setDrillMounted(true)
+    setMode('drill')
+  }, [fen, moves, pointer, resolvedOpening, openingResolvedAtCurrentPosition])
 
   // Any position change (drag move, click-to-move, explorer click, history navigation,
   // reset) invalidates the current selection.
@@ -384,6 +428,7 @@ function App() {
       {drillMounted && (
         <div hidden={mode !== 'drill'}>
           <DrillView
+            active={mode === 'drill'}
             repertoire={repertoire}
             color={boardColor}
             onToggleColor={handleToggleBoardColor}
@@ -402,6 +447,7 @@ function App() {
             drillLines={repertoire.drillLines[boardColor]}
             startContext={drillStartContext}
             onViewInExplorer={viewDrillCompletionInExplorer}
+            onResetStartPosition={resetDrillStartPosition}
           />
         </div>
       )}
@@ -431,14 +477,13 @@ function App() {
             <MoveList
               moves={moves}
               pointer={pointer}
+              currentFen={fen}
               onSelect={goTo}
               boardColor={boardColor}
               isPlySaved={isPlySaved}
               onTogglePlySaved={onTogglePlySaved}
-              continuations={continuations}
-              onPlayContinuation={playRepertoireMove}
-              onRemoveContinuation={removeRepertoireMove}
-              isContinuationEditable={isContinuationEditable}
+              getContinuations={coverageContinuations}
+              onPlayContinuationPath={playRepertoirePath}
             />
           </section>
 

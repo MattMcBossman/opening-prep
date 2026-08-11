@@ -6,7 +6,11 @@ A web app for building and drilling a personal chess opening repertoire, inspire
 
 Phase 1 (opening explorer MVP) is implemented: move-by-move line browser (step through the line with the Back/Forward buttons or the ←/→ arrow keys), Lichess Opening Explorer stats (normalized-FEN/filter-keyed browser and PostgreSQL caches; requires a user-supplied token when signed out), and client-side Stockfish (WASM) evaluation with iterative deepening. Stockfish results are shared across explorer/drill consumers in memory and, when signed in, persisted by normalized FEN plus engine build so revisiting a position can skip analysis.
 
+Explorer history, the active page/phone section, data source and filters, and a selected drill starting position are retained in tab-scoped `sessionStorage`, so a refresh or development-server reload restores the working context without making it permanent across browser sessions.
+
 Phase 2 (repertoire builder) is implemented: a FEN-keyed repertoire tree per color, built directly into the explorer page — save/remove any played move via a toggle in the move list, browse saved continuations from the current position, and see which Lichess-explorer moves are already part of your prep.
+
+The Moves panel keeps played history in its score grid and presents preparation below it as a collapsible tree rooted at the current position. Forced move/reply pairs share compact rows, collapsed branches show their fully traversed leaf-line count, deep moves navigate through the exact saved path, and transpositions terminate with a reference instead of duplicating the shared subtree indefinitely. Counts are omitted rather than approximated if an extreme profile reaches a defensive traversal ceiling.
 
 PGN import/export preserves RAV paths, authored line labels, per-ply comments,
 and numeric or symbolic annotation glyphs for signed-in repertoires.

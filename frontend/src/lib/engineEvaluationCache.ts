@@ -4,6 +4,8 @@ import { recordClientCacheMetric } from './cacheMetrics'
 import { normalizeFen } from './chessUtils'
 
 export const ENGINE_VERSION = 'stockfish-18-lite-single'
+/** Human-readable engine identity derived from the same cache/build key. */
+export const ENGINE_DISPLAY_NAME = `Stockfish ${ENGINE_VERSION.match(/^stockfish-(\d+)/)?.[1] ?? ENGINE_VERSION}`
 
 type WireEvaluation = Omit<EngineEvaluation, 'thinking' | 'terminal'> & { engineVersion: string }
 

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { formatMoveList, uciLineToSan } from '../lib/chessUtils'
 import type { EngineEvaluation } from '../types'
+import { ENGINE_DISPLAY_NAME } from '../lib/engineEvaluationCache'
 
 type Props = {
   evaluation: EngineEvaluation | null
@@ -16,15 +17,15 @@ export function EngineEvalPanel({ evaluation }: Props) {
   }, [evaluation])
 
   if (!evaluation) {
-    return <p className="panel-status">Starting engine…</p>
+    return <p className="panel-status">Starting {ENGINE_DISPLAY_NAME}…</p>
   }
 
   return (
     <div className="engine-panel">
       <span className="score-label">
-        {evaluation.thinking ? `depth ${evaluation.depth}/20` : `depth 20 (done)`}
+        {ENGINE_DISPLAY_NAME} · {evaluation.thinking ? `depth ${evaluation.depth}/20` : `depth ${evaluation.depth} (done)`}
       </span>
-      {pvText && <p className="engine-line">{pvText}</p>}
+      {pvText && <p className="engine-line" title={pvText}>{pvText}</p>}
     </div>
   )
 }

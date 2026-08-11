@@ -35,6 +35,9 @@ export type DrillStartContext = {
   selectedPly: number
   /** Moves from the initial position through the selected occurrence. */
   prefixUci: string[]
+  openingName?: string
+  openingEco?: string
+  positionMoveLabel?: string
 }
 
 /** Captures the exact explorer occurrence used by the "Drill from here" handoff. */
@@ -42,11 +45,13 @@ export function createDrillStartContext(
   selectedFen: string,
   selectedPly: number,
   history: readonly { uci: string }[],
+  details?: Pick<DrillStartContext, 'openingName' | 'openingEco' | 'positionMoveLabel'>,
 ): DrillStartContext {
   return {
     selectedFen,
     selectedPly,
     prefixUci: history.slice(0, selectedPly).map((move) => move.uci),
+    ...details,
   }
 }
 

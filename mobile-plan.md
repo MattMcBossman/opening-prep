@@ -16,13 +16,19 @@ been visually checked at 390px and automatically verified at 320×700, 390×844,
 430×932, and 667×375 with no document overflow and a square board. Mobile
 Moves/Stats/Prep navigation is also shipped with state-preserving tabs. Core
 Explorer rows, filters, source controls, repertoire actions, and PGN controls
-now meet the 44px mobile touch-target baseline. The only remaining acceptance
+now meet the 44px mobile touch-target baseline. Explorer/view context also
+survives tab refreshes through `sessionStorage`, and long profile/module names
+remain contained without displacing the Manage action. The only remaining acceptance
 item is a hands-on pass on the physical Android phone over Tailscale; it cannot
 be truthfully simulated from the development workstation.
 
 The target is a high-quality responsive web application, not a separate native
 app. Desktop behavior must remain intact. PWA installation/offline support is a
 later decision after the touch-first web experience is proven.
+
+Mobile board sizing uses near-edge 2px page gutters (while retaining device
+safe-area insets) and a compact 36px evaluation bar, leaving at least the
+viewport width minus 45px for the square board at the verified phone sizes.
 
 ## Resolved baseline findings
 

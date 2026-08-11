@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Chess } from 'chess.js'
 
 export type HistoryEntry = {
@@ -12,6 +12,26 @@ export type HistoryEntry = {
 export type MoveInput = string | { from: string; to: string; promotion?: string }
 
 export const START_FEN = new Chess().fen()
+const SESSION_STORAGE_KEY = 'opening-prep:explorer-session:v1'
+
+type StoredGame = { baseFen: string; moves: HistoryEntry[]; pointer: number }
+
+function readStoredGame(): StoredGame {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) ?? 'null') as Partial<StoredGame> | null
+    const baseFen = new Chess(parsed?.baseFen ?? START_FEN).fen()
+    const game = new Chess(baseFen)
+    const moves: HistoryEntry[] = []
+    for (const stored of parsed?.moves ?? []) {
+      const result = game.move({ from: stored.uci.slice(0, 2), to: stored.uci.slice(2, 4), promotion: stored.uci.slice(4) || undefined })
+      if (!result) throw new Error('Invalid stored move')
+      moves.push({ san: result.san, uci: `${result.from}${result.to}${result.promotion ?? ''}`, fenAfter: game.fen() })
+    }
+    return { baseFen, moves, pointer: Math.max(0, Math.min(parsed?.pointer ?? moves.length, moves.length)) }
+  } catch {
+    return { baseFen: START_FEN, moves: [], pointer: 0 }
+  }
+}
 
 /**
  * Tracks a single line of moves (the position tree/repertoire nodes come in Phase 2)
@@ -20,9 +40,18 @@ export const START_FEN = new Chess().fen()
  * matching standard PGN-editor behavior for branching off an earlier position.
  */
 export function useGame() {
-  const [baseFen, setBaseFen] = useState(START_FEN)
-  const [moves, setMoves] = useState<HistoryEntry[]>([])
-  const [pointer, setPointer] = useState(0)
+  const [initial] = useState(readStoredGame)
+  const [baseFen, setBaseFen] = useState(initial.baseFen)
+  const [moves, setMoves] = useState<HistoryEntry[]>(initial.moves)
+  const [pointer, setPointer] = useState(initial.pointer)
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ baseFen, moves, pointer }))
+    } catch {
+      // Browsing still works when storage is unavailable.
+    }
+  }, [baseFen, moves, pointer])
 
   const fen = pointer === 0 ? baseFen : moves[pointer - 1].fenAfter
 
@@ -106,6 +135,28 @@ export function useGame() {
     }
   }, [])
 
+  /** Atomically append a clicked saved subtree path from the current position. */
+  const loadContinuationPath = useCallback((uciMoves: readonly string[]): boolean => {
+    const game = new Chess(fen)
+    const appended: HistoryEntry[] = []
+    try {
+      for (const uci of uciMoves) {
+        const result = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4) || undefined })
+        if (!result) return false
+        appended.push({
+          san: result.san,
+          uci: `${result.from}${result.to}${result.promotion ?? ''}`,
+          fenAfter: game.fen(),
+        })
+      }
+    } catch {
+      return false
+    }
+    setMoves((previous) => [...previous.slice(0, pointer), ...appended])
+    setPointer(pointer + appended.length)
+    return true
+  }, [fen, pointer])
+
   return {
     fen,
     moves,
@@ -119,5 +170,6 @@ export function useGame() {
     reset,
     loadLine,
     loadPosition,
+    loadContinuationPath,
   }
 }

@@ -23,6 +23,9 @@ import { EvalBar } from './EvalBar'
 import { ExplorerStatsTable } from './ExplorerStatsTable'
 
 type Props = {
+  /** False while Explorer is visible; keeps session state mounted without asking
+   * react-chessboard to animate inside a display:none ancestor. */
+  active: boolean
   repertoire: ReturnType<typeof useRepertoire>
   color: RepertoireColor
   onToggleColor: () => void
@@ -47,6 +50,7 @@ type Props = {
   startContext?: DrillStartContext
   /** Opens the completed line's final position in the main explorer. */
   onViewInExplorer: (historyUci: string[], finalFen: string) => void
+  onResetStartPosition: () => void
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
@@ -64,6 +68,7 @@ const WRONG_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(239, 92,
 // unprepped opponent try, not a hint about the user's own next move.
 const BEST_RESPONSE_ARROW_COLOR = '#e0672a'
 const EMPTY_SOURCE_IDS: number[] = []
+const WRONG_MOVE_HOLD_MS = 1_000
 
 /**
  * Drill mode: practices saved repertoire lines for `color`, isolated from the
@@ -71,6 +76,7 @@ const EMPTY_SOURCE_IDS: number[] = []
  * decisions" - drilling must never mutate the repertoire).
  */
 export function DrillView({
+  active,
   repertoire,
   color,
   onToggleColor,
@@ -85,6 +91,7 @@ export function DrillView({
   drillLines,
   startContext,
   onViewInExplorer,
+  onResetStartPosition,
 }: Props) {
   const [startMode, setStartMode] = useState<DrillStartMode>(startContext ? 'selected_position' : 'beginning')
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
@@ -115,14 +122,26 @@ export function DrillView({
     signedIn: user !== null,
   })
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+  const [wrongMovePreview, setWrongMovePreview] = useState<{ fen: string; key: number } | null>(null)
 
   const { state } = session
   const fen = state.currentFen
+  const boardFen = wrongMovePreview?.fen ?? fen
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
   const soundedWrongAttemptRef = useRef<number | null>(null)
   const completionActionRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!wrongMovePreview) return
+    const timeoutId = window.setTimeout(() => setWrongMovePreview(null), WRONG_MOVE_HOLD_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [wrongMovePreview])
+
+  // A new drill scope/color can replace the session while a rejected position
+  // is still being shown. Never carry that visual-only position into it.
+  useEffect(() => setWrongMovePreview(null), [color, startContext])
 
   useEffect(() => {
     if (feedback?.kind !== 'wrong') {
@@ -259,7 +278,7 @@ export function DrillView({
 
   const tryMove = useCallback(
     (candidate: { from: string; to: string; promotion?: string }): boolean => {
-      if (!isOwnTurn || session.complete || isPaused) return false
+      if (!isOwnTurn || session.complete || isPaused || wrongMovePreview) return false
       const trial = new Chess(fen)
       let result
       try {
@@ -274,14 +293,18 @@ export function DrillView({
       // genuine mistake and a saved-but-already-drilled rejection both leave the
       // position unchanged, so the piece should snap back in either case.
       const accepted = session.wouldAccept(uci)
+      const isWrongMove = !accepted && !getContinuations(fen).some((move) => move.uci === uci)
       // Sounds (the move itself, its auto-played opponent reply, and the
       // drill-complete chime) are handled by useDrillSession's onStepApplied/
       // onLineComplete callbacks, timed to when each ply actually lands on the
       // board - see AUTO_PLAY_DELAY_MS.
       session.attemptMove({ uci, san: result.san, resultingFen: trial.fen() })
-      return accepted
+      if (isWrongMove) setWrongMovePreview({ fen: trial.fen(), key: Date.now() })
+      // A genuine wrong move is rendered as a controlled temporary position,
+      // so a drag must be allowed to land. It reverts after the hold above.
+      return accepted || isWrongMove
     },
-    [fen, isOwnTurn, session, isPaused],
+    [fen, getContinuations, isOwnTurn, session, isPaused, wrongMovePreview],
   )
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
@@ -289,10 +312,8 @@ export function DrillView({
     // discard an earlier selected square, including after a rejected drop.
     setSelectedSquare(null)
     if (!targetSquare) return false
-    // A wrong-but-legal move is deliberately never applied to `fen` (see
-    // drillSessionLogic) - returning false here also makes react-chessboard snap
-    // the dragged piece straight back, satisfying the "move the piece back" part
-    // of the Phase 3 plan's wrong-move feedback without any extra animation code.
+    // Wrong moves remain unapplied to the drill session, but tryMove lets the
+    // controlled preview position land briefly before restoring `fen`.
     return tryMove({ from: sourceSquare, to: targetSquare, promotion: 'q' })
   }
 
@@ -317,6 +338,11 @@ export function DrillView({
             ? `No saved ${color} lines continue through this selected position.`
             : `No saved ${color} repertoire yet. Save some moves in the explorer first, then come back to drill them.`}
         </p>
+        {startContext && (
+          <button type="button" className="drill-reset-start" onClick={onResetStartPosition}>
+            Drill from initial position
+          </button>
+        )}
       </div>
     )
   }
@@ -328,6 +354,12 @@ export function DrillView({
       <div className="board-column">
         <div className="board-heading">
           <div className="drill-progress">
+            {startContext && (
+              <strong className="drill-start-position-name">
+                {startContext.openingEco ? `${startContext.openingEco} · ` : ''}{startContext.openingName ?? 'Selected position'}
+                {startContext.positionMoveLabel ? `, ${startContext.positionMoveLabel}` : ''}
+              </strong>
+            )}
             <span>
               {progressLabel} {session.progress.currentDrillNumber} of {session.progress.totalLines}
             </span>
@@ -339,19 +371,24 @@ export function DrillView({
         </div>
         <div className="board-with-eval">
           <div className="board-wrapper">
-            <Chessboard
-              options={{
-                position: fen,
-                boardOrientation: color,
-                onPieceDrop: handlePieceDrop,
-                onSquareClick: handleSquareClick,
-                squareStyles,
-                arrows,
-                showAnimations: true,
-                animationDurationInMs: 300,
-                id: 'opening-prep-drill-board',
-              }}
-            />
+            {active && (
+              <div data-testid="drill-chessboard">
+                <Chessboard
+                  key={wrongMovePreview ? `wrong-${wrongMovePreview.key}` : 'drill-position'}
+                  options={{
+                    position: boardFen,
+                    boardOrientation: color,
+                    onPieceDrop: handlePieceDrop,
+                    onSquareClick: handleSquareClick,
+                    squareStyles,
+                    arrows,
+                    showAnimations: true,
+                    animationDurationInMs: 300,
+                    id: 'opening-prep-drill-board',
+                  }}
+                />
+              </div>
+            )}
           </div>
           {/* Only shown once a line is finished - a live eval bar mid-drill would
               give away whether the move just played was the prepared one. The
