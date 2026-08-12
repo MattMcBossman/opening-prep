@@ -41,14 +41,14 @@ import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
 import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
-import { derivedLichessOpeningName } from './lib/openingName'
+import { inheritedOpeningName, OPENING_NAME_GUARANTEE_MIN_GAMES } from './lib/openingName'
 import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel } from './lib/repertoireDrills'
-import type { DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
+import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
 import type { RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
-import type { RepertoireLine as ApiRepertoireLine } from './lib/repertoireApi'
+import type { RepertoireLine as ApiRepertoireLine, RepertoireSummary } from './lib/repertoireApi'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
@@ -96,9 +96,9 @@ function readViewSession(): Partial<ViewSession> {
 
 function App() {
   const [initialView] = useState(readViewSession)
-  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition, loadContinuationPath } = useGame()
+  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition, loadContinuationPath, boardTransition } = useGame()
   const { theme, toggleTheme } = useTheme()
-  const { boardColor, toggleBoardColor } = useBoardColor()
+  const { boardColor, setBoardColor, toggleBoardColor } = useBoardColor()
   const token = ''
   const auth = useAuth()
   const isSignedIn = auth.user !== null
@@ -164,6 +164,7 @@ function App() {
     initialView.drillStartContext ? (initialView.drillStartMode ?? 'selected_position') : 'beginning',
   )
   const [drillMounted, setDrillMounted] = useState(initialView.mode === 'drill' || Boolean(initialView.drillStartContext))
+  const [moduleDrill, setModuleDrill] = useState<{ module: RepertoireSummary; lines: DrillLine[] } | null>(null)
 
   const selectedModuleId = repertoire.editingModuleIds[boardColor] ?? null
   const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
@@ -334,6 +335,7 @@ function App() {
     // is visible so switching back resumes the same session. Restarting is an
     // explicit action inside DrillView.
     if (nextMode === 'drill' && !drillMounted) {
+      setModuleDrill(null)
       setDrillStartContext(undefined)
       setDrillStartMode('beginning')
       setDrillMounted(true)
@@ -342,6 +344,7 @@ function App() {
   }, [allowLeavingModuleDraft, drillMounted, mode])
 
   const resetDrillStartPosition = useCallback(() => {
+    setModuleDrill(null)
     setDrillStartContext(undefined)
     setDrillStartMode('beginning')
     setDrillMounted(false)
@@ -454,6 +457,7 @@ function App() {
 
   const handleToggleBoardColor = useCallback(() => {
     if (!allowLeavingModuleDraft()) return
+    setModuleDrill(null)
     toggleBoardColor()
     reset()
   }, [allowLeavingModuleDraft, toggleBoardColor, reset])
@@ -480,6 +484,7 @@ function App() {
   const handleProfileChange = useCallback(
     (profileId: number) => {
       if (!allowLeavingModuleDraft()) return
+      setModuleDrill(null)
       repertoire.setActiveProfile(profileId)
       reset()
     },
@@ -506,6 +511,13 @@ function App() {
     const controller = new AbortController()
     setAncestorOpeningLoading(true)
     const findDeepestNamedAncestor = async () => {
+      // A low-volume current position inherits the nearest earlier resolved
+      // label. If an unnamed ancestor crossed the guarantee threshold, that
+      // ancestor's path-specific label is what descendants inherit; their own
+      // low-volume moves are not appended.
+      let guaranteedPly = (openingExplorer.data?.totalGames ?? 0) >= OPENING_NAME_GUARANTEE_MIN_GAMES
+        ? pointer
+        : null
       for (let ply = pointer - 1; ply >= 1; ply -= 1) {
         const ancestorFen = moves[ply - 1]?.fenAfter
         if (!ancestorFen) continue
@@ -516,11 +528,23 @@ function App() {
             signal: controller.signal,
             filters: {},
           })
-          if (!result.opening) continue
+          if (!result.opening) {
+            if (guaranteedPly === null && result.totalGames >= OPENING_NAME_GUARANTEE_MIN_GAMES) {
+              guaranteedPly = ply
+            }
+            continue
+          }
           if (!controller.signal.aborted) {
             setAncestorOpening({
               eco: result.opening.eco,
-              name: derivedLichessOpeningName(result.opening.name, ply, moves.slice(ply, pointer).map((move) => move.san)),
+              name: inheritedOpeningName(
+                result.opening.name,
+                ply,
+                guaranteedPly,
+                guaranteedPly === null
+                  ? []
+                  : moves.slice(ply, guaranteedPly).map((move) => move.san),
+              ),
             })
             setAncestorOpeningLoading(false)
           }
@@ -535,7 +559,7 @@ function App() {
     }
     void findDeepestNamedAncestor()
     return () => controller.abort()
-  }, [isSignedIn, moves, openingExplorer.data?.opening, openingExplorer.loading, pointer, token])
+  }, [isSignedIn, moves, openingExplorer.data?.opening, openingExplorer.data?.totalGames, openingExplorer.loading, pointer, token])
 
   const resolvedOpening = useMemo(() => {
     if (openingExplorer.data?.opening) return { opening: openingExplorer.data.opening, ply: pointer }
@@ -557,10 +581,33 @@ function App() {
   }, [fen, moves, pointer, resolvedOpening])
 
   const startDrillFromPosition = useCallback(() => {
+    setModuleDrill(null)
     selectCurrentDrillStartPosition()
     setDrillMounted(true)
     setMode('drill')
   }, [selectCurrentDrillStartPosition])
+
+  const startModuleDrill = useCallback((module: RepertoireSummary) => {
+    const lines = repertoire.getModuleDrillLines(module.id)
+    if (lines.length === 0) return
+    const shortest = Math.min(...lines.map((line) => line.steps.length))
+    let sharedPlies = 0
+    while (sharedPlies < shortest && lines.every((line) => line.steps[sharedPlies].uci === lines[0].steps[sharedPlies].uci)) sharedPlies += 1
+    const openingPlies = Math.min(sharedPlies, module.color === 'white' ? 3 : 2)
+    const openingStep = openingPlies > 0 ? lines[0].steps[openingPlies - 1] : null
+    setBoardColor(module.color)
+    setModuleDrill({ module, lines })
+    setDrillStartContext({
+      selectedFen: openingStep?.resultingFen ?? START_FEN,
+      selectedPly: openingPlies,
+      prefixUci: lines[0].steps.slice(0, openingPlies).map((step) => step.uci),
+      openingName: module.name,
+    })
+    setDrillStartMode('selected_position')
+    setDrillMounted(false)
+    setMode('drill')
+    requestAnimationFrame(() => setDrillMounted(true))
+  }, [repertoire, setBoardColor])
 
   // Any position change (drag move, click-to-move, explorer click, history navigation,
   // reset) invalidates the current selection.
@@ -604,6 +651,13 @@ function App() {
     }
     return Object.keys(styles).length > 0 ? styles : undefined
   }, [selectedSquare, hoveredSquare, legalMoves, moves, pointer])
+
+  const isHistoryCaptureTransition = useMemo(() => {
+    if (boardTransition.kind !== 'history') return false
+    if (Math.abs(boardTransition.toPointer - boardTransition.fromPointer) !== 1) return false
+    const move = moves[Math.max(boardTransition.fromPointer, boardTransition.toPointer) - 1]
+    return move?.san.includes('x') ?? false
+  }, [boardTransition, moves])
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
     // A drag is a new interaction, independent of any earlier tap-to-move
@@ -696,6 +750,7 @@ function App() {
             onCreateModule={repertoire.createModule}
             onRenameModule={repertoire.renameModule}
             onDuplicateModule={repertoire.duplicateModule}
+            onDrillModule={startModuleDrill}
             onDeleteModule={repertoire.deleteModule}
             onSetMembership={repertoire.setModuleMembership}
             onRemoveMembership={repertoire.removeModuleMembership}
@@ -778,13 +833,13 @@ function App() {
             lichessToken={token}
             user={auth.user}
             repertoireId={repertoire.repertoireIds[boardColor] ?? null}
-            repertoireIds={repertoire.activeProfile?.modules
+            repertoireIds={moduleDrill ? [moduleDrill.module.id] : repertoire.activeProfile?.modules
               .filter((module) => module.enabled && module.color === boardColor)
               .map((module) => module.id)}
             templateReleaseIds={repertoire.activeProfile?.templateReleases
               ?.filter((release) => release.enabled && release.color === boardColor)
               .map((release) => release.id)}
-            drillLines={repertoire.drillLines[boardColor]}
+            drillLines={moduleDrill?.module.color === boardColor ? moduleDrill.lines : repertoire.drillLines[boardColor]}
             startContext={drillStartContext}
             startMode={drillStartMode}
             onViewInExplorer={viewDrillCompletionInExplorer}
@@ -838,7 +893,7 @@ function App() {
               />
             </div>
             <div className="board-with-eval">
-              <div className="board-wrapper" data-active-piece-color={sideToMove(fen)}>
+              <div className={`board-wrapper${isHistoryCaptureTransition ? ' history-capture-transition' : ''}`} data-active-piece-color={sideToMove(fen)}>
                 <Chessboard
                   options={{
                     position: fen,
@@ -858,7 +913,7 @@ function App() {
                     squareStyles,
                     dropSquareStyle: DROP_SQUARE_STYLE,
                     showAnimations: true,
-                    animationDurationInMs: 300,
+                    animationDurationInMs: isHistoryCaptureTransition ? 400 : 420,
                     id: 'opening-prep-explorer-board',
                   }}
                 />

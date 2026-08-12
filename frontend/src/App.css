@@ -417,6 +417,21 @@
 .board-wrapper[data-active-piece-color='none'] [data-piece] {
   cursor: default !important;
 }
+
+/* react-chessboard supplies the transform and duration inline. A softer
+   ease-out curve keeps direct history/table/FEN changes from looking abrupt,
+   especially when several pieces differ between the two positions. */
+.board-wrapper [data-piece] {
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+/* Adjacent capture/uncapture history steps use react-chessboard's native move
+   timing so the moving and removed/restored pieces settle in one synchronized
+   transition. Quiet history moves and broader position jumps keep the softer
+   explorer easing above. */
+.board-wrapper.history-capture-transition [data-piece] {
+  transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+}
 .board-heading {
   display: flex;
   align-items: flex-start;
@@ -2102,6 +2117,11 @@
 
   .opening-name {
     min-width: 0;
+    /* Most names occupy one or two lines. Reserving both prevents the board and
+       document scroll position from jumping when an async lookup changes the
+       heading's wrap shortly after a move. */
+    min-height: 2.8em;
+    justify-content: center;
   }
 
   .opening-name-text {

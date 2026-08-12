@@ -10,6 +10,9 @@ export type HistoryEntry = {
 }
 
 export type MoveInput = string | { from: string; to: string; promotion?: string }
+export type BoardTransition =
+  | { kind: 'history'; fromPointer: number; toPointer: number }
+  | { kind: 'direct' }
 
 export const START_FEN = new Chess().fen()
 const SESSION_STORAGE_KEY = 'opening-prep:explorer-session:v1'
@@ -44,6 +47,7 @@ export function useGame() {
   const [baseFen, setBaseFen] = useState(initial.baseFen)
   const [moves, setMoves] = useState<HistoryEntry[]>(initial.moves)
   const [pointer, setPointer] = useState(initial.pointer)
+  const [boardTransition, setBoardTransition] = useState<BoardTransition>({ kind: 'direct' })
 
   useEffect(() => {
     try {
@@ -59,13 +63,15 @@ export function useGame() {
 
   const goTo = useCallback(
     (index: number) => {
-      setPointer(Math.max(0, Math.min(index, moves.length)))
+      const target = Math.max(0, Math.min(index, moves.length))
+      setBoardTransition({ kind: 'history', fromPointer: pointer, toPointer: target })
+      setPointer(target)
     },
-    [moves.length],
+    [moves.length, pointer],
   )
 
-  const goBack = useCallback(() => setPointer((p) => Math.max(0, p - 1)), [])
-  const goForward = useCallback(() => setPointer((p) => Math.min(moves.length, p + 1)), [moves.length])
+  const goBack = useCallback(() => goTo(pointer - 1), [goTo, pointer])
+  const goForward = useCallback(() => goTo(pointer + 1), [goTo, pointer])
 
   /**
    * Plays `move` if it's legal here, returning the resulting history entry (or null if
@@ -84,6 +90,7 @@ export function useGame() {
       }
       if (!result) return null
 
+      setBoardTransition({ kind: 'direct' })
       const uci = `${result.from}${result.to}${result.promotion ?? ''}`
       const entry: HistoryEntry = { san: result.san, uci, fenAfter: trial.fen() }
       setMoves((prev) => [...prev.slice(0, pointer), entry])
@@ -94,6 +101,7 @@ export function useGame() {
   )
 
   const reset = useCallback(() => {
+    setBoardTransition({ kind: 'direct' })
     setBaseFen(START_FEN)
     setMoves([])
     setPointer(0)
@@ -117,6 +125,7 @@ export function useGame() {
       return false
     }
     setBaseFen(START_FEN)
+    setBoardTransition({ kind: 'direct' })
     setMoves(history)
     setPointer(history.length)
     return true
@@ -126,6 +135,7 @@ export function useGame() {
   const loadPosition = useCallback((nextFen: string): boolean => {
     try {
       const validatedFen = new Chess(nextFen).fen()
+      setBoardTransition({ kind: 'direct' })
       setBaseFen(validatedFen)
       setMoves([])
       setPointer(0)
@@ -153,6 +163,7 @@ export function useGame() {
       return false
     }
     setMoves((previous) => [...previous.slice(0, pointer), ...appended])
+    setBoardTransition({ kind: 'direct' })
     setPointer(pointer + appended.length)
     return true
   }, [fen, pointer])
@@ -162,6 +173,7 @@ export function useGame() {
     moves,
     pointer,
     legalMoves,
+    boardTransition,
     isAtEnd: pointer === moves.length,
     goTo,
     goBack,

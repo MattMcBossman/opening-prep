@@ -139,6 +139,14 @@ function useLocalRepertoireStore() {
     [repertoire],
   )
   const getEditingTree = useCallback((color: RepertoireColor): RepertoireTree => editingModule(store, color)?.tree ?? {}, [editingModule, store])
+  const getModuleDrillLines = useCallback((moduleId: number): DrillLine[] => {
+    const module = store.modules.find((candidate) => candidate.id === moduleId)
+    if (!module) return []
+    return collectDrillLines(module.color, (fen) => module.tree[normalizeFen(fen)] ?? []).map((line) => ({
+      ...line,
+      sources: [{ kind: 'repertoire', id: module.id, name: module.name }],
+    }))
+  }, [store.modules])
 
   const isMoveSaved = useCallback(
     (color: RepertoireColor, fen: string, uci: string): boolean => {
@@ -214,7 +222,7 @@ function useLocalRepertoireStore() {
   }
 
   return {
-    repertoire, getContinuations, getEditingTree, isMoveSaved, addMove, removeMove, profiles, modules, activeProfile,
+    repertoire, getContinuations, getEditingTree, getModuleDrillLines, isMoveSaved, addMove, removeMove, profiles, modules, activeProfile,
     activeProfileId: activeProfile?.id ?? null, editingModuleIds: store.editingModuleIds,
     setActiveProfile: (profileId: number) => setStore((previous) => {
       const profile = previous.profiles.find((item) => item.id === profileId)
@@ -586,6 +594,21 @@ function useApiRepertoireStore(enabled: boolean) {
     const moduleId = state.editingModuleIds[color]
     return moduleId === undefined ? {} : state.trees[moduleId] ?? {}
   }, [state.editingModuleIds, state.trees])
+  const getModuleDrillLines = useCallback((moduleId: number): DrillLine[] => {
+    const module = state.modules.find((candidate) => candidate.id === moduleId)
+    if (!module) return []
+    return (state.lines[moduleId] ?? []).map((line) => ({
+      id: line.uciPath,
+      steps: line.steps.map((step) => ({
+        fen: step.originFen,
+        san: step.san,
+        uci: step.uci,
+        resultingFen: step.resultingFen,
+        mover: sideToMove(step.originFen) === module.color ? 'own' : 'opponent',
+      })),
+      sources: [{ kind: 'repertoire', id: module.id, lineId: line.id, name: module.name }],
+    }))
+  }, [state.lines, state.modules])
   const isMoveSaved = useCallback(
     (color: RepertoireColor, fen: string, uci: string): boolean => {
       const moduleId = state.editingModuleIds[color]
@@ -646,6 +669,7 @@ function useApiRepertoireStore(enabled: boolean) {
     activeProfile,
     getContinuations,
     getEditingTree,
+    getModuleDrillLines,
     isMoveSaved,
     isMoveInActiveProfile,
     addMove,
@@ -870,6 +894,7 @@ export function useRepertoire(user: AuthUser | null) {
   return {
     getContinuations,
     getEditingTree: isAuthenticated ? api.getEditingTree : local.getEditingTree,
+    getModuleDrillLines: isAuthenticated ? api.getModuleDrillLines : local.getModuleDrillLines,
     isMoveSaved: active.isMoveSaved,
     isMoveInActiveProfile: isAuthenticated
       ? api.isMoveInActiveProfile

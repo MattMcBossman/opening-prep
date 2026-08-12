@@ -35,6 +35,7 @@ type Props = {
   onCreateModule: (color: RepertoireColor, name: string, description?: string, profileId?: number) => Promise<unknown>
   onRenameModule: (id: number, name: string) => Promise<unknown>
   onDuplicateModule: (id: number) => Promise<unknown>
+  onDrillModule: (module: RepertoireSummary) => void
   onDeleteModule: (id: number) => Promise<unknown>
   onSetMembership: (profileId: number, moduleId: number, sortOrder: number, enabled: boolean) => Promise<unknown>
   onRemoveMembership: (profileId: number, moduleId: number) => Promise<unknown>
@@ -165,6 +166,7 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
       </form>}
       <div className="manager-actions manager-membership-actions">
         <button type="button" disabled={busy} onClick={() => { props.onEditingModuleChange(module.id); onClose() }}>View module</button>
+        <button type="button" disabled={busy || preparedLineCount === 0} onClick={() => { props.onDrillModule(module); onClose() }}>Drill module</button>
         <button type="button" disabled={busy} onClick={() => void run(() => props.onDuplicateModule(module.id))}>Duplicate</button>
         {attached ? <button type="button" disabled={busy} onClick={() => void run(() => props.onRemoveMembership(activeProfile.id, module.id))}>Detach from profile</button> : <button type="button" disabled={busy} onClick={() => void run(() => props.onSetMembership(activeProfile.id, module.id, membership?.sortOrder ?? activeProfile.modules.length, true))}>Attach to profile</button>}
         <button type="button" className="manager-more-button" aria-expanded={actionsOpen} onClick={() => setModuleActionsId(actionsOpen ? null : module.id)}>More</button>
