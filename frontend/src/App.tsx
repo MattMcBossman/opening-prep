@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { PieceDataType, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
@@ -15,6 +15,7 @@ import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
 import { useResetKeyboardShortcut } from './hooks/useResetKeyboardShortcut'
 import type { ExplorerSource } from './hooks/useExplorerStats'
 import { useRepertoire } from './hooks/useRepertoire'
+import { fetchExplorerStats } from './lib/lichessExplorer'
 import type { LichessDatabaseFilters } from './lib/lichessExplorer'
 import { useSound } from './hooks/useSound'
 import { installAudioUnlock } from './audio/soundPlayer'
@@ -40,11 +41,12 @@ import { ModeToggle } from './components/ModeToggle'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
 import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
+import { derivedLichessOpeningName } from './lib/openingName'
 import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel } from './lib/repertoireDrills'
 import type { DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
-import type { ExplorerOpening, RepertoireColor, RepertoireMove, RepertoireTree } from './types'
+import type { RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
 import type { RepertoireLine as ApiRepertoireLine } from './lib/repertoireApi'
 import './App.css'
@@ -124,6 +126,22 @@ function App() {
     auth.user?.id,
     auth.user?.lichessUsername ?? '',
   )
+  // Opening identity is always sourced from the public Lichess database for
+  // this exact board FEN. It deliberately ignores the selected stats source,
+  // player-game filters, module names, and ancestor positions.
+  const openingExplorer = useExplorerStats(
+    fen,
+    token,
+    true,
+    isSignedIn,
+    'lichess',
+    boardColor,
+    {},
+    auth.user?.id,
+    auth.user?.lichessUsername ?? '',
+  )
+  const [ancestorOpening, setAncestorOpening] = useState<{ eco: string; name: string } | null>(null)
+  const [ancestorOpeningLoading, setAncestorOpeningLoading] = useState(false)
   const evaluation = useEngineEval(fen, isSignedIn)
   const repertoire = useRepertoire(auth.user)
   type PendingModuleChange =
@@ -481,39 +499,52 @@ function App() {
     )
   }, [boardColor, explorer.data, fen, isExplorerMyMove, repertoire])
 
-  // Remembers the opening name/ECO fetched for every FEN visited along the current
-  // line, so a position with no name of its own can fall back to the last known name
-  // for the line rather than showing an unavailable-name fallback.
-  const openingNameCache = useRef(new Map<string, ExplorerOpening>()).current
   useEffect(() => {
-    if (explorer.data) {
-      if (explorer.data.opening) openingNameCache.set(fen, explorer.data.opening)
-      const position = new Chess(fen)
-      for (const candidate of explorer.data.moves) {
-        if (!candidate.opening) continue
-        const child = new Chess(position.fen())
+    setAncestorOpening(null)
+    setAncestorOpeningLoading(false)
+    if (openingExplorer.loading || openingExplorer.data?.opening || pointer === 0 || !isSignedIn) return
+    const controller = new AbortController()
+    setAncestorOpeningLoading(true)
+    const findDeepestNamedAncestor = async () => {
+      for (let ply = pointer - 1; ply >= 1; ply -= 1) {
+        const ancestorFen = moves[ply - 1]?.fenAfter
+        if (!ancestorFen) continue
         try {
-          child.move(candidate.uci)
-          openingNameCache.set(child.fen(), candidate.opening)
+          const result = await fetchExplorerStats(ancestorFen, {
+            apiToken: token,
+            signedIn: true,
+            signal: controller.signal,
+            filters: {},
+          })
+          if (!result.opening) continue
+          if (!controller.signal.aborted) {
+            setAncestorOpening({
+              eco: result.opening.eco,
+              name: derivedLichessOpeningName(result.opening.name, ply, moves.slice(ply, pointer).map((move) => move.san)),
+            })
+            setAncestorOpeningLoading(false)
+          }
+          return
         } catch {
-          // Ignore malformed upstream moves; the statistics row remains usable.
+          if (controller.signal.aborted) return
+          // Try the next ancestor. Cached positions normally make this cheap;
+          // an isolated upstream failure should not erase a usable older name.
         }
       }
+      if (!controller.signal.aborted) setAncestorOpeningLoading(false)
     }
-  }, [fen, explorer.data, openingNameCache])
+    void findDeepestNamedAncestor()
+    return () => controller.abort()
+  }, [isSignedIn, moves, openingExplorer.data?.opening, openingExplorer.loading, pointer, token])
 
-  const resolvedOpening = useMemo<{ opening: NonNullable<ExplorerOpening>, ply: number } | null>(() => {
-    const live = explorer.data?.opening ?? null
-    if (live) return { opening: live, ply: pointer }
-    const current = openingNameCache.get(fen)
-    if (current) return { opening: current, ply: pointer }
-    for (let ply = pointer - 1; ply >= 0; ply--) {
-      const ancestorFen = ply === 0 ? START_FEN : moves[ply - 1].fenAfter
-      const cached = openingNameCache.get(ancestorFen)
-      if (cached) return { opening: cached, ply }
-    }
+  const resolvedOpening = useMemo(() => {
+    if (openingExplorer.data?.opening) return { opening: openingExplorer.data.opening, ply: pointer }
+    // The derived label already includes every move after the named ancestor,
+    // so treat it as the current position's complete name. This prevents drill
+    // handoff from appending the last move a second time.
+    if (ancestorOpening) return { opening: { eco: ancestorOpening.eco, name: ancestorOpening.name }, ply: pointer }
     return null
-  }, [explorer.data, fen, pointer, moves, openingNameCache])
+  }, [ancestorOpening, openingExplorer.data?.opening, pointer])
 
   const selectCurrentDrillStartPosition = useCallback(() => {
     setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
@@ -800,7 +831,11 @@ function App() {
 
           <div className="board-column">
             <div className="board-heading">
-              <OpeningName eco={resolvedOpening?.opening.eco ?? null} name={resolvedOpening?.opening.name ?? null} fen={fen} />
+              <OpeningName
+                name={resolvedOpening?.opening.name ?? null}
+                fen={fen}
+                loading={openingExplorer.loading || ancestorOpeningLoading}
+              />
             </div>
             <div className="board-with-eval">
               <div className="board-wrapper" data-active-piece-color={sideToMove(fen)}>

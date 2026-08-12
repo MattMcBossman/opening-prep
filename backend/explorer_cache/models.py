@@ -3,6 +3,8 @@
 from django.db import models
 from django.utils import timezone
 
+from common.fen import normalize_fen
+
 
 class PositionStatsCache(models.Model):
     """
@@ -45,6 +47,28 @@ class PositionStatsCache(models.Model):
     @property
     def is_expired(self) -> bool:
         return timezone.now() >= self.expires_at
+
+
+class MainlineOpeningName(models.Model):
+    """A curated, product-wide preferred name for one chess position."""
+
+    # This matches repertoire/cache identity so transpositions share a name.
+    fen = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=255)
+    eco = models.CharField(max_length=8, blank=True)
+    reference_url = models.URLField(blank=True)
+    curator_notes = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        self.fen = normalize_fen(self.fen)
+        super().save(*args, **kwargs)
 
 
 class EngineLineCache(models.Model):

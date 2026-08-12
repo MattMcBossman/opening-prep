@@ -10,8 +10,6 @@ import {
   type RepertoireSummary,
 } from '../lib/repertoireApi'
 import type { RepertoireColor, RepertoireTree } from '../types'
-import { findResponseConflicts } from '../lib/repertoireTree'
-import { findMissingReleaseLines } from '../lib/repertoireOverlay'
 import { validateManagementName } from '../lib/managementValidation'
 import './RepertoireProfileControls.css'
 
@@ -107,6 +105,7 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
   onCloseRef.current = onClose
   const headingId = useId()
   const [profileName, setProfileName] = useState('')
+  const [profilesOpen, setProfilesOpen] = useState(false)
   const [profileRename, setProfileRename] = useState<string | null>(null)
   const [moduleName, setModuleName] = useState('')
   const [moduleColor, setModuleColor] = useState<RepertoireColor>(props.color)
@@ -156,21 +155,21 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
     if (!activeProfile) return null
     const membership = activeProfile.modules.find((candidate) => candidate.id === module.id)
     const attached = membership?.enabled ? membership : null
-    const isEditing = props.editingModuleId === module.id
     const preparedLineCount = Number.isFinite(module.lineCount) ? module.lineCount : (membership?.lineCount ?? 0)
     const actionsOpen = moduleActionsId === module.id
     return <article className="manager-card" key={module.id}>
-      <div className="manager-card-title"><span><span className="manager-module-heading"><strong>{module.name}</strong><span className={`opening-color-tag ${module.color}`}>{module.color}</span><span className="manager-module-start">{module.commonStart || 'No shared starting line'}</span></span><small className="manager-card-meta"><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small>{module.hasResponseConflicts && <small className="panel-status error">Needs response cleanup</small>}</span><span className="manager-status">{attached ? 'Attached' : 'Detached'}</span></div>
+      <div className="manager-card-title"><span><span className="manager-module-heading"><strong>{module.name}</strong><span className={`opening-color-tag ${module.color}`}>{module.color}</span><span className="manager-module-start">{module.commonStart || 'No shared starting line'}</span></span><small className="manager-card-meta"><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small>{module.hasResponseConflicts && <small className="panel-status error">Needs response cleanup</small>}</span></div>
       {moduleRename?.id === module.id && <form className="manager-inline-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleRename.name, props.modules.map(({ name }) => name), (value) => props.onRenameModule(module.id, value), module.name).then((saved) => { if (saved) setModuleRename(null) }) }}>
         <label htmlFor={`rename-module-${module.id}`}>Module name</label><input id={`rename-module-${module.id}`} type="text" maxLength={100} autoFocus value={moduleRename.name} onChange={(event) => setModuleRename({ id: module.id, name: event.target.value })} />
         <div className="manager-actions"><button type="submit" disabled={busy}>Save name</button><button type="button" onClick={() => setModuleRename(null)}>Cancel</button></div>
       </form>}
       <div className="manager-actions manager-membership-actions">
+        <button type="button" disabled={busy} onClick={() => { props.onEditingModuleChange(module.id); onClose() }}>View module</button>
+        <button type="button" disabled={busy} onClick={() => void run(() => props.onDuplicateModule(module.id))}>Duplicate</button>
         {attached ? <button type="button" disabled={busy} onClick={() => void run(() => props.onRemoveMembership(activeProfile.id, module.id))}>Detach from profile</button> : <button type="button" disabled={busy} onClick={() => void run(() => props.onSetMembership(activeProfile.id, module.id, membership?.sortOrder ?? activeProfile.modules.length, true))}>Attach to profile</button>}
-        {attached && module.color === props.color && <button type="button" className={isEditing ? 'selected-action' : ''} aria-pressed={isEditing} disabled={busy || isEditing} onClick={() => props.onEditingModuleChange(module.id)}>{isEditing ? 'Editing this module' : 'Edit lines here'}</button>}
         <button type="button" className="manager-more-button" aria-expanded={actionsOpen} onClick={() => setModuleActionsId(actionsOpen ? null : module.id)}>More</button>
       </div>
-      {actionsOpen && <div className="manager-actions manager-secondary-actions"><button type="button" disabled={busy} onClick={() => { void run(() => props.onDuplicateModule(module.id)); setModuleActionsId(null) }}>Duplicate</button><button type="button" disabled={busy} onClick={() => { setModuleRename({ id: module.id, name: module.name }); setModuleActionsId(null) }}>Rename</button>{props.canManageGlobalLibrary && <button type="button" disabled={busy || preparedLineCount === 0 || module.hasResponseConflicts} title={module.hasResponseConflicts ? "Resolve multiple responses before publishing" : undefined} onClick={() => { setPublishDraft({ moduleId: module.id, changelog: '' }); setModuleActionsId(null) }}>Publish to community</button>}<button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm(`Delete module “${module.name}” and all of its lines?`)) void run(() => props.onDeleteModule(module.id)); setModuleActionsId(null) }}>Delete module</button></div>}
+      {actionsOpen && <div className="manager-actions manager-secondary-actions"><button type="button" disabled={busy} onClick={() => { setModuleRename({ id: module.id, name: module.name }); setModuleActionsId(null) }}>Rename</button>{props.canManageGlobalLibrary && <button type="button" disabled={busy || preparedLineCount === 0 || module.hasResponseConflicts} title={module.hasResponseConflicts ? "Resolve multiple responses before publishing" : undefined} onClick={() => { setPublishDraft({ moduleId: module.id, changelog: '' }); setModuleActionsId(null) }}>Publish to community</button>}<button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm(`Delete module “${module.name}” and all of its lines?`)) void run(() => props.onDeleteModule(module.id)); setModuleActionsId(null) }}>Delete module</button></div>}
       {publishDraft?.moduleId === module.id && <form className="manager-inline-form publish-confirmation" onSubmit={(event) => { event.preventDefault(); void run(() => publishOpeningTemplate(module.id, publishDraft.changelog)).then((saved) => { if (saved) { setPublishDraft(null); setLibraryRevision((value) => value + 1) } }) }}>
         <strong>Publish “{module.name}” publicly?</strong>
         <p>This creates an immutable release in the Community library under your account. It will not be labeled as an official Mainline module.</p>
@@ -189,11 +188,12 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
       {props.showGlobalLibrary !== false && <button type="button" className={managerView === 'library' ? 'selected-action' : ''} aria-current={managerView === 'library' ? 'page' : undefined} onClick={() => setManagerView('library')}>Module library</button>}
     </nav>
     {managerView === 'modules' && <>
-    <form className="manager-form" onSubmit={(event) => { event.preventDefault(); void submitName(profileName, props.profiles.map(({ name }) => name), props.onCreateProfile).then((saved) => { if (saved) setProfileName('') }) }}>
+    <button type="button" className="manager-profiles-toggle" aria-expanded={profilesOpen} onClick={() => setProfilesOpen((open) => !open)}>Manage profiles</button>
+    {profilesOpen && <div className="manager-profiles-panel"><form className="manager-form" onSubmit={(event) => { event.preventDefault(); void submitName(profileName, props.profiles.map(({ name }) => name), props.onCreateProfile).then((saved) => { if (saved) setProfileName('') }) }}>
       <label htmlFor="new-profile-name">New profile</label>
       <div className="manager-form-actions"><input id="new-profile-name" type="text" maxLength={100} placeholder="e.g. Tournament" value={profileName} onChange={(event) => setProfileName(event.target.value)} /><button type="submit" disabled={busy}>Create</button></div>
     </form>
-    {activeProfile && <section aria-labelledby="active-profile-heading">
+    {activeProfile && <>
       <div className="manager-section-heading"><div><h3 id="active-profile-heading">{activeProfile.name}</h3><small>Active profile · combines the modules listed below</small></div>
         <div className="manager-actions"><button type="button" disabled={busy} onClick={() => setProfileRename(activeProfile.name)}>Rename profile</button>
           {props.profiles.length > 1 && <button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm(`Delete profile “${activeProfile.name}”? Its modules will be kept.`)) void run(() => props.onDeleteProfile(activeProfile.id)) }}>Delete profile</button>}</div>
@@ -202,6 +202,9 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
         <label htmlFor="rename-profile-name">Profile name</label><input id="rename-profile-name" type="text" maxLength={100} autoFocus value={profileRename} onChange={(event) => setProfileRename(event.target.value)} />
         <div className="manager-actions"><button type="submit" disabled={busy}>Save name</button><button type="button" onClick={() => setProfileRename(null)}>Cancel</button></div>
       </form>}
+      </>}
+      </div>}
+    {activeProfile && <section aria-labelledby="active-profile-heading">
       <div className="manager-modules-heading"><h4>Opening modules</h4><div className="manager-color-filter" role="group" aria-label="Filter modules by color">{(['all', 'white', 'black'] as const).map((filter) => <button type="button" key={filter} className={moduleFilter === filter ? 'selected-action' : ''} aria-pressed={moduleFilter === filter} onClick={() => setModuleFilter(filter)}>{filter[0].toUpperCase() + filter.slice(1)}</button>)}</div></div>
       {attachedModules.length > 0 && <section className="manager-module-group"><h5>Attached to {activeProfile.name}</h5><div className="manager-card-list">{attachedModules.map(renderModuleCard)}</div></section>}
       {otherModules.length > 0 && <section className="manager-module-group"><h5>Other saved modules</h5><div className="manager-card-list">{otherModules.map(renderModuleCard)}</div></section>}
@@ -215,7 +218,7 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
   </div>
 }
 
-function GlobalLibrary({ libraryRevision, profile, busy, run, onClose, editingModuleId, editingLinePaths, editingTree, color, canManageGlobalLibrary = true, onCopyTemplate, onCopyMissingTemplateLines, previewRelease, onPreviewTemplate }: Props & { profile: RepertoireProfileSummary; busy: boolean; run: (action: AsyncAction) => Promise<boolean>; libraryRevision: number; onClose: () => void }) {
+function GlobalLibrary({ libraryRevision, profile, busy, run, onClose, canManageGlobalLibrary = true, onCopyTemplate, previewRelease, onPreviewTemplate }: Props & { profile: RepertoireProfileSummary; busy: boolean; run: (action: AsyncAction) => Promise<boolean>; libraryRevision: number; onClose: () => void }) {
   const [templates, setTemplates] = useState<OpeningTemplateSummary[]>([])
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { const controller = new AbortController(); listOpeningTemplates(controller.signal).then(setTemplates, (reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not load the library.') }); return () => controller.abort() }, [libraryRevision])
@@ -234,13 +237,7 @@ function GlobalLibrary({ libraryRevision, profile, busy, run, onClose, editingMo
       </article>
     })}</div>
     {previewRelease && (() => {
-      const missing = findMissingReleaseLines(previewRelease.lines, editingLinePaths)
-      const conflicting = missing.filter((line) => findResponseConflicts(editingTree, color, line.steps).length > 0)
-      const fillable = missing.length - conflicting.length
       return <div className="template-preview"><button type="button" aria-label="Close module preview" onClick={() => onPreviewTemplate(null)}>×</button><strong>{previewRelease.name} v{previewRelease.version}</strong><small>Read-only preview</small><div className="manager-actions">{canManage && <button type="button" disabled={busy} onClick={() => void run(() => onCopyTemplate(previewRelease.templateSlug, previewRelease.version, profile.id))}>Save copy</button>}<button type="button" onClick={onClose}>View in explorer</button></div>{previewRelease.changelog && <p>{previewRelease.changelog}</p>}<p>{previewRelease.lines.length} lines · {Object.values(previewRelease.tree).reduce((sum, moves) => sum + moves.length, 0)} moves</p>
-        {previewRelease.color === color && <><p><strong>{missing.length}</strong> of {previewRelease.lines.length} lines are missing from the current editing module.</p>{conflicting.length > 0 && <p className="panel-status error">{conflicting.length} conflicting line(s) will be skipped. Copy this release as a new module to keep those alternative responses.</p>}
-          {canManage && editingModuleId && <button type="button" disabled={busy || fillable === 0} onClick={() => void run(() => onCopyMissingTemplateLines(previewRelease.templateSlug, previewRelease.version, editingModuleId))}>{fillable === 0 ? 'No non-conflicting gaps to fill' : `Fill  non-conflicting gap(s)`}</button>}
-        </>}
       </div>
     })()}
   </section>

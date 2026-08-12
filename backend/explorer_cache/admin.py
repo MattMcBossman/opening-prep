@@ -2,10 +2,18 @@ from django.contrib import admin
 
 from .models import (
     EngineLineCache,
+    MainlineOpeningName,
     PositionAnalysis,
     PositionFeatureSet,
     PositionStatsCache,
 )
+
+
+@admin.register(MainlineOpeningName)
+class MainlineOpeningNameAdmin(admin.ModelAdmin):
+    list_display = ["name", "eco", "fen", "updated_at"]
+    search_fields = ["name", "eco", "fen"]
+    readonly_fields = ["updated_at"]
 
 
 @admin.register(PositionStatsCache)

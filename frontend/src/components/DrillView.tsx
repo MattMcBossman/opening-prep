@@ -456,7 +456,7 @@ export function DrillView({
           <div className="drill-progress">
             {startContext && (
               <strong className="drill-start-position-name">
-                {startContext.openingEco ? `${startContext.openingEco} · ` : ''}{startContext.openingName ?? 'Selected position'}
+                {startContext.openingName ?? 'Selected position'}
                 {startContext.positionMoveLabel ? `, ${startContext.positionMoveLabel}` : ''}
               </strong>
             )}

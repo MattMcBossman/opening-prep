@@ -1,32 +1,32 @@
+import { useRef } from 'react'
 import { START_FEN } from '../hooks/useGame'
 
 type Props = {
-  eco: string | null
   name: string | null
   fen: string
+  loading?: boolean
 }
 
-/**
- * MVP opening-name lookup: uses the "opening" field Lichess's explorer API already
- * returns for known positions. See AGENTS.md "ECO/opening-name lookup" for the manual
- * override, which is deferred to the repertoire view (Phase 2).
- */
-export function OpeningName({ eco, name, fen }: Props) {
+/** Shows the preferred human name while hiding internal classification codes. */
+export function OpeningName({ name, fen, loading = false }: Props) {
+  const lastSettledName = useRef<string | null>(name)
+  if (!loading) lastSettledName.current = name
+  const displayedName = loading ? lastSettledName.current : name
+
   // The starting position has no opening of its own; showing an unavailable-name fallback there
   // is just noise, so render an (empty, height-reserving) placeholder instead.
-  if (!name && fen === START_FEN) {
+  if (!displayedName && fen === START_FEN) {
     return <div className="opening-name" />
   }
 
   return (
     <div className="opening-name">
-      {name ? (
-        <span className="opening-name-text">
-          {eco ? `${eco} · ` : ''}
-          {name}
-        </span>
+      {displayedName ? (
+        <span className="opening-name-text">{displayedName}</span>
+      ) : loading ? (
+        <span className="opening-name-text opening-name-empty">Loading opening…</span>
       ) : (
-        <span className="opening-name-text opening-name-empty">Opening name unavailable</span>
+        <span className="opening-name-text opening-name-empty">Unclassified position</span>
       )}
     </div>
   )

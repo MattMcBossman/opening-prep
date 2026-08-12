@@ -4,7 +4,7 @@ A web app for building and drilling a personal chess opening repertoire, inspire
 
 ## Status
 
-Phase 1 (opening explorer MVP) is implemented: move-by-move line browser (step through the line with the Back/Forward buttons or the ←/→ arrow keys; press R to reset the explorer board or restart the active drill session), Lichess Opening Explorer stats (normalized-FEN/filter-keyed browser and PostgreSQL caches; requires a user-supplied token when signed out), and client-side Stockfish (WASM) evaluation with iterative deepening. Stockfish results are shared across explorer/drill consumers in memory and, when signed in, persisted by normalized FEN plus engine build so revisiting a position can skip analysis.
+Phase 1 (opening explorer MVP) is implemented: move-by-move line browser (step through the line with the Back/Forward buttons or the ←/→ arrow keys; press R to reset the explorer board or restart the active drill session), Lichess Opening Explorer stats (normalized-FEN/filter-keyed browser and PostgreSQL caches; requires a user-supplied token when signed out), and client-side Stockfish (WASM) evaluation with iterative deepening. Opening identification always performs dedicated public-Lichess-database lookups, independent of the selected stats source or module name. A persistent, normalized-FEN-keyed Mainline naming layer can replace Lichess's wording with richer curated names while retaining Lichess as the statistical and fallback source. A position with neither a curated nor native Lichess name inherits the deepest named ancestor in its exact history plus the intervening moves; 10,000 public Lichess games is the initial completeness-guarantee threshold. Stockfish results are shared across explorer/drill consumers in memory and, when signed in, persisted by normalized FEN plus engine build so revisiting a position can skip analysis.
 
 Explorer history, the active page/phone section, data source and filters, and a selected drill starting position are retained in tab-scoped `sessionStorage`, so a refresh or development-server reload restores the working context without making it permanent across browser sessions.
 
@@ -53,8 +53,8 @@ positions are discounted.
 - `openingtree/` — git submodule; a pre-existing React app used as a **reference implementation only** for Lichess/Chess.com game-history iteration and PGN parsing (see [AGENTS.md](AGENTS.md#inspiration-source-openingtree-submodule)). Not built or run directly as part of this app.
 - `deployment-plan.md` — operating plan for private Tailscale development,
   a disposable free-Render invited alpha, and the paid Render production
-  topology, release runbook, security/configuration contract, rollback, and
-  launch gates.
+  topology, release runbook, security/configuration contract, rollback, legal/
+  attribution/contact/feedback surface, and launch gates.
 - `mobile-plan.md` — completed mobile engineering and physical-phone acceptance record.
 - `position-analysis-plan.md` — phased cached end-of-drill analysis, recurring plans, and deterministic positional features.
 

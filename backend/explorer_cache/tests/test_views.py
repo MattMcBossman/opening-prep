@@ -5,7 +5,8 @@ from rest_framework.test import APIClient
 
 from accounts.models import User
 from explorer_cache import cache, views
-from explorer_cache.models import EngineLineCache
+from common.fen import normalize_fen
+from explorer_cache.models import EngineLineCache, MainlineOpeningName
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -79,6 +80,32 @@ def test_stats_success_is_anonymous_safe_and_matches_explorer_response_shape(api
     response = api_client.get("/api/v1/explorer/stats/", {"fen": START_FEN, "moves": 12})
     assert response.status_code == 200
     assert response.data == canned
+
+
+def test_curated_mainline_name_replaces_lichess_wording_without_mutating_stats(db):
+    preferred = MainlineOpeningName.objects.create(
+        fen=START_FEN,
+        eco="C20",
+        name="King's Pawn Opening: Classical First-Move Position",
+    )
+    lichess_data = {
+        "totalGames": 20,
+        "moves": [],
+        "opening": {"eco": "A00", "name": "Lichess name"},
+    }
+
+    result = views.cache._with_preferred_opening_name(normalize_fen(START_FEN), lichess_data)
+
+    assert preferred.fen == normalize_fen(START_FEN)
+    assert result == {
+        "totalGames": 20,
+        "moves": [],
+        "opening": {
+            "eco": "C20",
+            "name": "King's Pawn Opening: Classical First-Move Position",
+        },
+    }
+    assert lichess_data["opening"]["name"] == "Lichess name"
 
 
 def test_stats_rejects_malformed_since(api_client):

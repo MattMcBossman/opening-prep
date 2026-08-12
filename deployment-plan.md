@@ -379,11 +379,60 @@ Production is ready only when all of these are true:
 - [ ] Migration, seed, health/readiness, desktop, and real-phone smoke tests pass.
 - [ ] Alerting and a tested database restore exist before invited-user data matters.
 - [ ] Rollback owner and incident contact path are written down.
+- [ ] The public-launch legal, attribution, contact, and feedback checklist below is complete.
 
 The choices intentionally left to the owner are the domain, Render region,
 monthly budget ceiling, whether the first release is owner-only or invite-only,
 and the database recovery/retention tier. None requires changing the application
 architecture above.
+
+### Public-launch legal, attribution, contact, and feedback checklist
+
+This is an engineering/product checklist, not legal advice. Have the final
+documents and handling process reviewed by someone qualified for the places
+where Mainline will operate before relying on them.
+
+- [ ] Audit production dependencies, fonts, icons, board/piece artwork, copied
+  text, opening-name data, generated opening modules, Stockfish, and external
+  data/API terms. Record provenance and license obligations in a maintained
+  `THIRD_PARTY_NOTICES` file; remove or replace anything whose reuse is unclear.
+- [ ] Decide and document the license, if any, for Mainline source code and for
+  Mainline-authored opening modules separately. Do not imply that user-created
+  modules inherit a license unless the publishing flow says so explicitly.
+- [ ] Confirm the copyright-holder name and year policy, and add a small footer
+  or About/Help surface with the copyright notice plus Legal, Privacy, Contact,
+  and Feedback links. Keep these accessible on mobile without adding permanent
+  clutter around the chessboard.
+- [ ] Perform a reasonable product-name/domain/trademark conflict review for
+  “Mainline” before investing in public branding.
+- [ ] Expand `/privacy/` to match actual production behavior: account/OAuth
+  data, encrypted Lichess tokens, Chess.com identifiers, repertoires and
+  community publications, browser storage, logs/diagnostics, subprocessors,
+  retention, deletion/export requests, security contact, and cross-border
+  processing where applicable. Explain required session/CSRF cookies; do not
+  add a consent banner unless the deployed tracking/storage actually requires
+  one.
+- [ ] Publish Terms covering acceptable use, service availability, account
+  termination, disclaimers, user-created module ownership/license, moderation,
+  prohibited infringement, and the process for removing reported content.
+- [ ] Publish attribution/source information for Lichess, Chess.com, Stockfish,
+  opening-name data, and other visible third-party material where their terms
+  or licenses require it. Avoid language suggesting sponsorship or endorsement.
+- [ ] Establish monitored contact routes for general support, privacy/deletion,
+  security reports, and copyright/takedown requests. Separate public aliases may
+  forward to one private inbox initially, but define an owner and response
+  process and do not expose a personal address unnecessarily.
+- [ ] Add an in-app Feedback/Report a bug path with a short category, message,
+  optional reply address, success receipt, abuse protection, and a link to the
+  privacy notice. Include environment/app version automatically; make URL/FEN,
+  browser details, logs, and screenshots explicit opt-ins. Never attach OAuth
+  tokens, cookies, private PGNs, account game data, or arbitrary request bodies.
+- [ ] Connect community-module “Report” actions to a moderator queue with reason,
+  status, audit history, reporter acknowledgement, and curator actions to hide
+  or restore a release. Document escalation and repeat-abuse handling.
+- [ ] Test every footer/legal/contact/feedback route signed in and out, on phone
+  and desktop, with keyboard navigation and a screen reader smoke pass. Ensure
+  deletion, takedown, and security messages reach the monitored destination.
 
 ## Development-only note on backups
 

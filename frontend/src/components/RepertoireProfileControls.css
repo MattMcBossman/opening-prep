@@ -258,6 +258,19 @@
   font-size: 13px;
 }
 
+.manager-profiles-toggle {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.manager-profiles-panel {
+  margin-top: 8px;
+  padding: 0 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
 @media (max-width: 700px) {
   .profile-manager-backdrop {
     place-items: stretch;

@@ -17,7 +17,7 @@ from common.fen import denormalize_fen, normalize_fen
 
 from .lichess_token import token_for_user
 from .metrics import cache_event
-from .models import EngineLineCache, PositionStatsCache
+from .models import EngineLineCache, MainlineOpeningName, PositionStatsCache
 from .response_shape import to_explorer_response as _to_explorer_response
 
 UPSTREAM_TIMEOUT_SECONDS = 8
@@ -71,6 +71,21 @@ def _fresh_entry(fen: str, params_key: str) -> PositionStatsCache | None:
     return entry if entry and not entry.is_expired else None
 
 
+def _with_preferred_opening_name(fen: str, data: dict) -> dict:
+    """Apply the curated display name without mutating cached Lichess data."""
+    preferred = MainlineOpeningName.objects.filter(fen=fen).first()
+    if preferred is None:
+        return data
+    lichess_opening = data.get("opening") or {}
+    return {
+        **data,
+        "opening": {
+            "eco": preferred.eco or lichess_opening.get("eco", ""),
+            "name": preferred.name,
+        },
+    }
+
+
 def get_or_fetch_stats(
     fen: str,
     moves: int,
@@ -108,7 +123,7 @@ def get_or_fetch_stats(
     cached = _fresh_entry(normalized, key)
     if cached is not None:
         cache_event("public_explorer", "hit")
-        return _to_explorer_response(cached.response)
+        return _with_preferred_opening_name(normalized, _to_explorer_response(cached.response))
     cache_event("public_explorer", "miss")
 
     with transaction.atomic():
@@ -120,7 +135,7 @@ def get_or_fetch_stats(
         cached = _fresh_entry(normalized, key)
         if cached is not None:
             cache_event("public_explorer", "single_flight_hit")
-            return _to_explorer_response(cached.response)
+            return _with_preferred_opening_name(normalized, _to_explorer_response(cached.response))
 
         token = token_for_user(user)
         if not token:
@@ -138,7 +153,7 @@ def get_or_fetch_stats(
                 "expires_at": timezone.now() + timedelta(seconds=settings.EXPLORER_CACHE_TTL_SECONDS),
             },
         )
-        return _to_explorer_response(entry.response)
+        return _with_preferred_opening_name(normalized, _to_explorer_response(entry.response))
 
 
 def _fetch_upstream(
