@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   describeAuthError,
+  cancelLichessMerge as cancelLichessMergeRequest,
+  confirmLichessMerge as confirmLichessMergeRequest,
+  fetchLichessMerge,
   fetchSession,
+  googleLoginUrl,
   lichessLoginUrl,
   linkChessCom as linkChessComRequest,
   logout as logoutRequest,
@@ -9,6 +13,7 @@ import {
   unlinkChessCom as unlinkChessComRequest,
 } from '../lib/authApi'
 import type { AuthUser } from '../lib/authApi'
+import type { LichessMergePreview } from '../lib/authApi'
 
 /**
  * Bootstraps and owns sign-in state against the Django backend. The
@@ -21,17 +26,27 @@ export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [lichessMerge, setLichessMerge] = useState<LichessMergePreview | null>(null)
+  const [lichessMergeBusy, setLichessMergeBusy] = useState(false)
+  const [lichessMergeError, setLichessMergeError] = useState<string | null>(null)
 
   useEffect(() => {
     // The Lichess OAuth round trip ends with the backend 302ing back here; a
     // failure is reported via `?authError=<slug>` rather than a rendered error
     // page (see API_CONTRACT.md). Surface it once, then strip it from the URL
     // so a refresh doesn't keep re-showing it.
+    const params = new URLSearchParams(window.location.search)
     const slug = parseAuthErrorFromSearch(window.location.search)
+    const hasLichessMerge = params.get('accountMerge') === 'lichess'
     if (slug) {
       setAuthError(describeAuthError(slug))
       const url = new URL(window.location.href)
       url.searchParams.delete('authError')
+      url.searchParams.delete('accountMerge')
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+    } else if (hasLichessMerge) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('accountMerge')
       window.history.replaceState(null, '', url.pathname + url.search + url.hash)
     }
 
@@ -39,6 +54,19 @@ export function useAuth() {
     fetchSession()
       .then((res) => {
         if (!cancelled) setUser(res.user)
+        // Also probe when the signed-in user has no Lichess identity. This
+        // recovers a pending merge after refresh and survives React Strict
+        // Mode's development-only effect replay, which can consume the
+        // one-time URL marker before the first request finishes.
+        if (!cancelled && res.user && (hasLichessMerge || !res.user.lichessUsername)) {
+          return fetchLichessMerge().then((preview) => {
+            if (!cancelled) setLichessMerge(preview)
+          }).catch((reason) => {
+            if (!cancelled && hasLichessMerge) {
+              setLichessMergeError(reason instanceof Error ? reason.message : 'The pending account merge could not be loaded.')
+            }
+          })
+        }
       })
       .catch(() => {
         if (!cancelled) setUser(null)
@@ -51,8 +79,11 @@ export function useAuth() {
     }
   }, [])
 
-  // A real browser navigation, not a fetch - see lichessLoginUrl.
-  const login = useCallback((next?: string) => {
+  const loginWithGoogle = useCallback((next?: string) => {
+    window.location.href = googleLoginUrl(next)
+  }, [])
+
+  const linkLichess = useCallback((next?: string) => {
     window.location.href = lichessLoginUrl(next)
   }, [])
 
@@ -78,5 +109,47 @@ export function useAuth() {
     setUser((current) => current ? { ...current, chessComUsername: null } : current)
   }, [])
 
-  return { user, loading, authError, login, logout, dismissAuthError, linkChessCom, unlinkChessCom }
+  const confirmLichessMerge = useCallback(async () => {
+    setLichessMergeBusy(true)
+    setLichessMergeError(null)
+    try {
+      const updatedUser = await confirmLichessMergeRequest()
+      setUser(updatedUser)
+      setLichessMerge(null)
+    } catch (reason) {
+      setLichessMergeError(reason instanceof Error ? reason.message : 'The accounts could not be merged.')
+    } finally {
+      setLichessMergeBusy(false)
+    }
+  }, [])
+
+  const cancelLichessMerge = useCallback(async () => {
+    setLichessMergeBusy(true)
+    setLichessMergeError(null)
+    try {
+      await cancelLichessMergeRequest()
+      setLichessMerge(null)
+    } catch (reason) {
+      setLichessMergeError(reason instanceof Error ? reason.message : 'The pending merge could not be canceled.')
+    } finally {
+      setLichessMergeBusy(false)
+    }
+  }, [])
+
+  return {
+    user,
+    loading,
+    authError,
+    loginWithGoogle,
+    linkLichess,
+    logout,
+    dismissAuthError,
+    linkChessCom,
+    unlinkChessCom,
+    lichessMerge,
+    lichessMergeBusy,
+    lichessMergeError,
+    confirmLichessMerge,
+    cancelLichessMerge,
+  }
 }

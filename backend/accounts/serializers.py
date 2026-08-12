@@ -14,10 +14,15 @@ class UserSerializer(serializers.ModelSerializer):
 
     lichessUsername = serializers.SerializerMethodField()
     chessComUsername = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "lichessUsername", "chessComUsername"]
+        fields = ["id", "username", "email", "lichessUsername", "chessComUsername"]
+
+    def get_email(self, obj: User) -> str | None:
+        identity = getattr(obj, "email_identity", None)
+        return identity.email if identity else None
 
     def get_lichessUsername(self, obj: User) -> str | None:
         account = getattr(obj, "lichess_account", None)

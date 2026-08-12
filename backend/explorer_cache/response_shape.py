@@ -17,16 +17,17 @@ def to_explorer_response(raw: dict) -> dict:
         white = m.get("white") or 0
         draws = m.get("draws") or 0
         black = m.get("black") or 0
-        moves.append(
-            {
-                "san": m.get("san"),
-                "uci": m.get("uci"),
-                "white": white,
-                "draws": draws,
-                "black": black,
-                "totalGames": white + draws + black,
-            }
-        )
+        move = {
+            "san": m.get("san"),
+            "uci": m.get("uci"),
+            "white": white,
+            "draws": draws,
+            "black": black,
+            "totalGames": white + draws + black,
+        }
+        if m.get("opening"):
+            move["opening"] = {"eco": m["opening"]["eco"], "name": m["opening"]["name"]}
+        moves.append(move)
     opening = raw.get("opening")
     return {
         "totalGames": (raw.get("white") or 0) + (raw.get("draws") or 0) + (raw.get("black") or 0),

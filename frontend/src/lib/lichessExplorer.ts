@@ -22,6 +22,7 @@ type RawExplorerMove = {
   white?: number
   draws?: number
   black?: number
+  opening?: { eco: string; name: string } | null
 }
 
 type RawExplorerResponse = {
@@ -49,6 +50,7 @@ export type TimeRangeFilters = {
 export type LichessDatabaseFilters = TimeRangeFilters & {
   ratings?: string[]
   speeds?: string[]
+  databases?: Array<'lichess' | 'chesscom'>
 }
 
 /** Stable cache-key fragment for a filters object, order-independent so equivalent filter sets share a cache entry. */
@@ -71,6 +73,7 @@ function applyTimeRangeFilters(params: URLSearchParams, filters?: TimeRangeFilte
 function applyPlayerFilters(params: URLSearchParams, filters?: LichessDatabaseFilters): void {
   applyTimeRangeFilters(params, filters)
   if (filters?.speeds?.length) params.set('speeds', filters.speeds.join(','))
+  if (filters?.databases) params.set('databases', filters.databases.join(','))
 }
 
 function applyLichessDatabaseFilters(params: URLSearchParams, filters?: LichessDatabaseFilters): void {
@@ -119,7 +122,15 @@ export async function fetchLichessExplorer(
     const white = m.white ?? 0
     const draws = m.draws ?? 0
     const black = m.black ?? 0
-    return { san: m.san, uci: m.uci, white, draws, black, totalGames: white + draws + black }
+    return {
+      san: m.san,
+      uci: m.uci,
+      white,
+      draws,
+      black,
+      totalGames: white + draws + black,
+      ...(m.opening ? { opening: { eco: m.opening.eco, name: m.opening.name } } : {}),
+    }
   })
 
   const data: ExplorerResponse = {

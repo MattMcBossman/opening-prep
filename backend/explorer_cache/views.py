@@ -123,7 +123,7 @@ class MyGamesExplorerView(APIView):
         data_in = query.validated_data
 
         try:
-            data = player_stats.fetch_player_stats(
+            data = player_stats.fetch_combined_player_stats(
                 request.user,
                 data_in["fen"],
                 data_in["moves"],
@@ -131,6 +131,7 @@ class MyGamesExplorerView(APIView):
                 since=data_in.get("since"),
                 until=data_in.get("until"),
                 speeds=data_in.get("speeds"),
+                databases=data_in.get("databases", "lichess,chesscom"),
             )
         except cache.TokenRequired:
             return Response(

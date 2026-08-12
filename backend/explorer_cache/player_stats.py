@@ -28,6 +28,7 @@ from accounts.tokens import get_lichess_access_token, get_lichess_username
 from common.fen import denormalize_fen, normalize_fen
 
 from .cache import TokenRequired, UpstreamRateLimited, UpstreamUnavailable
+from .chesscom_stats import fetch_chesscom_stats
 from .metrics import cache_event
 from .models import PlayerStatsCache
 from .response_shape import to_explorer_response
@@ -39,6 +40,56 @@ UPSTREAM_CONNECT_TIMEOUT_SECONDS = 8
 # short so genuinely queued requests still return useful partial data promptly.
 UPSTREAM_READ_TIMEOUT_SECONDS = 2
 PLAYER_EXPLORER_URL = "https://explorer.lichess.org/player"
+
+
+def fetch_combined_player_stats(
+    user,
+    fen: str,
+    moves: int,
+    color: str,
+    databases: str = "lichess,chesscom",
+    **filters,
+) -> dict:
+    """Fetch selected personal-game sources and sum matching continuation rows."""
+    selected = [value for value in databases.split(",") if value]
+    results = []
+    missing = 0
+    for source in selected:
+        try:
+            if source == "lichess":
+                results.append(fetch_player_stats(user, fen, moves, color, **filters))
+            elif source == "chesscom":
+                results.append(fetch_chesscom_stats(user, fen, moves, color, **filters))
+        except TokenRequired:
+            missing += 1
+    if not results and missing:
+        raise TokenRequired()
+
+    rows = {}
+    for result in results:
+        for move in result.get("moves", []):
+            row = rows.setdefault(
+                move["uci"],
+                {"san": move["san"], "uci": move["uci"], "white": 0, "draws": 0, "black": 0},
+            )
+            for outcome in ("white", "draws", "black"):
+                row[outcome] += move.get(outcome, 0)
+    combined_moves = []
+    for row in rows.values():
+        row["totalGames"] = row["white"] + row["draws"] + row["black"]
+        combined_moves.append(row)
+    combined_moves.sort(key=lambda row: (-row["totalGames"], row["san"]))
+    combined = {
+        "totalGames": sum(result.get("totalGames", 0) for result in results),
+        "moves": combined_moves[:moves],
+        "opening": next((result.get("opening") for result in results if result.get("opening")), None),
+    }
+    indexing = next((result for result in results if result.get("stillIndexing")), None)
+    if indexing:
+        combined["stillIndexing"] = True
+        if "queuePosition" in indexing:
+            combined["queuePosition"] = indexing["queuePosition"]
+    return combined
 
 
 def fetch_player_stats(

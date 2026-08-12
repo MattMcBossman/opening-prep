@@ -67,7 +67,8 @@ class OpeningTemplateReleaseInline(admin.TabularInline):
 
 @admin.register(OpeningTemplate)
 class OpeningTemplateAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "color", "is_published"]
+    list_display = ["name", "slug", "kind", "publisher", "color", "is_published"]
+    list_filter = ["kind", "color", "is_published"]
     prepopulated_fields = {"slug": ("name",)}
     inlines = [OpeningTemplateReleaseInline]
 

@@ -57,6 +57,24 @@ export function pruneResponselessIncomingEdges(tree: RepertoireTree, color: Repe
  * earlier ply in a line unconditionally, relying on already-saved ancestors being
  * harmless no-ops rather than duplicate entries.
  */
+export type ResponseConflict = { originFen: string; existingUci: string; incomingUci: string }
+
+export function findResponseConflicts(tree: RepertoireTree, color: RepertoireColor, steps: Array<{ originFen: string; uci: string }>): ResponseConflict[] {
+  const conflicts: ResponseConflict[] = []
+  const incoming = new Map<string, string>()
+  for (const step of steps) {
+    const originFen = normalizeFen(step.originFen)
+    if (sideToMove(originFen) !== color) continue
+    const prior = incoming.get(originFen)
+    if (prior && prior !== step.uci) conflicts.push({ originFen, existingUci: prior, incomingUci: step.uci })
+    incoming.set(originFen, step.uci)
+    for (const saved of tree[originFen] ?? []) {
+      if (saved.uci !== step.uci) conflicts.push({ originFen, existingUci: saved.uci, incomingUci: step.uci })
+    }
+  }
+  return conflicts.filter((item, index) => conflicts.findIndex((candidate) => candidate.originFen === item.originFen && candidate.existingUci === item.existingUci && candidate.incomingUci === item.incomingUci) === index)
+}
+
 export function addMoveToTree(tree: RepertoireTree, fen: string, move: RepertoireMove): RepertoireTree {
   const key = normalizeFen(fen)
   const existing = tree[key] ?? []

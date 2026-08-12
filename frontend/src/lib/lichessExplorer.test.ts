@@ -21,13 +21,28 @@ const RAW_EXPLORER_RESPONSE = {
   white: 100,
   draws: 20,
   black: 80,
-  moves: [{ uci: 'e2e4', san: 'e4', white: 60, draws: 10, black: 30 }],
+  moves: [{
+    uci: 'e2e4',
+    san: 'e4',
+    white: 60,
+    draws: 10,
+    black: 30,
+    opening: { eco: 'B00', name: "King's Pawn Game" },
+  }],
   opening: { eco: 'B90', name: 'Sicilian Defense: Najdorf Variation' },
 }
 
 const EXPECTED_RESPONSE = {
   totalGames: 200,
-  moves: [{ san: 'e4', uci: 'e2e4', white: 60, draws: 10, black: 30, totalGames: 100 }],
+  moves: [{
+    san: 'e4',
+    uci: 'e2e4',
+    white: 60,
+    draws: 10,
+    black: 30,
+    totalGames: 100,
+    opening: { eco: 'B00', name: "King's Pawn Game" },
+  }],
   opening: { eco: 'B90', name: 'Sicilian Defense: Najdorf Variation' },
 }
 

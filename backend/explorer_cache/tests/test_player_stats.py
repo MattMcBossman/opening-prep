@@ -171,3 +171,50 @@ def test_no_parseable_lines_at_all_raises_unavailable(user):
     responses.add(responses.GET, player_stats.PLAYER_EXPLORER_URL, body="\n\n", status=200)
     with pytest.raises(cache.UpstreamUnavailable):
         player_stats.fetch_player_stats(user, START_FEN, 12, "white")
+
+
+def test_combined_sources_sum_matching_moves(user, monkeypatch):
+    lichess = {
+        "totalGames": 3,
+        "moves": [{"san": "e4", "uci": "e2e4", "white": 2, "draws": 1, "black": 0, "totalGames": 3}],
+        "opening": None,
+    }
+    chesscom = {
+        "totalGames": 2,
+        "moves": [{"san": "e4", "uci": "e2e4", "white": 1, "draws": 0, "black": 1, "totalGames": 2}],
+        "opening": None,
+    }
+    monkeypatch.setattr(player_stats, "fetch_player_stats", lambda *args, **kwargs: lichess)
+    monkeypatch.setattr(player_stats, "fetch_chesscom_stats", lambda *args, **kwargs: chesscom)
+
+    result = player_stats.fetch_combined_player_stats(
+        user, START_FEN, 12, "white", databases="lichess,chesscom"
+    )
+
+    assert result["totalGames"] == 5
+    assert result["moves"][0] == {
+        "san": "e4",
+        "uci": "e2e4",
+        "white": 3,
+        "draws": 1,
+        "black": 1,
+        "totalGames": 5,
+    }
+
+
+def test_combined_sources_only_call_selected_database(user, monkeypatch):
+    monkeypatch.setattr(
+        player_stats,
+        "fetch_player_stats",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Lichess should not run")),
+    )
+    monkeypatch.setattr(
+        player_stats,
+        "fetch_chesscom_stats",
+        lambda *args, **kwargs: {"totalGames": 0, "moves": [], "opening": None},
+    )
+
+    result = player_stats.fetch_combined_player_stats(
+        user, START_FEN, 12, "white", databases="chesscom"
+    )
+    assert result["totalGames"] == 0

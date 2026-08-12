@@ -8,6 +8,7 @@ export type RepertoireSummary = {
   color: RepertoireColor
   moveCount: number
   lineCount: number
+  hasResponseConflicts?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -19,6 +20,7 @@ export type ProfileModuleSummary = {
   color: RepertoireColor
   moveCount: number
   lineCount: number
+  hasResponseConflicts?: boolean
   sortOrder: number
   enabled: boolean
 }
@@ -48,6 +50,8 @@ export type OpeningTemplateSummary = {
   name: string
   description: string
   color: RepertoireColor
+  kind: "official" | "community"
+  publisherName: string
   latestRelease: { id: number; version: number; publishedAt: string } | null
 }
 
@@ -144,6 +148,10 @@ export function removeProfileModule(profileId: number, moduleId: number): Promis
   })
 }
 
+export function publishOpeningTemplate(moduleId: number, changelog = ""): Promise<OpeningTemplateSummary> {
+  return apiRequest("/opening-templates/publish/", { method: "POST", body: { moduleId, changelog } })
+}
+
 export function listOpeningTemplates(signal?: AbortSignal): Promise<OpeningTemplateSummary[]> {
   return apiRequest('/opening-templates/', { signal })
 }
@@ -211,10 +219,11 @@ export function addRepertoireLine(
   label = '',
   source: RepertoireLine['source'] = 'manual',
   annotations: RepertoireLine['annotations'] = [],
+  conflictPolicy: 'reject' | 'replace' = 'reject',
 ): Promise<RepertoireLine[]> {
   return apiRequest(`/repertoires/${id}/lines/`, {
     method: 'POST',
-    body: { label, source, annotations, steps },
+    body: { label, source, annotations, steps, conflictPolicy },
   })
 }
 

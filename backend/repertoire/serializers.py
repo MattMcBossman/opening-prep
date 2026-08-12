@@ -3,6 +3,7 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from . import services
 from .models import (
     OpeningTemplate,
     OpeningTemplateRelease,
@@ -23,6 +24,10 @@ class RepertoireSerializer(serializers.ModelSerializer):
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     description = serializers.CharField(required=False, allow_blank=True)
+    hasResponseConflicts = serializers.SerializerMethodField()
+
+    def get_hasResponseConflicts(self, obj):
+        return bool(services.legacy_response_conflicts(obj))
 
     class Meta:
         model = Repertoire
@@ -33,6 +38,7 @@ class RepertoireSerializer(serializers.ModelSerializer):
             "color",
             "moveCount",
             "lineCount",
+            "hasResponseConflicts",
             "source_release",
             "createdAt",
             "updatedAt",
@@ -49,6 +55,11 @@ class ProfileModuleSerializer(serializers.ModelSerializer):
     color = serializers.CharField(source="module.color", read_only=True)
     moveCount = serializers.IntegerField(source="module.moves.count", read_only=True)
     lineCount = serializers.IntegerField(source="module.lines.count", read_only=True)
+    hasResponseConflicts = serializers.SerializerMethodField()
+
+    def get_hasResponseConflicts(self, obj):
+        return bool(services.legacy_response_conflicts(obj.module))
+
     sortOrder = serializers.IntegerField(source="sort_order")
 
     class Meta:
@@ -60,6 +71,7 @@ class ProfileModuleSerializer(serializers.ModelSerializer):
             "color",
             "moveCount",
             "lineCount",
+            "hasResponseConflicts",
             "sortOrder",
             "enabled",
         ]
@@ -128,15 +140,26 @@ class OpeningTemplateReleaseSerializer(serializers.ModelSerializer):
 
 class OpeningTemplateSerializer(serializers.ModelSerializer):
     latestRelease = serializers.SerializerMethodField()
+    publisherName = serializers.SerializerMethodField()
 
     @extend_schema_field(OpeningTemplateReleaseSerializer)
     def get_latestRelease(self, obj):
         release = obj.releases.order_by("-version").first()
         return OpeningTemplateReleaseSerializer(release).data if release else None
 
+    def get_publisherName(self, obj):
+        if obj.kind == OpeningTemplate.OFFICIAL:
+            return "Mainline"
+        return obj.publisher.username if obj.publisher else "Former member"
+
     class Meta:
         model = OpeningTemplate
-        fields = ["slug", "name", "description", "color", "latestRelease"]
+        fields = ["slug", "name", "description", "color", "kind", "publisherName", "latestRelease"]
+
+
+class PublishTemplateSerializer(serializers.Serializer):
+    moduleId = serializers.IntegerField(min_value=1)
+    changelog = serializers.CharField(required=False, allow_blank=True, max_length=1000)
 
 
 class CopyTemplateSerializer(serializers.Serializer):
@@ -201,6 +224,9 @@ class LineAnnotationInputSerializer(serializers.Serializer):
 
 
 class AuthoredLineInputSerializer(serializers.Serializer):
+    conflictPolicy = serializers.ChoiceField(
+        source="conflict_policy", choices=("reject", "replace"), required=False, default="reject"
+    )
     label = serializers.CharField(required=False, allow_blank=True, max_length=150, default="")
     source = serializers.ChoiceField(choices=RepertoireLine.SOURCE_CHOICES, required=False, default="manual")
     annotations = LineAnnotationInputSerializer(many=True, required=False, default=list)

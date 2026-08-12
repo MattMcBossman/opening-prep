@@ -1492,6 +1492,187 @@
   text-decoration: underline;
 }
 
+.mainline-auth-control {
+  position: relative;
+}
+
+.mainline-auth-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(360px, calc(100vw - 24px));
+  max-width: 100vw;
+  box-sizing: border-box;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 20%);
+}
+
+.mainline-auth-popover .auth-popover-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.mainline-auth-popover > strong:first-of-type {
+  padding-right: 34px;
+}
+
+.mainline-auth-popover form {
+  display: grid;
+  gap: 7px;
+}
+
+.mainline-auth-popover input,
+.mainline-auth-popover button {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.mainline-auth-popover input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-h);
+}
+
+.mainline-auth-popover button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.mainline-auth-popover .google-sign-in {
+  background: #ffffff;
+  color: #202124;
+  font-weight: 600;
+}
+
+.auth-provider-row {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.auth-provider-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-provider-heading > button {
+  width: auto;
+  min-height: 34px;
+  padding: 5px 12px;
+}
+
+.auth-provider-identity {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-provider-row .panel-status {
+  margin: 0;
+}
+
+.mainline-auth-popover .chess-com-editor {
+  gap: 8px;
+  margin-top: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.chess-com-editor > label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chess-com-editor-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.mainline-auth-popover .chess-com-editor-input-row > button {
+  width: auto;
+  min-height: 40px;
+}
+
+.mainline-auth-popover .chess-com-save {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.chess-com-editor > p {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.chess-com-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mainline-auth-popover .chess-com-editor-actions > button {
+  width: auto;
+  min-height: 36px;
+  padding: 5px 10px;
+}
+
+.mainline-auth-popover .chess-com-disconnect {
+  border-color: #b42318;
+  color: #b42318;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+
 .chess-com-account-control {
   position: relative;
 }
@@ -1502,6 +1683,8 @@
   top: calc(100% + 8px);
   right: 0;
   width: min(360px, calc(100vw - 24px));
+  max-width: 100vw;
+  box-sizing: border-box;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1521,6 +1704,9 @@
 
 .chess-com-account-popover input,
 .chess-com-account-popover button {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   min-height: 40px;
 }
 
@@ -1547,6 +1733,30 @@
 
 .import-prompt {
   max-width: 480px;
+}
+
+@media (min-width: 701px) {
+  .account-merge-prompt {
+    align-self: center;
+    width: min(920px, 92vw);
+    max-width: none;
+    padding: 22px 26px;
+    border: 2px solid var(--accent);
+    background: var(--accent-bg);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+  }
+
+  .account-merge-prompt h2 {
+    margin-top: 0;
+    font-size: 24px;
+  }
+
+  .account-merge-prompt .account-merge-confirm {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+  }
 }
 
 .mobile-section-tabs {

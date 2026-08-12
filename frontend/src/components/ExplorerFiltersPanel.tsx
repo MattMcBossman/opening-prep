@@ -3,6 +3,10 @@ import type { LichessDatabaseFilters } from '../lib/lichessExplorer'
 import type { ExplorerSource } from '../hooks/useExplorerStats'
 
 const RATING_BANDS = ['1600', '1800', '2000', '2200', '2500']
+const MY_GAME_DATABASES = [
+  { value: 'lichess', label: 'Lichess' },
+  { value: 'chesscom', label: 'Chess.com' },
+] as const
 const SPEEDS: Array<{ values: string[]; label: string }> = [
   { values: ['bullet', 'ultraBullet'], label: 'Bullet' },
   { values: ['blitz'], label: 'Blitz' },
@@ -84,11 +88,13 @@ export function ExplorerFiltersPanel({ source, filters, onChange }: Props) {
   // Control disclosure state so Chromium's form-state restoration cannot
   // occasionally reopen it on a fresh app mount and shift the mobile toolbar.
   const [open, setOpen] = useState(false)
+  const selectedDatabases = filters.databases ?? ['lichess', 'chesscom']
   const activeCount =
     Number(Boolean(filters.since)) +
     Number(Boolean(filters.until)) +
     (source === 'lichess' ? (filters.ratings?.length ?? 0) : 0) +
-    SPEEDS.filter(({ values }) => values.some((value) => filters.speeds?.includes(value) ?? false)).length
+    SPEEDS.filter(({ values }) => values.some((value) => filters.speeds?.includes(value) ?? false)).length +
+    (source === 'my-games' && selectedDatabases.length !== 2 ? 1 : 0)
 
   return (
     <details
@@ -118,6 +124,27 @@ export function ExplorerFiltersPanel({ source, filters, onChange }: Props) {
                   {band}+
                 </label>
               ))}
+          </fieldset>
+        )}
+        {source === 'my-games' && (
+          <fieldset className="explorer-filters-group">
+            <legend>Game database</legend>
+            {MY_GAME_DATABASES.map(({ value, label }) => (
+              <label key={value} className="explorer-filters-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectedDatabases.includes(value)}
+                  disabled={selectedDatabases.length === 1 && selectedDatabases.includes(value)}
+                  onChange={() => onChange({
+                    ...filters,
+                    databases: selectedDatabases.includes(value)
+                      ? selectedDatabases.filter((database) => database !== value)
+                      : [...selectedDatabases, value],
+                  })}
+                />
+                {label}
+              </label>
+            ))}
           </fieldset>
         )}
         <fieldset className="explorer-filters-group">

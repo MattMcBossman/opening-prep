@@ -3,12 +3,14 @@ import { createPortal } from 'react-dom'
 import {
   fetchOpeningTemplateRelease,
   listOpeningTemplates,
+  publishOpeningTemplate,
   type OpeningTemplateRelease,
   type OpeningTemplateSummary,
   type RepertoireProfileSummary,
   type RepertoireSummary,
 } from '../lib/repertoireApi'
-import type { RepertoireColor } from '../types'
+import type { RepertoireColor, RepertoireTree } from '../types'
+import { findResponseConflicts } from '../lib/repertoireTree'
 import { findMissingReleaseLines } from '../lib/repertoireOverlay'
 import { validateManagementName } from '../lib/managementValidation'
 import './RepertoireProfileControls.css'
@@ -21,6 +23,7 @@ type Props = {
   activeProfileId: number | null
   editingModuleId: number | null
   editingLinePaths: string[]
+  editingTree: RepertoireTree
   color: RepertoireColor
   disabled?: boolean
   showGlobalLibrary?: boolean
@@ -85,6 +88,8 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
   const [profileRename, setProfileRename] = useState<string | null>(null)
   const [moduleName, setModuleName] = useState('')
   const [moduleRename, setModuleRename] = useState<{ id: number; name: string } | null>(null)
+  const [publishDraft, setPublishDraft] = useState<{ moduleId: number; changelog: string } | null>(null)
+  const [libraryRevision, setLibraryRevision] = useState(0)
   const [busy, setBusy] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
@@ -146,7 +151,7 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
         const isEditing = props.editingModuleId === module.id
         const preparedLineCount = Number.isFinite(module.lineCount) ? module.lineCount : (membership?.lineCount ?? 0)
         return <article className="manager-card" key={module.id}>
-          <div className="manager-card-title"><span><strong>{module.name}</strong><small className="manager-card-meta"><span>{module.color}</span><span>Personal</span><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small></span><span className="manager-status">{membership ? (membership.enabled ? 'In profile' : 'Paused') : 'Not attached'}</span></div>
+          <div className="manager-card-title"><span><strong>{module.name}</strong><small className="manager-card-meta"><span>{module.color}</span><span>Personal</span><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small>{module.hasResponseConflicts && <small className="panel-status error">Needs response cleanup</small>}</span><span className="manager-status">{membership ? (membership.enabled ? 'In profile' : 'Paused') : 'Not attached'}</span></div>
           {moduleRename?.id === module.id && <form className="manager-inline-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleRename.name, props.modules.map(({ name }) => name), (value) => props.onRenameModule(module.id, value), module.name).then((saved) => { if (saved) setModuleRename(null) }) }}>
             <label htmlFor={`rename-module-${module.id}`}>Module name</label><input id={`rename-module-${module.id}`} type="text" maxLength={100} autoFocus value={moduleRename.name} onChange={(event) => setModuleRename({ id: module.id, name: event.target.value })} />
             <div className="manager-actions"><button type="submit" disabled={busy}>Save name</button><button type="button" onClick={() => setModuleRename(null)}>Cancel</button></div>
@@ -158,41 +163,51 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
               <button type="button" disabled={busy} onClick={() => void run(() => props.onRemoveMembership(activeProfile.id, module.id))}>Detach</button></> : <button type="button" disabled={busy} onClick={() => void run(() => props.onSetMembership(activeProfile.id, module.id, activeProfile.modules.length, true))}>Attach to profile</button>}
             {membership?.enabled && module.color === props.color && <button type="button" className={isEditing ? 'selected-action' : ''} aria-pressed={isEditing} disabled={busy || isEditing} onClick={() => props.onEditingModuleChange(module.id)}>{isEditing ? 'Editing this module' : 'Edit lines here'}</button>}
           </div>
-          <div className="manager-actions manager-secondary-actions"><button type="button" disabled={busy} onClick={() => setModuleRename({ id: module.id, name: module.name })}>Rename</button><button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm(`Delete module “${module.name}” and all of its lines?`)) void run(() => props.onDeleteModule(module.id)) }}>Delete module</button></div>
+          <div className="manager-actions manager-secondary-actions">{props.canManageGlobalLibrary && <button type="button" disabled={busy || preparedLineCount === 0 || module.hasResponseConflicts} title={module.hasResponseConflicts ? "Resolve multiple responses before publishing" : undefined} onClick={() => setPublishDraft({ moduleId: module.id, changelog: '' })}>Publish to community</button>}<button type="button" disabled={busy} onClick={() => setModuleRename({ id: module.id, name: module.name })}>Rename</button><button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm(`Delete module “${module.name}” and all of its lines?`)) void run(() => props.onDeleteModule(module.id)) }}>Delete module</button></div>
+          {publishDraft?.moduleId === module.id && <form className="manager-inline-form publish-confirmation" onSubmit={(event) => { event.preventDefault(); void run(() => publishOpeningTemplate(module.id, publishDraft.changelog)).then((saved) => { if (saved) { setPublishDraft(null); setLibraryRevision((value) => value + 1) } }) }}>
+            <strong>Publish “{module.name}” publicly?</strong>
+            <p>This creates an immutable release in the Community library under your account. It will not be labeled as an official Mainline module.</p>
+            {module.description && <p>{module.description}</p>}
+            <label htmlFor="publish-changelog">What changed? <span>(optional)</span></label><textarea id="publish-changelog" maxLength={1000} value={publishDraft.changelog} onChange={(event) => setPublishDraft({ moduleId: module.id, changelog: event.target.value })} />
+            <div className="manager-actions"><button type="submit" disabled={busy}>Confirm public release</button><button type="button" disabled={busy} onClick={() => setPublishDraft(null)}>Cancel</button></div>
+          </form>}
         </article>
       })}</div>
       <form className="manager-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleName, props.modules.map(({ name }) => name), (value) => props.onCreateModule(props.color, value, '', activeProfile.id)).then((saved) => { if (saved) setModuleName('') }) }}>
         <label htmlFor="new-module-name">New {props.color} opening module</label><div className="manager-form-actions"><input id="new-module-name" type="text" maxLength={100} placeholder={`e.g. ${props.color === 'white' ? 'Vienna Game' : 'Sicilian Defense'}`} value={moduleName} onChange={(event) => setModuleName(event.target.value)} /><button type="submit" disabled={busy}>Create module</button></div>
       </form>
-      {props.showGlobalLibrary !== false && <GlobalLibrary profile={activeProfile} busy={busy} run={run} onLoaded={onClose} {...props} />}
+      {props.showGlobalLibrary !== false && <GlobalLibrary libraryRevision={libraryRevision} profile={activeProfile} busy={busy} run={run} {...props} />}
     </section>}
   </div>
 }
 
-function GlobalLibrary({ profile, busy, run, onLoaded, editingModuleId, editingLinePaths, color, canManageGlobalLibrary = true, onPinTemplate, onUnpinTemplate, onCopyTemplate, onCopyMissingTemplateLines, previewRelease, onPreviewTemplate }: Props & { profile: RepertoireProfileSummary; busy: boolean; run: (action: AsyncAction) => Promise<boolean>; onLoaded: () => void }) {
+function GlobalLibrary({ libraryRevision, profile, busy, run, editingModuleId, editingLinePaths, editingTree, color, canManageGlobalLibrary = true, onPinTemplate, onUnpinTemplate, onCopyTemplate, onCopyMissingTemplateLines, previewRelease, onPreviewTemplate }: Props & { profile: RepertoireProfileSummary; busy: boolean; run: (action: AsyncAction) => Promise<boolean>; libraryRevision: number }) {
   const [templates, setTemplates] = useState<OpeningTemplateSummary[]>([])
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => { const controller = new AbortController(); listOpeningTemplates(controller.signal).then(setTemplates, (reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not load the library.') }); return () => controller.abort() }, [])
+  useEffect(() => { const controller = new AbortController(); listOpeningTemplates(controller.signal).then(setTemplates, (reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Could not load the library.') }); return () => controller.abort() }, [libraryRevision])
   const pins = profile.templateReleases ?? []
   const canManage = canManageGlobalLibrary
   return <section className="global-library"><h4>Global opening library</h4><p className="manager-help">Published releases can be loaded read-only without signing in. Sign in to attach one permanently or copy it as an editable module.</p>
     {error && <p className="panel-status error">{error}</p>}
     {templates.length === 0 && !error && <p className="panel-status">No published openings yet.</p>}
-    <div className="manager-card-list">{templates.map((template) => {
+    <div className="manager-card-list">{templates.slice().sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "official" ? -1 : 1).map((template) => {
       const release = template.latestRelease
       const pinned = release ? pins.some((pin) => pin.id === release.id) : false
-      return <article className="manager-card global-module-card" key={template.slug}><div className="manager-card-title"><span><strong>{template.name}</strong><small>{template.color}{release ? ` · global release v${release.version}` : ' · no published release'}</small></span>{pinned && <span className="manager-status">In profile · read-only</span>}</div>
-        {release && <div className="manager-actions"><button type="button" disabled={busy} onClick={() => fetchOpeningTemplateRelease(template.slug, release.version).then((snapshot) => { onPreviewTemplate(snapshot); onLoaded() }, (reason) => setError(reason instanceof Error ? reason.message : 'Load failed.'))}>Load in explorer</button>
+      return <article className="manager-card global-module-card" key={template.slug}><div className="manager-card-title"><span><strong>{template.name}</strong><small>{template.kind === 'official' ? 'Official · Mainline' : 'Community · ' + template.publisherName} · {template.color}{release ? ' · release v' + release.version : ' · no published release'}</small></span>{pinned && <span className="manager-status">In profile · read-only</span>}</div>
+        {release && <div className="manager-actions"><button type="button" disabled={busy} onClick={() => fetchOpeningTemplateRelease(template.slug, release.version).then((snapshot) => { onPreviewTemplate(snapshot) }, (reason) => setError(reason instanceof Error ? reason.message : 'Load failed.'))}>View module</button>
           {canManage && (pinned ? <button type="button" disabled={busy} onClick={() => void run(() => onUnpinTemplate(profile.id, release.id))}>Remove read-only</button> : <button type="button" disabled={busy} onClick={() => void run(() => onPinTemplate(profile.id, release.id, pins.length))}>Add read-only</button>)}
           {canManage && <button type="button" disabled={busy} onClick={() => void run(() => onCopyTemplate(template.slug, release.version, profile.id))}>Copy as editable</button>}</div>}
       </article>
     })}</div>
     {previewRelease && (() => {
       const missing = findMissingReleaseLines(previewRelease.lines, editingLinePaths)
-      return <div className="template-preview"><button type="button" aria-label="Unload global module" onClick={() => onPreviewTemplate(null)}>×</button><strong>{previewRelease.name} v{previewRelease.version}</strong><small>Loaded globally · read-only</small>{previewRelease.changelog && <p>{previewRelease.changelog}</p>}<p>Loaded in the explorer · {previewRelease.lines.length} lines · {Object.values(previewRelease.tree).reduce((sum, moves) => sum + moves.length, 0)} moves</p>
-        {previewRelease.color === color && <><p><strong>{missing.length}</strong> of {previewRelease.lines.length} lines are missing from the current editing module.</p>
+      const conflicting = missing.filter((line) => findResponseConflicts(editingTree, color, line.steps).length > 0)
+      const fillable = missing.length - conflicting.length
+      const previewPin = pins.find((pin) => pin.id === previewRelease.id)
+      return <div className="template-preview"><button type="button" aria-label="Unload global module" onClick={() => onPreviewTemplate(null)}>×</button><strong>{previewRelease.name} v{previewRelease.version}</strong><small>Loaded globally · read-only</small><div className="manager-actions">{canManage && (previewPin ? <button type="button" disabled={busy} onClick={() => void run(() => onUnpinTemplate(profile.id, previewRelease.id))}>Remove read-only from profile</button> : <button type="button" disabled={busy} onClick={() => void run(() => onPinTemplate(profile.id, previewRelease.id, pins.length))}>Add read-only to profile</button>)}{canManage && <button type="button" disabled={busy} onClick={() => void run(() => onCopyTemplate(previewRelease.templateSlug, previewRelease.version, profile.id))}>Copy as new personal module</button>}</div>{previewRelease.changelog && <p>{previewRelease.changelog}</p>}<p>Loaded in the explorer · {previewRelease.lines.length} lines · {Object.values(previewRelease.tree).reduce((sum, moves) => sum + moves.length, 0)} moves</p>
+        {previewRelease.color === color && <><p><strong>{missing.length}</strong> of {previewRelease.lines.length} lines are missing from the current editing module.</p>{conflicting.length > 0 && <p className="panel-status error">{conflicting.length} conflicting line(s) will be skipped. Copy this release as a new module to keep those alternative responses.</p>}
           {missing.length > 0 && <ul>{missing.map((line) => <li key={line.id}>{line.label || line.steps.map((step) => step.san).join(' ')}</li>)}</ul>}
-          {canManage && editingModuleId && <button type="button" disabled={busy || missing.length === 0} onClick={() => void run(() => onCopyMissingTemplateLines(previewRelease.templateSlug, previewRelease.version, editingModuleId))}>{missing.length === 0 ? 'No gaps to fill' : `Fill ${missing.length} gap${missing.length === 1 ? '' : 's'} into editing module`}</button>}
+          {canManage && editingModuleId && <button type="button" disabled={busy || fillable === 0} onClick={() => void run(() => onCopyMissingTemplateLines(previewRelease.templateSlug, previewRelease.version, editingModuleId))}>{fillable === 0 ? 'No non-conflicting gaps to fill' : `Fill  non-conflicting gap(s)`}</button>}
         </>}
       </div>
     })()}

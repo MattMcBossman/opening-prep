@@ -66,10 +66,10 @@ if [[ -z "$tailscale_host" ]]; then
   exit 1
 fi
 
-# HTTP here is inside the encrypted, private tailnet. Avoiding public TLS keeps
-# remote development independent of ACME/DNS propagation and certificate rate
-# limits; the service is still unreachable to devices outside the tailnet.
-export REMOTE_DEV_ORIGIN="http://${tailscale_host}"
+# Tailscale Serve terminates HTTPS for the private MagicDNS hostname. Google
+# OAuth requires HTTPS for every non-localhost callback, while the service
+# remains unreachable to devices outside the tailnet.
+export REMOTE_DEV_ORIGIN="https://${tailscale_host}"
 
 backend_pid=""
 frontend_pid=""
@@ -92,7 +92,7 @@ trap cleanup EXIT INT TERM
   uv run manage.py migrate
 )
 
-if ! serve_error="$(tailscale serve --http=80 --bg 5173 2>&1)"; then
+if ! serve_error="$(tailscale serve --bg 5173 2>&1)"; then
   echo "Could not configure private Tailscale HTTPS access:" >&2
   echo "$serve_error" >&2
   if [[ "$serve_error" == *"Access denied"* ]]; then
@@ -128,7 +128,7 @@ for _attempt in {1..40}; do
   sleep 0.25
 done
 if [[ "$site_ready" != true ]]; then
-  echo "Remote site failed its HTTP health check: ${REMOTE_DEV_ORIGIN}/api/v1/health/" >&2
+  echo "Remote site failed its HTTPS health check: ${REMOTE_DEV_ORIGIN}/api/v1/health/" >&2
   echo "Check the Django/Vite output above and 'tailscale serve status'." >&2
   exit 1
 fi

@@ -25,10 +25,8 @@ The first target is:
 
 Install Tailscale on both the laptop and phone and sign both into the same
 tailnet. Tailscale's Personal plan is free for personal use. Use **Tailscale
-Serve**, which publishes a laptop-local HTTP service at a private `*.ts.net`
-address available only to devices in that tailnet. Use tailnet HTTP during this
-development milestone: the underlying Tailscale connection is encrypted, and
-this avoids depending on public ACME certificate issuance.
+Serve**, which publishes a laptop-local service at a private `*.ts.net` address
+available only to devices in that tailnet. Use HTTPS so Google and Lichess OAuth callbacks satisfy their secure-origin requirements.
 
 This requires no Render service, cloud VM, paid database, router port
 forwarding, static home IP, or public exposure. PostgreSQL remains on the
@@ -70,7 +68,7 @@ connection failure is not a database outage.
 - [x] Install Tailscale on the laptop and phone and sign both into the same free
   Personal tailnet.
 - [x] Add `scripts/remote-dev`, which discovers the MagicDNS name and proxies
-  Vite with `tailscale serve --http=80 --bg 5173`, then health-checks the
+  Vite with `tailscale serve --bg 5173`, then health-checks the
   resulting tailnet URL before reporting success.
 - [x] Preflight and name conflicts on Django port 8000 and Vite port 5173 before
   starting either server; require Vite's exact port instead of silently falling
@@ -79,13 +77,11 @@ connection failure is not a database outage.
   starting background servers. Document the one-time
   `sudo tailscale set --operator="$USER"` setup so an access denial cannot leave
   a partial stack running.
-- [x] Add the resulting `*.ts.net` hostname/origin to Django's allowed hosts and
-  CSRF trusted origins. HTTP remote origins are accepted only with Debug mode;
-  non-development configuration still requires HTTPS.
-- [x] Configure the frontend origin and Lichess OAuth redirect URI for that
-  hostname. Do not commit secrets or machine-specific tailnet names. Lichess
-  OAuth over a non-local HTTP callback may remain unavailable until tailnet
-  HTTPS certificate issuance succeeds; basic app access does not depend on it.
+- [x] Add the resulting `*.ts.net` hostname/origin to Django's allowed hosts and CSRF trusted origins.
+- [x] Configure the frontend origin and OAuth redirect URIs for that hostname. Do not commit secrets or machine-specific tailnet names; Google and Lichess callbacks use the private HTTPS origin.
+- [ ] At the laptop, complete the one-time Google Auth Platform client setup in
+  `backend/README.md`, add the client ID/secret to the untracked `backend/.env`,
+  restart `remote-dev`, and verify Google sign-in.
 - [x] Document start and automatic stop behavior for the app and Tailscale
   Serve.
 
@@ -119,6 +115,8 @@ the following local values in the developer's untracked environment file:
 | `DATABASE_URL` | Existing laptop-local PostgreSQL connection. |
 | `FRONTEND_URL` | Exact Tailscale development origin. |
 | `LICHESS_REDIRECT_URI` | `<tailscale-origin>/api/v1/auth/lichess/callback`. |
+| `GOOGLE_CLIENT_ID` | Web OAuth client created specifically for Tailscale development. |
+| `GOOGLE_CLIENT_SECRET` | Matching local client secret; never commit it or paste it into chat. |
 | `TOKEN_ENCRYPTION_KEY` | Existing local Fernet key; never commit it. |
 
 ## Invited alpha — free Render services

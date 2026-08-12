@@ -56,7 +56,7 @@ def _expand_for_chess(fen: str) -> str:
     return " ".join([*parts[:4], "0", "1"])
 
 
-def validate_release_snapshot(tree, lines) -> None:
+def validate_release_snapshot(tree, lines, color=None) -> None:
     """Validate an immutable global release before it can be published."""
     if not isinstance(tree, dict) or not isinstance(lines, list):
         raise DjangoValidationError("Release tree must be an object and lines must be an array.")
@@ -68,6 +68,10 @@ def validate_release_snapshot(tree, lines) -> None:
         if not isinstance(origin, str) or not isinstance(edges, list):
             raise DjangoValidationError("Every tree position must map to an array of moves.")
         normalized_origin = normalize_fen(origin)
+        if color and normalized_origin.split()[1] == ("w" if color == "white" else "b") and len(edges) > 1:
+            raise DjangoValidationError(
+                "A release module may contain only one repertoire response per position."
+            )
         for edge in edges:
             if not isinstance(edge, dict) or not all(
                 isinstance(edge.get(field), str) for field in ("san", "uci", "resultingFen")

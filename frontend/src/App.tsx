@@ -25,11 +25,13 @@ import { EvalBar } from './components/EvalBar'
 import { OpeningName } from './components/OpeningName'
 import { LichessTokenSettings } from './components/LichessTokenSettings'
 import { AuthControl } from './components/AuthControl'
-import { ChessComAccountControl } from './components/ChessComAccountControl'
 import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
+import { AccountMergePrompt } from './components/AccountMergePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
 import { PgnImportExportPanel } from './components/PgnImportExportPanel'
+import { OpeningGeneratorPanel } from './components/OpeningGeneratorPanel'
+import { parsePgnLinesWithMetadata } from './lib/pgnImport'
 import { RepertoireProfileControls } from './components/RepertoireProfileControls'
 import { ExplorerSourceToggle } from './components/ExplorerSourceToggle'
 import { ExplorerFiltersPanel } from './components/ExplorerFiltersPanel'
@@ -42,7 +44,9 @@ import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
 import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel } from './lib/repertoireDrills'
 import type { DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
+import { findResponseConflicts } from './lib/repertoireTree'
 import type { ExplorerOpening, RepertoireMove } from './types'
+import { lichessLoginUrl } from './lib/authApi'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
@@ -111,6 +115,7 @@ function App() {
     boardColor,
     explorerFilters,
     auth.user?.id,
+    auth.user?.lichessUsername ?? '',
   )
   const evaluation = useEngineEval(fen, isSignedIn)
   const repertoire = useRepertoire(auth.user)
@@ -221,7 +226,12 @@ function App() {
         uci: ancestor.uci,
         resultingFen: normalizeFen(ancestor.fenAfter),
       }))
-      repertoire.addLine(boardColor, steps)
+      const conflicts = findResponseConflicts(repertoire.getEditingTree(boardColor), boardColor, steps)
+      if (conflicts.length > 0) {
+        const replace = window.confirm("This module already has a different response at this position. Replace that response and its continuation? Cancel to keep it and choose or create another module instead.")
+        if (!replace) return
+      }
+      repertoire.addLine(boardColor, steps, 'manual', '', [], conflicts.length > 0 ? 'replace' : 'reject')
     },
     [moves, boardColor, repertoire],
   )
@@ -274,24 +284,37 @@ function App() {
 
   // Remembers the opening name/ECO fetched for every FEN visited along the current
   // line, so a position with no name of its own can fall back to the last known name
-  // for the line rather than showing "Unnamed position".
+  // for the line rather than showing an unavailable-name fallback.
   const openingNameCache = useRef(new Map<string, ExplorerOpening>()).current
   useEffect(() => {
     if (explorer.data) {
-      openingNameCache.set(fen, explorer.data.opening)
+      if (explorer.data.opening) openingNameCache.set(fen, explorer.data.opening)
+      const position = new Chess(fen)
+      for (const candidate of explorer.data.moves) {
+        if (!candidate.opening) continue
+        const child = new Chess(position.fen())
+        try {
+          child.move(candidate.uci)
+          openingNameCache.set(child.fen(), candidate.opening)
+        } catch {
+          // Ignore malformed upstream moves; the statistics row remains usable.
+        }
+      }
     }
   }, [fen, explorer.data, openingNameCache])
 
   const resolvedOpening = useMemo<{ opening: NonNullable<ExplorerOpening>, ply: number } | null>(() => {
     const live = explorer.data?.opening ?? null
     if (live) return { opening: live, ply: pointer }
+    const current = openingNameCache.get(fen)
+    if (current) return { opening: current, ply: pointer }
     for (let ply = pointer - 1; ply >= 0; ply--) {
       const ancestorFen = ply === 0 ? START_FEN : moves[ply - 1].fenAfter
       const cached = openingNameCache.get(ancestorFen)
       if (cached) return { opening: cached, ply }
     }
     return null
-  }, [explorer.data, pointer, moves, openingNameCache])
+  }, [explorer.data, fen, pointer, moves, openingNameCache])
 
   const selectCurrentDrillStartPosition = useCallback(() => {
     setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
@@ -420,6 +443,7 @@ function App() {
             activeProfileId={repertoire.activeProfileId}
             editingModuleId={repertoire.editingModuleIds[boardColor] ?? null}
             editingLinePaths={repertoire.editingLinePaths[boardColor] ?? []}
+            editingTree={repertoire.getEditingTree(boardColor)}
             color={boardColor}
             disabled={repertoire.isSyncing}
             showGlobalLibrary
@@ -443,8 +467,15 @@ function App() {
           />
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
-          {auth.user && <ChessComAccountControl username={auth.user.chessComUsername} onLink={auth.linkChessCom} onUnlink={auth.unlinkChessCom} />}
-          <AuthControl user={auth.user} loading={auth.loading} onLogin={() => auth.login()} onLogout={auth.logout} />
+          <AuthControl
+            user={auth.user}
+            loading={auth.loading}
+            onGoogleLogin={auth.loginWithGoogle}
+            onLinkLichess={auth.linkLichess}
+            onLinkChessCom={auth.linkChessCom}
+            onUnlinkChessCom={auth.unlinkChessCom}
+            onLogout={auth.logout}
+          />
         </div>
       </header>
       {auth.authError && (
@@ -461,6 +492,13 @@ function App() {
           <button type="button" onClick={repertoire.clearSyncError}>Dismiss</button>
         </p>
       )}
+      <AccountMergePrompt
+        preview={auth.lichessMerge}
+        busy={auth.lichessMergeBusy}
+        error={auth.lichessMergeError}
+        onConfirm={auth.confirmLichessMerge}
+        onCancel={auth.cancelLichessMerge}
+      />
       <ImportRepertoirePrompt
         phase={repertoire.importPrompt.phase}
         counts={repertoire.importPrompt.counts}
@@ -601,6 +639,7 @@ function App() {
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
                 onRetry={explorer.retry}
+                linkLichessHref={lichessLoginUrl(window.location.pathname + window.location.search + window.location.hash)}
               />
               {positionCoverage && positionCoverage.totalGames > 0 && (
                 <p className="panel-status">
@@ -626,14 +665,28 @@ function App() {
                 onOpenPosition={openCoveragePosition}
               />
             </section>
+            <OpeningGeneratorPanel
+              color={boardColor}
+              prefixUci={moves.slice(0, pointer).map((move) => move.uci)}
+              openingName={resolvedOpening?.opening.name}
+              lichessToken={token}
+              onAddLines={async (name, pgn) => {
+                const lines = parsePgnLinesWithMetadata(pgn)
+                if (findResponseConflicts({}, boardColor, lines.flatMap((line) => line.steps)).length > 0) throw new Error("The generated tree contains more than one repertoire response at a position and cannot become a single module.")
+                await repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)
+                return lines.length
+              }}
+            />
             <section className="panel">
               <h2>PGN</h2>
               <PgnImportExportPanel
                 color={boardColor}
                 getTree={repertoire.getTree}
+                getEditingTree={repertoire.getEditingTree}
                 getLines={(color) => repertoire.editingLines[color] ?? []}
                 isMoveSaved={repertoire.isMoveSaved}
                 addLine={repertoire.addLine}
+                createModuleFromLines={(name, lines) => repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)}
               />
             </section>
           </div>

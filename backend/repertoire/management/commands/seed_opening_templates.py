@@ -12,7 +12,7 @@ TEMPLATES = [
         "color": "white",
         "lines": [
             ["e2e4", "e7e5", "b1c3", "g8f6", "f2f4"],
-            ["e2e4", "e7e5", "b1c3", "g8f6", "f1c4"],
+            ["e2e4", "e7e5", "b1c3", "f8c5", "f1c4"],
         ],
     },
     {

@@ -12,7 +12,7 @@ type Props = {
  * override, which is deferred to the repertoire view (Phase 2).
  */
 export function OpeningName({ eco, name, fen }: Props) {
-  // The starting position has no opening of its own; showing "Unnamed position" there
+  // The starting position has no opening of its own; showing an unavailable-name fallback there
   // is just noise, so render an (empty, height-reserving) placeholder instead.
   if (!name && fen === START_FEN) {
     return <div className="opening-name" />
@@ -26,7 +26,7 @@ export function OpeningName({ eco, name, fen }: Props) {
           {name}
         </span>
       ) : (
-        <span className="opening-name-text opening-name-empty">Unnamed position</span>
+        <span className="opening-name-text opening-name-empty">Opening name unavailable</span>
       )}
     </div>
   )

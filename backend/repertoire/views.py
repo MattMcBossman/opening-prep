@@ -1,6 +1,7 @@
 """DRF views for the repertoire app. See backend/API_CONTRACT.md for the endpoints."""
 
 from django.shortcuts import get_object_or_404
+from django.utils.text import slugify
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics
 from rest_framework import serializers as drf_serializers
@@ -30,6 +31,7 @@ from .serializers import (
     OpeningTemplateSerializer,
     ProfileModuleMutationSerializer,
     ProfileTemplateMutationSerializer,
+    PublishTemplateSerializer,
     RemoveMoveSerializer,
     RepertoireLineSerializer,
     RepertoireProfileSerializer,
@@ -257,6 +259,10 @@ class RepertoireLinesView(APIView):
         body.is_valid(raise_exception=True)
         try:
             services.add_authored_line(repertoire, **body.validated_data)
+        except services.ResponseConflict as exc:
+            return Response(
+                {"detail": str(exc), "code": "response_conflict", "conflicts": exc.conflicts}, status=409
+            )
         except ValueError as exc:
             raise drf_serializers.ValidationError({"steps": str(exc)}) from exc
         lines = repertoire.lines.prefetch_related("steps__move")
@@ -270,6 +276,62 @@ class RepertoireLineDetailView(APIView):
         line = get_object_or_404(repertoire.lines, pk=line_id)
         services.delete_authored_line(repertoire, line)
         return Response(status=204)
+
+
+class OpeningTemplatePublishView(APIView):
+    @extend_schema(request=PublishTemplateSerializer, responses={201: OpeningTemplateSerializer})
+    def post(self, request):
+        body = PublishTemplateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        module = get_object_or_404(Repertoire, pk=body.validated_data["moduleId"], owner=request.user)
+        if not module.lines.exists():
+            raise drf_serializers.ValidationError(
+                {"moduleId": "The module must contain at least one authored line."}
+            )
+        conflicts = services.legacy_response_conflicts(module)
+        if conflicts:
+            return Response(
+                {
+                    "detail": "Resolve multiple responses inside this module before publishing.",
+                    "code": "response_conflict",
+                    "conflicts": conflicts,
+                },
+                status=409,
+            )
+        template = OpeningTemplate.objects.filter(source_module=module).first()
+        if template is None:
+            base = slugify(module.name)[:80] or "opening"
+            slug = f"{base}-{request.user.pk}"
+            suffix = 2
+            while OpeningTemplate.objects.filter(slug=slug).exists():
+                slug = f"{base}-{request.user.pk}-{suffix}"
+                suffix += 1
+            template = OpeningTemplate.objects.create(
+                slug=slug,
+                name=module.name,
+                description=module.description,
+                color=module.color,
+                kind=OpeningTemplate.COMMUNITY,
+                publisher=request.user,
+                source_module=module,
+                is_published=True,
+            )
+        lines = RepertoireLineSerializer(module.lines.prefetch_related("steps__move"), many=True).data
+        OpeningTemplateRelease.objects.create(
+            template=template,
+            version=(template.releases.first().version + 1 if template.releases.exists() else 1),
+            changelog=body.validated_data.get("changelog", ""),
+            tree=services.serialize_tree(module),
+            lines=list(lines),
+        )
+        template.name, template.description, template.color, template.is_published = (
+            module.name,
+            module.description,
+            module.color,
+            True,
+        )
+        template.save(update_fields=["name", "description", "color", "is_published"])
+        return Response(OpeningTemplateSerializer(template).data, status=201)
 
 
 class OpeningTemplateListView(generics.ListAPIView):
@@ -348,7 +410,12 @@ class RepertoireMovesView(APIView):
         moves = serializer.validated_data["moves"]
         for move in moves:
             validate_edge(normalize_fen(move["originFen"]), move["uci"])
-        tree = services.add_moves(repertoire, moves)
+        try:
+            tree = services.add_moves(repertoire, moves)
+        except services.ResponseConflict as exc:
+            return Response(
+                {"detail": str(exc), "code": "response_conflict", "conflicts": exc.conflicts}, status=409
+            )
         return Response(tree)
 
     @extend_schema(

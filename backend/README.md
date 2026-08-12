@@ -1,7 +1,7 @@
 # Mainline backend
 
-Django + Django REST Framework + PostgreSQL. Provides user accounts (Lichess
-OAuth plus a validated public Chess.com username), server-side repertoire storage, a caching Lichess explorer proxy, and
+Django + Django REST Framework + PostgreSQL. Provides Mainline accounts (Google
+OIDC, with optional Lichess OAuth and a validated public Chess.com username), server-side repertoire storage, a caching Lichess explorer proxy, and
 persistent drill statistics. See [../AGENTS.md](../AGENTS.md) for the wider
 project reference and [API_CONTRACT.md](API_CONTRACT.md) for the endpoints.
 
@@ -46,6 +46,48 @@ derives the laptop's Tailscale HTTPS origin at runtime and supplies
 CSRF allowlists and use it for the OAuth callback. The value does not need to be
 written to `.env`.
 
+### One-time Google sign-in setup for Tailscale development
+
+Do this while working directly on the laptop. It configures only local/Tailscale
+development; do not add these values to Render yet.
+
+1. Run `../scripts/remote-dev` and copy the HTTPS URL it prints, such as
+   `https://laptop-name.example-tailnet.ts.net`.
+2. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview),
+   then create or select a Google Cloud project.
+3. If prompted, choose **Get started** and enter:
+   - App name: `Mainline`
+   - User support email and contact email: the developer's email
+   - Audience: **External**
+4. On **Audience**, add the developer's Google account as a test user. Publishing
+   or verification is not required for this private test.
+5. Open **Clients**, choose **Create client**, select **Web application**, and
+   name it `Mainline Tailscale Development`.
+6. Add this exact **Authorized redirect URI**, substituting the URL printed by
+   `remote-dev`:
+
+   ```text
+   https://<tailscale-host>/api/v1/auth/google/callback
+   ```
+
+   Mainline's server-side flow does not require an Authorized JavaScript origin.
+7. Create the client and copy its client ID and client secret. Google may show
+   the secret only at creation time; never paste it into chat or commit it.
+8. Stop `remote-dev`, then add the values to the untracked `backend/.env`:
+
+   ```dotenv
+   GOOGLE_CLIENT_ID=<client-id>
+   GOOGLE_CLIENT_SECRET=<client-secret>
+   ```
+
+9. Restart from the repository root with `./scripts/remote-dev`, open its HTTPS
+   URL, and choose **Sign in → Continue with Google**.
+
+If Google reports `redirect_uri_mismatch`, compare its URI character-for-character
+with the URL above, including `https`, the callback path, and the absence of a
+trailing slash. If Mainline reports `google_unavailable`, confirm both `.env`
+values are populated and restart `remote-dev` so Django reloads them.
+
 The wrapper expects ports 8000 and 5173 to be free. Do not leave a separately
 started `manage.py runserver` or Vite process running before invoking it; its
 preflight reports the exact conflicting listener and exits before starting a
@@ -86,7 +128,7 @@ dev server is running.
 - `common/` — helpers shared across apps, notably `fen.py`, a direct port of the
   frontend's `chessUtils.ts` normalization. The two must not drift: the
   repertoire is keyed by normalized FEN on both sides of the wire.
-- `accounts/` — custom `User`, Lichess OAuth (PKCE), encrypted token storage.
+- `accounts/` — custom `User`, Google OIDC, Lichess OAuth (PKCE), and encrypted token storage. Legacy magic-link tables remain migration-only.
 - `repertoire/` — reusable personal opening modules, composed profiles,
   explicit move-order lines, immutable global-opening release snapshots, and
   the FEN-graph cascade-delete semantics kept compatible with older clients.
@@ -101,12 +143,17 @@ shapes; see [`../profile-modules-plan.md`](../profile-modules-plan.md).
 
 ## Notes
 
+- **Mainline sign-in** uses Google authorization-code OIDC. Production and
+  private Tailscale development require their own Google Web OAuth clients.
+
 - **Lichess OAuth** is a public-client PKCE flow: no client secret, and no scopes
   at all — the Opening Explorer only requires that a token exists. Access tokens
   are encrypted at rest and never leave the server.
 - **Chess.com linking** validates and stores only a public username through the
   Published Data API. It stores no Chess.com credentials and is not ownership
   verification; Chess.com authentication requires a separate partner request.
+  **My games** can filter to Lichess, Chess.com, or combine both; monthly
+  Chess.com archive payloads are cached before their PGNs are matched by FEN.
 - **Docker**: the repository-root `Dockerfile` builds the combined React/Django
   Render image; `backend/Dockerfile` remains a backend-only image. Development deliberately
   runs Django on the host instead, for a faster edit/reload/debug loop; Compose

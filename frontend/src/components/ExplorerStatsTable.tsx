@@ -21,6 +21,8 @@ type Props = {
   pollExhausted?: boolean
   /** Restarts polling - only used/shown when `pollExhausted`. */
   onRetry?: () => void
+  /** OAuth destination used to turn missing-Lichess-account errors into actions. */
+  linkLichessHref?: string
 }
 
 function percent(n: number, total: number): number {
@@ -98,8 +100,20 @@ export function ExplorerStatsTable({
   isPolling,
   pollExhausted,
   onRetry,
+  linkLichessHref,
 }: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
+  if (error && linkLichessHref) {
+    if (error === 'Sign in with Lichess to load explorer stats.') {
+      return <p className="panel-status error"><a href={linkLichessHref}>Sign in with Lichess</a> to load explorer stats.</p>
+    }
+    if (
+      error === 'Link your Lichess account to see stats from your own games.'
+      || error === 'Sign in with Lichess to see stats from your own games.'
+    ) {
+      return <p className="panel-status error"><a href={linkLichessHref}>Link your Lichess account</a> to see stats from your own games.</p>
+    }
+  }
   if (error) return <p className="panel-status error">{error}</p>
   if (!data || data.moves.length === 0) {
     return (

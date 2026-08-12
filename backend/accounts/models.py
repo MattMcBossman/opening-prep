@@ -1,5 +1,7 @@
 """External chess identities, user profile, and encrypted token storage."""
 
+import hashlib
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -13,9 +15,8 @@ class User(AbstractUser):
 
     Django makes swapping `AUTH_USER_MODEL` later extremely awkward, so this
     exists up front even though it adds nothing to `AbstractUser` yet. Accounts
-    are normally created by the Lichess OAuth callback rather than by password
-    signup, so `username` mirrors the Lichess username and OAuth-created
-    accounts are left with an unusable password.
+    are created by Google OIDC; Lichess is only a
+    post-sign-in data connection.
     """
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -23,6 +24,51 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.username
+
+
+class EmailIdentity(models.Model):
+    """A verified email address that can authenticate one Mainline user."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="email_identity"
+    )
+    email = models.EmailField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.email} ({self.user_id})"
+
+
+class GoogleAccount(models.Model):
+    """A Google OpenID Connect identity attached to a Mainline user."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="google_account"
+    )
+    subject = models.CharField(max_length=255, unique=True)
+    email = models.EmailField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.email} ({self.user_id})"
+
+
+class MagicLink(models.Model):
+    """A short-lived, single-use email sign-in secret stored only as a hash."""
+
+    token_hash = models.CharField(max_length=64, unique=True)
+    email = models.EmailField()
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.email
+
+    @staticmethod
+    def hash_token(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
 
 
 class LichessAccount(models.Model):

@@ -230,7 +230,7 @@ def test_my_games_success_matches_explorer_response_shape_plus_still_indexing(ap
         "opening": None,
         "stillIndexing": True,
     }
-    monkeypatch.setattr(player_stats, "fetch_player_stats", lambda *a, **k: canned)
+    monkeypatch.setattr(player_stats, "fetch_combined_player_stats", lambda *a, **k: canned)
 
     api_client.force_authenticate(user=user)
     response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
@@ -241,7 +241,7 @@ def test_my_games_success_matches_explorer_response_shape_plus_still_indexing(ap
 def test_my_games_rate_limited_passes_through_status_and_retry_after(api_client, user, monkeypatch):
     monkeypatch.setattr(
         player_stats,
-        "fetch_player_stats",
+        "fetch_combined_player_stats",
         lambda *a, **k: (_ for _ in ()).throw(cache.UpstreamRateLimited(retry_after="5")),
     )
     api_client.force_authenticate(user=user)
@@ -252,7 +252,9 @@ def test_my_games_rate_limited_passes_through_status_and_retry_after(api_client,
 
 def test_my_games_upstream_unavailable_returns_502_not_500(api_client, user, monkeypatch):
     monkeypatch.setattr(
-        player_stats, "fetch_player_stats", lambda *a, **k: (_ for _ in ()).throw(cache.UpstreamUnavailable())
+        player_stats,
+        "fetch_combined_player_stats",
+        lambda *a, **k: (_ for _ in ()).throw(cache.UpstreamUnavailable()),
     )
     api_client.force_authenticate(user=user)
     response = api_client.get("/api/v1/explorer/my-games/", {"fen": START_FEN, "color": "white"})
@@ -274,7 +276,7 @@ def test_my_games_forwards_valid_since_until_and_speeds(api_client, user, monkey
         captured.update(kwargs)
         return {"totalGames": 0, "moves": [], "opening": None}
 
-    monkeypatch.setattr(player_stats, "fetch_player_stats", fake_fetch_player_stats)
+    monkeypatch.setattr(player_stats, "fetch_combined_player_stats", fake_fetch_player_stats)
     api_client.force_authenticate(user=user)
 
     response = api_client.get(
@@ -288,7 +290,12 @@ def test_my_games_forwards_valid_since_until_and_speeds(api_client, user, monkey
         },
     )
     assert response.status_code == 200
-    assert captured == {"since": "2020-01", "until": "2021-06", "speeds": "bullet,rapid"}
+    assert captured == {
+        "since": "2020-01",
+        "until": "2021-06",
+        "speeds": "bullet,rapid",
+        "databases": "lichess,chesscom",
+    }
 
 
 def test_my_games_rejects_invalid_speed(api_client, user):

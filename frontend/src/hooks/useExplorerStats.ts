@@ -5,6 +5,30 @@ import type { ExplorerResponse, RepertoireColor } from '../types'
 
 export type ExplorerSource = 'lichess' | 'my-games'
 
+function mergeExplorerResponses(responses: ExplorerResponse[]): ExplorerResponse {
+  const rows = new Map<string, ExplorerResponse['moves'][number]>()
+  for (const response of responses) {
+    for (const move of response.moves) {
+      const existing = rows.get(move.uci)
+      rows.set(move.uci, existing ? {
+        ...existing,
+        white: existing.white + move.white,
+        draws: existing.draws + move.draws,
+        black: existing.black + move.black,
+        totalGames: existing.totalGames + move.totalGames,
+      } : { ...move })
+    }
+  }
+  const indexing = responses.find((response) => response.stillIndexing)
+  return {
+    totalGames: responses.reduce((total, response) => total + response.totalGames, 0),
+    moves: [...rows.values()].sort((a, b) => b.totalGames - a.totalGames).slice(0, 12),
+    opening: responses.find((response) => response.opening)?.opening ?? null,
+    ...(indexing ? { stillIndexing: true } : {}),
+    ...(indexing?.queuePosition !== undefined ? { queuePosition: indexing.queuePosition } : {}),
+  }
+}
+
 // Lichess indexes a player's games in the background (see player_stats.py on
 // the backend), which can genuinely take longer than one request's wait
 // budget - a single "still indexing" response with no further retry just
@@ -46,6 +70,7 @@ export function useExplorerStats(
   myGamesColor: RepertoireColor = 'white',
   filters?: LichessDatabaseFilters,
   userId?: number,
+  lichessConnectionKey = '',
 ) {
   const [data, setData] = useState<ExplorerResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -55,7 +80,7 @@ export function useExplorerStats(
   const [tick, setTick] = useState(0)
 
   const filtersKey = JSON.stringify(filters ?? {})
-  const identityKey = `${fen}|${apiToken}|${enabled}|${signedIn}|${source}|${myGamesColor}|${filtersKey}|${userId ?? ''}`
+  const identityKey = `${fen}|${apiToken}|${enabled}|${signedIn}|${source}|${myGamesColor}|${filtersKey}|${userId ?? ''}|${lichessConnectionKey}`
 
   // A fresh query identity (new position/color/source/token/filters) always
   // starts its own poll-attempt count from zero, rather than inheriting an
@@ -66,10 +91,12 @@ export function useExplorerStats(
   const identityRef = useRef(identityKey)
   const attemptRef = useRef(0)
   const snapshotFingerprintRef = useRef<string | null>(null)
+  const sourceResultsRef = useRef(new Map<string, ExplorerResponse>())
   if (identityRef.current !== identityKey) {
     identityRef.current = identityKey
     attemptRef.current = 0
     snapshotFingerprintRef.current = null
+    sourceResultsRef.current.clear()
   }
 
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -118,37 +145,67 @@ export function useExplorerStats(
     setLoading(true)
     setError(null)
 
-    const request =
-      source === 'my-games'
-        ? fetchMyGamesExplorerStats(fen, myGamesColor, userId ?? 0, controller.signal, filters)
-        : fetchExplorerStats(fen, { apiToken, signedIn, signal: controller.signal, filters })
+    const selectedDatabases = filters?.databases ?? ['lichess', 'chesscom']
+    const requests = source === 'my-games'
+      ? selectedDatabases.map((database) => ({ key: database, request: fetchMyGamesExplorerStats(
+          fen,
+          myGamesColor,
+          userId ?? 0,
+          controller.signal,
+          { ...filters, databases: [database] },
+        ) }))
+      : [{ key: 'public', request: fetchExplorerStats(fen, { apiToken, signedIn, signal: controller.signal, filters }) }]
+    let failures = 0
+    let settled = 0
+    let latestMerged: ExplorerResponse | null = null
 
-    request
+    const finishRequest = () => {
+      settled += 1
+      if (
+        settled === requests.length
+        && source === 'my-games'
+        && latestMerged?.stillIndexing
+        && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS
+      ) {
+        attemptRef.current += 1
+        pollTimeoutRef.current = setTimeout(() => setTick((t) => t + 1), MY_GAMES_POLL_INTERVAL_MS)
+      }
+    }
+
+    const publish = (key: string, res: ExplorerResponse) => {
+      sourceResultsRef.current.set(key, res)
+      const merged = mergeExplorerResponses([...sourceResultsRef.current.values()])
+      if (sourceResultsRef.current.size + failures < requests.length) merged.stillIndexing = true
+      latestMerged = merged
+      setData(merged)
+      setResultIdentity(identityKey)
+      setLoading(false)
+      const fingerprint = JSON.stringify({
+        totalGames: merged.totalGames,
+        moves: merged.moves.map((move) => [move.uci, move.white, move.draws, move.black]),
+      })
+      const unchangedPartial = Boolean(merged.stillIndexing && snapshotFingerprintRef.current === fingerprint)
+      snapshotFingerprintRef.current = fingerprint
+      setSnapshotStable(unchangedPartial || !merged.stillIndexing)
+    }
+
+    requests.forEach(({ key, request }) => request
       .then((res) => {
-        setData(res)
-        setResultIdentity(identityKey)
-        setLoading(false)
-        const fingerprint = JSON.stringify({
-          totalGames: res.totalGames,
-          moves: res.moves.map((move) => [move.uci, move.white, move.draws, move.black]),
-        })
-        const unchangedPartial = Boolean(res.stillIndexing && snapshotFingerprintRef.current === fingerprint)
-        snapshotFingerprintRef.current = fingerprint
-        // A stale upstream queue flag must not animate forever after the usable
-        // aggregates settle. Polling still continues below; a changed snapshot
-        // makes progress visible again until it stabilizes.
-        setSnapshotStable(unchangedPartial || !res.stillIndexing)
-        if (source === 'my-games' && res.stillIndexing && attemptRef.current < MY_GAMES_MAX_POLL_ATTEMPTS) {
-          attemptRef.current += 1
-          pollTimeoutRef.current = setTimeout(() => setTick((t) => t + 1), MY_GAMES_POLL_INTERVAL_MS)
+        if (!controller.signal.aborted) {
+          publish(key, res)
+          finishRequest()
         }
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return
-        setError(err instanceof Error ? err.message : 'Failed to load explorer stats')
-        setResultIdentity(identityKey)
-        setLoading(false)
-      })
+        failures += 1
+        finishRequest()
+        if (failures === requests.length) {
+          setError(err instanceof Error ? err.message : 'Failed to load explorer stats')
+          setResultIdentity(identityKey)
+          setLoading(false)
+        }
+      }))
 
     return () => {
       controller.abort()
@@ -158,7 +215,7 @@ export function useExplorerStats(
       }
     }
     // identityKey captures every input the request needs (fen/apiToken/enabled/
-    // signedIn/source/myGamesColor/filters); `tick` is what actually drives
+    // signedIn/source/myGamesColor/filters/user/connection); `tick` drives
     // re-fetching for polling/retry without those inputs having changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identityKey, tick])

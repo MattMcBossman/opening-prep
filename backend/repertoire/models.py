@@ -82,9 +82,24 @@ class ProfileModule(models.Model):
 
 
 class OpeningTemplate(models.Model):
-    """Admin-curated global opening whose published releases are immutable."""
+    """An official or community-published opening with immutable releases."""
+
+    OFFICIAL = "official"
+    COMMUNITY = "community"
+    KIND_CHOICES = [(OFFICIAL, "Official"), (COMMUNITY, "Community")]
 
     slug = models.SlugField(max_length=100, unique=True)
+    kind = models.CharField(max_length=12, choices=KIND_CHOICES, default=OFFICIAL)
+    publisher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="published_opening_templates",
+    )
+    source_module = models.OneToOneField(
+        "Repertoire", null=True, blank=True, on_delete=models.SET_NULL, related_name="published_template"
+    )
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     color = models.CharField(max_length=5, choices=Repertoire.COLOR_CHOICES)
@@ -127,7 +142,7 @@ class OpeningTemplateRelease(models.Model):
         super().clean()
         from .validation import validate_release_snapshot
 
-        validate_release_snapshot(self.tree, self.lines)
+        validate_release_snapshot(self.tree, self.lines, self.template.color)
 
 
 class ProfileTemplateRelease(models.Model):

@@ -25,7 +25,13 @@ highlights exact board squares.
 
 Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate; drills add corrective wrong-move feedback and a completion chime. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference. Dark mode is the first-visit default; an explicit light or dark choice remains persisted.
 
-Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Lichess account sign-in (OAuth), validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Chess.com linking stores no credentials and is not ownership verification because its generally available Published Data API has no OAuth flow. Signing in is optional — signed-out users can create reusable local opening modules and compose profiles in versioned `localStorage` (alongside a personal Lichess token pasted into the explorer panel), and an existing local repertoire is imported into the backend the first time you sign in. Signed-in users get the same Tournament/Blitz-style profile composition backed by the server, can choose one module as the editing target, inspect move provenance across merged overlays, and drill a composed profile from move one or a selected explorer position. The global opening library has immutable JSON-backed releases with anonymous read-only loading in the explorer; signing in additionally enables persistent profile pins, editable copies, and per-line gap filling. Private phone access to the laptop-hosted development stack is wired through Tailscale. Mobile-first engineering and automated Android/iPhone-sized browser coverage are complete; a top-right phone menu consolidates repertoire color, profile/module management, sound, theme, and account controls. Only the hands-on Android/Tailscale acceptance matrix remains in [mobile-plan.md](mobile-plan.md). The remaining product roadmap stays in [AGENTS.md](AGENTS.md#development-roadmap).
+Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Lichess never authenticates a Mainline account, while signed-out users may still paste a personal Lichess API token into the explorer; that token remains in browser `localStorage` and is used for direct Lichess requests. Chess.com linking stores no credentials and is not ownership verification because its generally available Published Data API has no OAuth flow. Signing in is optional — signed-out users can create reusable local opening modules and compose profiles in versioned `localStorage`, and an existing local repertoire is imported into the backend the first time you sign in. Signed-in users get the same Tournament/Blitz-style profile composition backed by the server, can choose one module as the editing target, inspect move provenance across merged overlays, and drill a composed profile from move one or a selected explorer position. The opening library has immutable JSON-backed releases split into official Mainline modules and community-published user modules, with anonymous read-only loading in the explorer; signing in additionally enables publishing owned modules, persistent profile pins, editable copies, and per-line gap filling. Anyone can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines; anonymous users may use their locally supplied Lichess token. Private phone access to the laptop-hosted development stack is wired through Tailscale. Mobile-first engineering and automated Android/iPhone-sized browser coverage are complete; a top-right phone menu consolidates repertoire color, profile/module management, sound, theme, and account controls. Only the hands-on Android/Tailscale acceptance matrix remains in [mobile-plan.md](mobile-plan.md). The remaining product roadmap stays in [AGENTS.md](AGENTS.md#development-roadmap).
+
+The signed-in **My games** explorer can use Lichess, the linked Chess.com
+username's cached monthly PGNs, or both sources combined.
+
+Mainline sign-in uses Google OpenID Connect. Lichess OAuth is retained as an optional linked data source
+rather than the primary account requirement.
 
 The on-demand coverage dashboard uses a 95% practical full-coverage target,
 weights its profile score by matching-game volume, and distinguishes fully
@@ -71,12 +77,16 @@ tailnet, then run from the repository root:
 ```
 
 The command applies pending migrations, starts Django and Vite on loopback,
-configures private tailnet HTTP proxying with Tailscale Serve, verifies the
-route, and prints the URL for the phone. This HTTP origin is reachable only
-inside Tailscale's encrypted private network and avoids blocking development on
-public TLS certificate issuance. Press Ctrl-C to stop both servers and disable
+configures private tailnet HTTPS proxying with Tailscale Serve, verifies the
+route, and prints the URL for the phone. The origin is reachable only inside
+Tailscale's encrypted private network. Press Ctrl-C to stop both servers and disable
 the proxy. PostgreSQL remains local and is never exposed. See
 [deployment-plan.md](deployment-plan.md) for the verification checklist.
+
+Before testing Google sign-in for the first time, follow the laptop-only
+[authentication setup checklist](backend/README.md#one-time-google-and-email-sign-in-setup-for-tailscale-development).
+
+The global-library candidate generator and the unfinished authentication rollout are summarized together in [current-work-handoff.md](current-work-handoff.md). Generator usage is documented in [backend/repertoire/OPENING_GENERATOR.md](backend/repertoire/OPENING_GENERATOR.md).
 
 `remote-dev` owns ports 8000 (Django) and 5173 (Vite). Stop separately started
 development servers before running it. The script checks both ports before
@@ -114,8 +124,7 @@ npm run dev
 
 Browse to the Vite URL (http://localhost:5173), not directly to Django — its dev
 server proxies `/api` to the backend, which keeps the session cookie first-party.
-Sign in with Lichess from the header, or paste a personal Lichess API token into
-the "Lichess explorer" panel to use the explorer signed-out (see
+Sign in with Google from the header. Lichess is connected afterward; signed-out users can instead paste a personal token into the explorer panel (see
 [AGENTS.md](AGENTS.md#data-sources)).
 
 Other useful commands (run from `frontend/`):

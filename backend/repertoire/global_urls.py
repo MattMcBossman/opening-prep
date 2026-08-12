@@ -1,8 +1,10 @@
 from django.urls import path
 
-from . import views
+from . import generator_views, views
 
 urlpatterns = [
+    path("generate/", generator_views.OpeningGenerationView.as_view(), name="opening-template-generate"),
+    path("publish/", views.OpeningTemplatePublishView.as_view(), name="opening-template-publish"),
     path("", views.OpeningTemplateListView.as_view(), name="opening-template-list"),
     path(
         "<slug:slug>/releases/<int:version>/",

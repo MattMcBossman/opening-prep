@@ -11,7 +11,7 @@ own `urls.py`.
 
 ## Conventions
 
-- **Auth**: session cookie, set by the OAuth callback. DRF defaults to
+- **Auth**: session cookie, set by a Google/email callback. DRF defaults to
   `IsAuthenticated`; endpoints usable anonymously opt out explicitly.
 - **CSRF**: unsafe methods require the `X-CSRFToken` header. The frontend obtains
   the cookie from `GET /api/v1/auth/session/`.
@@ -33,10 +33,17 @@ set. This is the app's bootstrap call.
 ```json
 {
   "authenticated": true,
-  "user": { "id": 1, "username": "DrNykterstein", "lichessUsername": "DrNykterstein", "chessComUsername": "hikaru" }
+  "user": { "id": 1, "username": "Chess-Player", "email": "player@example.com", "lichessUsername": "DrNykterstein", "chessComUsername": "hikaru" }
 }
 ```
 When signed out: `{"authenticated": false, "user": null}`.
+
+### `GET /api/v1/auth/google/start/` and `google/callback/`
+Browser redirects implementing Google's server-side authorization-code OpenID
+Connect flow. Callback state and the verified Google identity are validated
+before Django starts the Mainline session. A provider identity or verified
+email already owned by a different account redirects with
+`authError=account_conflict`; identities are never silently reassigned.
 
 ### `PUT /api/v1/auth/chess-com/`
 Authenticated. Accepts `{"username":"hikaru"}`, validates it against
@@ -49,19 +56,33 @@ Chess.com's generally available Published Data API is read-only.
 Authenticated. Removes the connected public username. `204 No Content`.
 
 ### `GET /api/v1/auth/lichess/start/`
-Anonymous-safe. Generates the PKCE `code_verifier` and `state`, stashes them in
+Authenticated. Generates the PKCE `code_verifier` and `state`, stashes them in
 the Django session, and **302s to Lichess**. Not an XHR endpoint — the browser
 navigates to it. Accepts an optional `?next=` path (must be relative; reject
 absolute URLs) recorded for the post-login redirect.
 
 ### `GET /api/v1/auth/lichess/callback/`
-Anonymous-safe. Handles `?code=&state=`, verifies `state` against the session,
+Authenticated. Handles `?code=&state=`, verifies `state` against the session,
 exchanges the code at `{LICHESS_HOST}/api/token`, fetches the profile from
-`{LICHESS_HOST}/api/account`, creates-or-updates the `User` and `LichessAccount`,
-logs the user in, and **302s back to `FRONTEND_URL`** (plus the recorded `next`).
+`{LICHESS_HOST}/api/account`, attaches or updates the current user's
+`LichessAccount`, and **302s back to `FRONTEND_URL`** (plus the recorded `next`).
+Lichess OAuth never creates or signs into a Mainline account.
 On failure it redirects with `?authError=<slug>` rather than rendering an error
 page. Access tokens are encrypted with `TOKEN_ENCRYPTION_KEY` before storage and
-are never serialized to any response.
+are never serialized to any response. When an identity belongs to a legacy
+user record with no Google or verified-email sign-in, linking it merges that
+record's durable repertoire and drill data into the current account. An
+identity owned by another sign-in-capable Mainline account still redirects
+with `authError=account_conflict` and preserves both accounts.
+
+If a merge is available, the callback instead redirects with
+`accountMerge=lichess` and stores an encrypted, ten-minute pending merge in the
+authenticated session. `GET /api/v1/auth/lichess/merge/` previews the legacy
+account's module, profile, drill-session, and publication counts. `POST`
+confirms the transactional merge and returns the updated session user; `DELETE`
+cancels it. Neither the callback nor the preview mutates either account.
+Modules and profiles remain separate records; name collisions receive a
+deterministic `(merged)` suffix rather than combining their contents.
 
 ### `POST /api/v1/auth/logout/`
 Flushes the session. `204 No Content`.
@@ -127,7 +148,7 @@ prefix replaces that shorter line. Body:
   {"originFen": "...", "san": "e4", "uci": "e2e4", "resultingFen": "..."}
 ]}
 ```
-Returns the module's complete ordered line list.
+Returns the module's complete ordered line list. A module permits only one repertoire-side response per position. Conflicts return `409` with `code: "response_conflict"` and position/move details. The optional `conflictPolicy: "replace"` explicitly removes the previous response and its now-unreachable authored continuations before adding the submitted line; omission defaults to `"reject"`.
 
 The body may also contain `annotations`, a list of
 `{"ply": number, "comment"?: string, "nags"?: number[]}` entries. Ply values
@@ -176,13 +197,15 @@ Idempotent: existing edges are skipped, not duplicated. Returns
 
 ## Global opening library — `repertoire/global_urls.py`
 
-These routes are mounted at `/api/v1/opening-templates/`. Template creation and
-release publishing are admin-only; the public API only discovers and uses
-published releases.
+These routes are mounted at `/api/v1/opening-templates/`. Published templates are explicitly classified as `official` (Mainline-curated) or `community` (published by a user). Releases are immutable in both catalogs.
 
-The list and release-detail `GET` routes are anonymous so signed-out users can
-load a release read-only in the explorer. Profile attachment, copying, and gap
-filling remain authenticated mutations.
+The list, release-detail, and candidate-generation routes are anonymous so signed-out users can load releases and generate personal trees. Profile attachment, publishing, copying, and gap filling remain authenticated mutations.
+
+### `POST /api/v1/opening-templates/generate/`
+Generates a recommended PGN tree from a supplied move prefix. It accepts a linked, locally supplied, or server Lichess token and never publishes automatically.
+
+### `POST /api/v1/opening-templates/publish/`
+With `{"moduleId": number, "changelog": string}`, snapshots an owned, non-empty personal module into the community catalog. Re-publishing the same module creates the next immutable version. Official status cannot be granted through this endpoint.
 
 ### `GET /api/v1/opening-templates/`
 Lists published templates with metadata for their latest immutable release.
@@ -199,8 +222,7 @@ profile is supplied, the new module is attached to it. Returns the module with
 
 ### `POST /api/v1/opening-templates/{slug}/releases/{version}/copy-missing/`
 With `{"moduleId": number}`, adds only release paths not already covered by an
-authored path in the owned, same-color module. Returns
-`{"added": number, "skipped": number}` and is idempotent.
+authored path in the owned, same-color module. Returns `{"added": number, "skipped": number, "conflicts": array}` and is idempotent. Lines that conflict with the selected module's repertoire response are skipped; copying the release creates a separate module that preserves those alternatives.
 
 ## Explorer cache — `explorer_cache/urls.py`
 
@@ -225,9 +247,10 @@ required — the frontend then keeps using its existing direct-to-Lichess path.
 Upstream `429` is surfaced as `429` with `Retry-After` passed through. Concurrent
 requests for the same key should not produce duplicate upstream calls.
 
-### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12&speeds=bullet,blitz`
+### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12&speeds=bullet,blitz&databases=lichess,chesscom`
 **Authenticated only** — there's no anonymous path, since this always needs the
-caller's own linked Lichess account. Live proxy for Lichess's player-scoped
+caller's own linked accounts. `databases` selects Lichess, Chess.com, or both
+(the default). Lichess is a live proxy for its player-scoped
 opening explorer (the signed-in user's own games), unlike the longer-lived shared cache on
 `/explorer/stats/`. Completed results are cached per user for
 `PLAYER_EXPLORER_CACHE_TTL_SECONDS`; partial `stillIndexing` snapshots are never

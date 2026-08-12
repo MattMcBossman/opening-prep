@@ -187,19 +187,19 @@ class TestAddMoves:
         assert RepertoireMove.objects.filter(repertoire=repertoire).count() == 1
         assert RepertoireLine.objects.filter(repertoire=repertoire).count() == 1
 
-    def test_adding_a_sibling_creates_two_explicit_lines_and_preserves_existing_uuid(
-        self, client, repertoire
-    ):
+    def test_adding_a_sibling_response_is_rejected(self, client, repertoire):
         first = {"moves": [{"originFen": START_FEN, "san": "e4", "uci": "e2e4", "resultingFen": AFTER_E4}]}
         client.post(f"/api/v1/repertoires/{repertoire.id}/moves/", first, format="json")
-        original_id = RepertoireLine.objects.get(repertoire=repertoire).id
 
         after_d4 = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1"
         second = {"moves": [{"originFen": START_FEN, "san": "d4", "uci": "d2d4", "resultingFen": after_d4}]}
-        client.post(f"/api/v1/repertoires/{repertoire.id}/moves/", second, format="json")
+        response = client.post(f"/api/v1/repertoires/{repertoire.id}/moves/", second, format="json")
 
-        assert RepertoireLine.objects.filter(repertoire=repertoire).count() == 2
-        assert RepertoireLine.objects.get(repertoire=repertoire, uci_path="e2e4").id == original_id
+        assert response.status_code == 409
+        assert response.data["code"] == "response_conflict"
+        assert list(
+            RepertoireLine.objects.filter(repertoire=repertoire).values_list("uci_path", flat=True)
+        ) == ["e2e4"]
 
     def test_illegal_move_returns_400_and_saves_nothing(self, client, repertoire):
         body = {
@@ -278,8 +278,8 @@ class TestImport:
 
         assert response.status_code == 200
         assert response.data == {
-            "white": {"imported": 1, "skipped": 0},
-            "black": {"imported": 0, "skipped": 0},
+            "white": {"imported": 1, "skipped": 0, "conflicts": []},
+            "black": {"imported": 0, "skipped": 0, "conflicts": []},
         }
         white = Repertoire.objects.get(owner=user, color=Repertoire.WHITE, name="Default")
         assert RepertoireMove.objects.filter(repertoire=white).count() == 1
@@ -293,7 +293,7 @@ class TestImport:
 
         response = client.post("/api/v1/repertoires/import/", body, format="json")
 
-        assert response.data["white"] == {"imported": 0, "skipped": 1}
+        assert response.data["white"] == {"imported": 0, "skipped": 1, "conflicts": []}
         white = Repertoire.objects.get(owner=user, color=Repertoire.WHITE, name="Default")
         assert RepertoireMove.objects.filter(repertoire=white).count() == 1
 

@@ -236,7 +236,9 @@ keeping every Phase 4 endpoint backward compatible during migration.
   or Blitz. `ProfileModule` attaches ordered, independently enabled personal
   modules. The same module may appear in several profiles.
 - A module retains its normalized-FEN graph (`RepertoireMove`) for fast
-  position lookups and transposition-aware overlays.
+  position lookups and transposition-aware overlays. At every position where
+  the module’s repertoire side is to move, the module has at most one
+  outgoing saved move; opponent-to-move positions may branch freely.
 - An **authored line** (`RepertoireLine` plus ordered
   `RepertoireLineStep`) records one stable move order through that graph. Lines
   are the path/provenance layer; the graph is their position-oriented union.
@@ -250,6 +252,9 @@ keeping every Phase 4 endpoint backward compatible during migration.
   ids answer as not found or invalid without revealing existence.
 - Exactly one personal module is the editing target for a displayed color.
   Other enabled personal modules and pinned global releases are read overlays.
+- Different enabled modules or pinned releases may contribute different
+  repertoire-side responses at the same position; that choice exists at the
+  profile overlay level, never inside one module.
 - Identical overlay edges are deduplicated by `(origin FEN, UCI, resulting
   FEN)` while retaining all contributing component ids.
 - Removing an edge modifies only its personal module. Global releases are
@@ -277,7 +282,7 @@ keeping every Phase 4 endpoint backward compatible during migration.
 - Exact duplicates are idempotent.
 - Extending a terminal prefix replaces the shorter terminal line; saving a
   prefix of an existing line is a no-op.
-- Sibling branches remain independent.
+- Opponent-reply sibling branches remain independent. A repertoire-side sibling is rejected with a structured conflict unless the caller explicitly requests replacement; profiles express alternatives by composing separate modules.
 - The response is the complete ordered line list.
 
 `DELETE /api/v1/repertoires/{id}/lines/{line UUID}/` deletes that authored
@@ -299,16 +304,16 @@ old clients exist. They synchronize explicit lines from the resulting graph.
 
 - `GET /opening-templates/` lists published global templates and their latest
   release metadata.
-- `GET /opening-templates/{slug}/releases/{version}/` returns an immutable
-  release snapshot (metadata, graph, and authored lines).
+- `GET /opening-templates/{slug}/releases/{version}/` opens an immutable
+  read-only module view (metadata, graph, and authored lines) and performs no
+  personal-library write.
 - `POST /profiles/{id}/template-releases/` pins a release read-only.
 - `DELETE /profiles/{id}/template-releases/` removes that pin.
 - `POST /opening-templates/{slug}/releases/{version}/copy/` creates an editable
   personal module owned by the caller, preserving release provenance. An
   optional `profileId` attaches it immediately.
 
-Publishing and editing global templates is admin-only in this phase; public API
-endpoints are read/use operations.
+Community publishing is available to every signed-in module owner; official Mainline classification remains staff-controlled. Loading is always read-only. Copying creates a new personal module, while filling the selected module is a separate explicit action that previews and resolves single-response conflicts.
 
 ### Immutable release JSON
 

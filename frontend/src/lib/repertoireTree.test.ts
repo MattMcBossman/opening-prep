@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMoveToTree, isRepertoireEmpty, removeMoveFromTree } from './repertoireTree'
+import { addMoveToTree, findResponseConflicts, isRepertoireEmpty, removeMoveFromTree } from './repertoireTree'
 import type { RepertoireTree } from '../types'
 
 const ROOT = 'root w - -'
@@ -25,6 +25,14 @@ describe('addMoveToTree', () => {
     const tree: RepertoireTree = { [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }] }
     const next = addMoveToTree(tree, ROOT, { san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 })
     expect(next).toBe(tree)
+  })
+})
+
+describe('findResponseConflicts', () => {
+  it('flags repertoire-side alternatives but permits opponent branches', () => {
+    const tree: RepertoireTree = { [ROOT]: [{ san: 'e4', uci: 'e2e4', resultingFen: AFTER_E4 }], [AFTER_E4]: [{ san: 'e5', uci: 'e7e5', resultingFen: AFTER_E4_E5 }] }
+    expect(findResponseConflicts(tree, 'white', [{ originFen: ROOT, uci: 'd2d4' }])).toHaveLength(1)
+    expect(findResponseConflicts(tree, 'white', [{ originFen: AFTER_E4, uci: 'c7c5' }])).toHaveLength(0)
   })
 })
 

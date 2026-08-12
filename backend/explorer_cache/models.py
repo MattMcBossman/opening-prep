@@ -167,3 +167,64 @@ class PlayerStatsCache(models.Model):
     @property
     def is_expired(self) -> bool:
         return timezone.now() >= self.expires_at
+
+
+class ChessComArchiveCache(models.Model):
+    """Cached Chess.com archive index or one monthly public-game payload."""
+
+    username = models.CharField(max_length=64)
+    archive_key = models.CharField(max_length=7)  # "index" or YYYY-MM
+    response = models.JSONField()
+    fetched_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+    indexed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["username", "archive_key"], name="unique_chesscom_archive_cache_key"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.username}:{self.archive_key}"
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+
+class ChessComGamePosition(models.Model):
+    """One indexed position/continuation occurrence from a Chess.com game."""
+
+    username = models.CharField(max_length=64)
+    archive_key = models.CharField(max_length=7)
+    game_key = models.CharField(max_length=255)
+    ply = models.PositiveSmallIntegerField()
+    player_color = models.CharField(max_length=5)
+    time_class = models.CharField(max_length=16)
+    played_at = models.DateTimeField()
+    origin_fen = models.CharField(max_length=100)
+    san = models.CharField(max_length=16)
+    uci = models.CharField(max_length=8)
+    white = models.PositiveSmallIntegerField(default=0)
+    draws = models.PositiveSmallIntegerField(default=0)
+    black = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["username", "archive_key", "game_key", "ply"],
+                name="unique_chesscom_game_position",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["username", "player_color", "origin_fen"],
+                name="chesscom_user_color_fen_idx",
+            ),
+            models.Index(fields=["username", "played_at"], name="chesscom_user_date_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.username}:{self.game_key}:{self.ply}"

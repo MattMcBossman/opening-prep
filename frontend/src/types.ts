@@ -5,6 +5,7 @@ export type ExplorerMoveStat = {
   draws: number
   black: number
   totalGames: number
+  opening?: ExplorerOpening
 }
 
 export type ExplorerOpening = {

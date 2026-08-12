@@ -158,6 +158,55 @@ def serialize_tree(repertoire: Repertoire) -> dict[str, list[dict]]:
     return load_tree(repertoire)
 
 
+class ResponseConflict(ValueError):
+    def __init__(self, conflicts: list[dict]):
+        super().__init__("This module already has a different response at one or more positions.")
+        self.conflicts = conflicts
+
+
+def _is_repertoire_turn(color: str, fen: str) -> bool:
+    active = normalize_fen(fen).split()[1]
+    return active == ("w" if color == Repertoire.WHITE else "b")
+
+
+def response_conflicts(color: str, tree: dict, steps: list[dict]) -> list[dict]:
+    conflicts = []
+    incoming: dict[str, str] = {}
+    for raw in steps:
+        origin = normalize_fen(raw["originFen"])
+        if not _is_repertoire_turn(color, origin):
+            continue
+        uci = raw["uci"]
+        prior = incoming.get(origin)
+        if prior and prior != uci:
+            conflicts.append(
+                {"originFen": origin, "existingUci": prior, "incomingUci": uci, "source": "import"}
+            )
+        incoming[origin] = uci
+        for existing in tree.get(origin, []):
+            if existing["uci"] != uci:
+                conflicts.append(
+                    {
+                        "originFen": origin,
+                        "existingUci": existing["uci"],
+                        "incomingUci": uci,
+                        "source": "module",
+                    }
+                )
+    return list(
+        {(item["originFen"], item["existingUci"], item["incomingUci"]): item for item in conflicts}.values()
+    )
+
+
+def legacy_response_conflicts(repertoire: Repertoire) -> list[dict]:
+    tree = load_tree(repertoire)
+    return [
+        {"originFen": fen, "moves": [move["uci"] for move in moves]}
+        for fen, moves in tree.items()
+        if _is_repertoire_turn(repertoire.color, fen) and len(moves) > 1
+    ]
+
+
 @transaction.atomic
 def add_moves(repertoire: Repertoire, moves: list[dict]) -> dict:
     """
@@ -167,6 +216,9 @@ def add_moves(repertoire: Repertoire, moves: list[dict]) -> dict:
     frontend/src/hooks/useRepertoire.ts. Edges that already exist are a no-op.
     """
     tree = load_tree(repertoire)
+    conflicts = response_conflicts(repertoire.color, tree, moves)
+    if conflicts:
+        raise ResponseConflict(conflicts)
     for move in moves:
         origin = normalize_fen(move["originFen"])
         edge = {
@@ -199,9 +251,15 @@ def import_tree(repertoire: Repertoire, tree_payload: dict[str, list[dict]]) -> 
     """
     tree = load_tree(repertoire)
     imported = skipped = 0
+    conflicts = []
     for origin, edges in tree_payload.items():
         normalized_origin = normalize_fen(origin)
         for edge in edges:
+            conflict = response_conflicts(repertoire.color, tree, [{"originFen": normalized_origin, **edge}])
+            if conflict:
+                conflicts.extend(conflict)
+                skipped += 1
+                continue
             added = cascade.add_move(
                 tree,
                 normalized_origin,
@@ -216,7 +274,7 @@ def import_tree(repertoire: Repertoire, tree_payload: dict[str, list[dict]]) -> 
             else:
                 skipped += 1
     save_tree(repertoire, tree)
-    return {"imported": imported, "skipped": skipped}
+    return {"imported": imported, "skipped": skipped, "conflicts": conflicts}
 
 
 def get_or_create_default(user, color: str) -> Repertoire:
@@ -248,6 +306,7 @@ def add_authored_line(
     label: str = "",
     source: str = "manual",
     annotations: list[dict] | None = None,
+    conflict_policy: str = "reject",
 ):
     """Create/reuse one explicit path while maintaining its graph-edge union."""
     normalized = []
@@ -286,12 +345,28 @@ def add_authored_line(
         return
 
     tree = load_tree(repertoire)
+    conflicts = response_conflicts(repertoire.color, tree, normalized)
+    imported_conflicts = [item for item in conflicts if item["source"] == "import"]
+    if imported_conflicts or (conflicts and conflict_policy == "reject"):
+        raise ResponseConflict(conflicts)
+    if conflicts and conflict_policy == "replace":
+        for item in conflicts:
+            cascade.remove_move(tree, repertoire.color, item["originFen"], item["existingUci"])
     for step in normalized:
         cascade.add_move(
             tree,
             step["originFen"],
             {"san": step["san"], "uci": step["uci"], "resultingFen": step["resultingFen"]},
         )
+    if conflicts and conflict_policy == "replace":
+        for item in conflicts:
+            repertoire.lines.filter(
+                steps__move__origin_fen=item["originFen"], steps__move__uci=item["existingUci"]
+            ).delete()
+        retained = {(origin, edge["uci"]) for origin, edges in tree.items() for edge in edges}
+        for move in repertoire.moves.all():
+            if (move.origin_fen, move.uci) not in retained:
+                move.delete()
     # Save graph without compatibility line regeneration.
     existing = {(m.origin_fen, m.uci): m for m in repertoire.moves.all()}
     for step in normalized:
@@ -338,7 +413,6 @@ def delete_authored_line(repertoire: Repertoire, line: RepertoireLine) -> None:
 @transaction.atomic
 def import_release_lines(repertoire: Repertoire, release: OpeningTemplateRelease) -> None:
     """Import a release graph while retaining its authored path metadata."""
-    import_tree(repertoire, release.tree)
     repertoire.lines.all().delete()
     for payload in sorted(release.lines, key=lambda line: line.get("sortOrder", 0)):
         add_authored_line(
@@ -358,21 +432,27 @@ def import_missing_release_lines(repertoire: Repertoire, release: OpeningTemplat
     existing_paths = list(repertoire.lines.values_list("uci_path", flat=True))
     added = 0
     skipped = 0
+    conflicts = []
     for payload in sorted(release.lines, key=lambda line: line.get("sortOrder", 0)):
         uci_path = " ".join(step["uci"] for step in payload["steps"])
         if any(path == uci_path or path.startswith(f"{uci_path} ") for path in existing_paths):
             skipped += 1
             continue
-        add_authored_line(
-            repertoire,
-            payload["steps"],
-            label=payload.get("label", ""),
-            source=payload.get("source", RepertoireLine.SOURCE_MANUAL),
-            annotations=payload.get("annotations", []),
-        )
+        try:
+            add_authored_line(
+                repertoire,
+                payload["steps"],
+                label=payload.get("label", ""),
+                source=payload.get("source", RepertoireLine.SOURCE_MANUAL),
+                annotations=payload.get("annotations", []),
+            )
+        except ResponseConflict as exc:
+            conflicts.extend(exc.conflicts)
+            skipped += 1
+            continue
         if repertoire.lines.filter(uci_path=uci_path).exists():
             added += 1
             existing_paths.append(uci_path)
         else:
             skipped += 1
-    return {"added": added, "skipped": skipped}
+    return {"added": added, "skipped": skipped, "conflicts": conflicts}

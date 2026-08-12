@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
+import { findResponseConflicts } from '../lib/repertoireTree'
 import { exportRepertoireToPgn } from '../lib/pgnExport'
 import { parsePgnLinesWithMetadata } from '../lib/pgnImport'
 import type { ParsedPgnEdge, ParsedPgnLine } from '../lib/pgnImport'
@@ -9,9 +10,11 @@ import type { RepertoireColor, RepertoireTree } from '../types'
 type Props = {
   color: RepertoireColor
   getTree: (color: RepertoireColor) => RepertoireTree
+  getEditingTree: (color: RepertoireColor) => RepertoireTree
   getLines: (color: RepertoireColor) => PgnExportLine[]
   isMoveSaved: (color: RepertoireColor, fen: string, uci: string) => boolean
-  addLine: (color: RepertoireColor, steps: ParsedPgnEdge[], source?: 'manual' | 'pgn_import', label?: string, annotations?: ParsedPgnLine['annotations']) => void
+  addLine: (color: RepertoireColor, steps: ParsedPgnEdge[], source?: 'manual' | 'pgn_import', label?: string, annotations?: ParsedPgnLine['annotations'], conflictPolicy?: 'reject' | 'replace') => void
+  createModuleFromLines: (name: string, lines: ParsedPgnLine[]) => Promise<unknown>
 }
 
 type Preview = {
@@ -19,6 +22,8 @@ type Preview = {
   lines: ParsedPgnLine[]
   newCount: number
   savedCount: number
+  conflictCount: number
+  internalConflictCount: number
 }
 
 /** Triggers a browser download of `text` as a file named `filename`, with no server round trip. */
@@ -34,17 +39,15 @@ function downloadTextFile(filename: string, text: string): void {
 
 /**
  * Export/import the active color's repertoire as PGN (with RAV variations for
- * every saved branch point - see pgnExport.ts/pgnImport.ts). Import is
- * additive/idempotent: it only ever adds edges via `addMove`, so it's always
- * safe to import into a non-empty repertoire, and re-importing the same PGN
- * twice changes nothing the second time.
+ * every saved branch point - see pgnExport.ts/pgnImport.ts). Import previews response conflicts before writing. Users may skip conflicting lines, explicitly replace the selected module's response, or create a separate module; a PGN that contains internal repertoire-side alternatives must be split before becoming one module.
  */
-export function PgnImportExportPanel({ color, getTree, getLines, isMoveSaved, addLine }: Props) {
+export function PgnImportExportPanel({ color, getTree, getEditingTree, getLines, isMoveSaved, addLine, createModuleFromLines }: Props) {
   const [importOpen, setImportOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmedCount, setConfirmedCount] = useState<number | null>(null)
+  const [moduleName, setModuleName] = useState('Imported opening')
 
   const handleExport = useCallback(() => {
     const pgn = exportRepertoireToPgn(getTree(color), color, getLines(color))
@@ -86,16 +89,22 @@ export function PgnImportExportPanel({ color, getTree, getLines, isMoveSaved, ad
     }
     const savedCount = edges.filter((edge) => isMoveSaved(color, edge.originFen, edge.uci)).length
     setError(null)
-    setPreview({ edges, lines, newCount: edges.length - savedCount, savedCount })
-  }, [draft, color, isMoveSaved])
+    const conflictCount = findResponseConflicts(getEditingTree(color), color, edges).length
+    const internalConflictCount = findResponseConflicts({}, color, edges).length
+    setPreview({ edges, lines, newCount: edges.length - savedCount, savedCount, conflictCount, internalConflictCount })
+  }, [draft, color, isMoveSaved, getEditingTree])
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback((policy: 'skip' | 'replace') => {
     if (!preview) return
-    for (const line of preview.lines) addLine(color, line.steps, 'pgn_import', line.label, line.annotations)
-    setConfirmedCount(preview.newCount)
+    const current = getEditingTree(color)
+    const lines = policy === 'skip'
+      ? preview.lines.filter((line) => findResponseConflicts(current, color, line.steps).length === 0)
+      : preview.lines
+    for (const line of lines) addLine(color, line.steps, 'pgn_import', line.label, line.annotations, policy === 'replace' ? 'replace' : 'reject')
+    setConfirmedCount(lines.flatMap((line) => line.steps).length)
     setPreview(null)
     setDraft('')
-  }, [preview, color, addLine])
+  }, [preview, color, addLine, getEditingTree])
 
   const colorLabel = useMemo(() => (color === 'white' ? 'White' : 'Black'), [color])
 
@@ -130,23 +139,22 @@ export function PgnImportExportPanel({ color, getTree, getLines, isMoveSaved, ad
             <input type="file" accept=".pgn,.txt" onChange={handleFileChange} />
           </div>
           {error && <p className="panel-status error">{error}</p>}
-          {preview && (
-            <p className="panel-status">
-              {preview.newCount} new move{preview.newCount === 1 ? '' : 's'} ({preview.savedCount} already saved)
-              into the {colorLabel} repertoire.
-            </p>
-          )}
+          {preview && <>
+            <p className="panel-status">{preview.newCount} new move{preview.newCount === 1 ? '' : 's'} ({preview.savedCount} already saved) into the {colorLabel} repertoire.</p>
+            {preview.conflictCount > 0 && <p className="panel-status error">{preview.conflictCount} response conflict{preview.conflictCount === 1 ? '' : 's'} with the selected module.</p>}
+            {preview.internalConflictCount > 0 && <p className="panel-status error">This PGN itself contains multiple repertoire responses at a position. Conflicting lines can only be skipped; split them into separate PGNs to create separate modules.</p>}
+          </>}
           {confirmedCount !== null && (
             <p className="panel-status">
               Imported {confirmedCount} new move{confirmedCount === 1 ? '' : 's'}.
             </p>
           )}
           <div className="board-controls">
-            {preview ? (
-              <button type="button" onClick={handleConfirm}>
-                Confirm import
-              </button>
-            ) : (
+            {preview ? (<>
+              <button type="button" onClick={() => handleConfirm('skip')}>{preview.conflictCount > 0 ? 'Import non-conflicting lines' : 'Confirm import'}</button>
+              {preview.conflictCount > 0 && preview.internalConflictCount === 0 && <button type="button" onClick={() => handleConfirm('replace')}>Replace selected-module responses</button>}
+              {preview.internalConflictCount === 0 && <><input aria-label="New module name" value={moduleName} maxLength={100} onChange={(event) => setModuleName(event.target.value)} /><button type="button" disabled={moduleName.trim() === ''} onClick={() => void createModuleFromLines(moduleName.trim(), preview.lines).then(() => { setConfirmedCount(preview.edges.length); setPreview(null); setDraft('') })}>Create separate module</button></>}
+            </>) : (
               <button type="button" onClick={handlePreview} disabled={draft.trim() === ''}>
                 Preview
               </button>

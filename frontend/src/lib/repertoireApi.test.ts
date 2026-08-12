@@ -155,6 +155,7 @@ describe('addRepertoireMoves / removeRepertoireMove', () => {
       label: 'Vienna main line',
       source: 'manual',
       annotations: [],
+      conflictPolicy: 'reject',
       steps,
     })
   })

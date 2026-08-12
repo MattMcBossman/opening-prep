@@ -138,8 +138,8 @@ def test_global_release_can_be_pinned_and_copied(client, owner):
         {"moduleId": target.id},
         format="json",
     )
-    assert first_fill.data == {"added": 1, "skipped": 0}
-    assert second_fill.data == {"added": 0, "skipped": 1}
+    assert first_fill.data == {"added": 1, "skipped": 0, "conflicts": []}
+    assert second_fill.data == {"added": 0, "skipped": 1, "conflicts": []}
     assert target.lines.get().label == "Vienna main line"
 
 

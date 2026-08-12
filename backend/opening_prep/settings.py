@@ -246,6 +246,19 @@ FRONTEND_URL = REMOTE_DEV_ORIGIN or env(
     default=RENDER_ORIGIN or "http://localhost:5173",
 )
 
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET", default="")
+GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+GOOGLE_REDIRECT_URI = (
+    f"{REMOTE_DEV_ORIGIN}/api/v1/auth/google/callback"
+    if REMOTE_DEV_ORIGIN
+    else env(
+        "GOOGLE_REDIRECT_URI",
+        default=f"{RENDER_ORIGIN or 'http://localhost:5173'}/api/v1/auth/google/callback",
+    )
+)
 # Fernet key used to encrypt stored Lichess access tokens at rest. Generate with:
 #   uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 TOKEN_ENCRYPTION_KEY = env("TOKEN_ENCRYPTION_KEY", default="")

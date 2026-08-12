@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeFen, sideToMove } from '../lib/chessUtils'
-import { addMoveToTree, isRepertoireEmpty, removeMoveFromTree } from '../lib/repertoireTree'
+import { addMoveToTree, findResponseConflicts, isRepertoireEmpty, removeMoveFromTree } from '../lib/repertoireTree'
 import { mergeRepertoireTrees } from '../lib/repertoireOverlay'
 import { activeLocalRepertoire, defaultLocalProfileStore, parseLocalProfileStore } from '../lib/localProfileStore'
 import type { LocalProfileStore } from '../lib/localProfileStore'
@@ -138,6 +138,7 @@ function useLocalRepertoireStore() {
     (color: RepertoireColor, fen: string): RepertoireMove[] => repertoire[color][normalizeFen(fen)] ?? [],
     [repertoire],
   )
+  const getEditingTree = useCallback((color: RepertoireColor): RepertoireTree => editingModule(store, color)?.tree ?? {}, [editingModule, store])
 
   const isMoveSaved = useCallback(
     (color: RepertoireColor, fen: string, uci: string): boolean => {
@@ -171,6 +172,7 @@ function useLocalRepertoireStore() {
     id: module.id, name: module.name, description: '', color: module.color,
     moveCount: Object.values(module.tree).reduce((sum, moves) => sum + moves.length, 0),
     lineCount: collectDrillLines(module.color, (fen) => module.tree[normalizeFen(fen)] ?? []).length,
+    hasResponseConflicts: Object.entries(module.tree).some(([fen, moves]) => sideToMove(fen) === module.color && moves.length > 1),
     createdAt: '', updatedAt: '',
   }))
   const profiles: RepertoireProfileSummary[] = store.profiles.map((profile) => ({
@@ -207,7 +209,7 @@ function useLocalRepertoireStore() {
   }
 
   return {
-    repertoire, getContinuations, isMoveSaved, addMove, removeMove, profiles, modules, activeProfile,
+    repertoire, getContinuations, getEditingTree, isMoveSaved, addMove, removeMove, profiles, modules, activeProfile,
     activeProfileId: activeProfile?.id ?? null, editingModuleIds: store.editingModuleIds,
     setActiveProfile: (profileId: number) => setStore((previous) => {
       const profile = previous.profiles.find((item) => item.id === profileId)
@@ -241,6 +243,16 @@ function useLocalRepertoireStore() {
         ? { ...profile, modules: [...profile.modules, { moduleId: id, enabled: true, sortOrder: profile.modules.length }] }
         : profile)
       return { ...next, profiles, modules: [...next.modules, { id, name, color, tree: {} }], editingModuleIds: { ...next.editingModuleIds, [color]: id } }
+    })),
+    importModule: (color: RepertoireColor, name: string, lines: Array<{ steps: MoveEdge[] }>, profileId?: number) => resolved(setStore((previous) => {
+      const [id, next] = allocate(previous)
+      const targetProfileId = profileId ?? next.activeProfileId
+      let tree: RepertoireTree = {}
+      for (const line of lines) for (const step of line.steps) tree = addMoveToTree(tree, step.originFen, step)
+      const profiles = next.profiles.map((profile) => profile.id === targetProfileId
+        ? { ...profile, modules: [...profile.modules, { moduleId: id, enabled: true, sortOrder: profile.modules.length }] }
+        : profile)
+      return { ...next, profiles, modules: [...next.modules, { id, name, color, tree }], editingModuleIds: { ...next.editingModuleIds, [color]: id } }
     })),
     renameModule: (id: number, name: string) => resolved(setStore((previous) => ({ ...previous, modules: previous.modules.map((module) => module.id === id ? { ...module, name } : module) }))),
     deleteModule: (id: number) => resolved(setStore((previous) => {
@@ -426,17 +438,20 @@ function useApiRepertoireStore(enabled: boolean) {
     [flushAdds],
   )
 
-  const addLine = useCallback((color: RepertoireColor, steps: MoveEdge[], source: ApiRepertoireLine['source'] = 'manual', label = '', annotations: ApiRepertoireLine['annotations'] = []) => {
+  const addLine = useCallback((color: RepertoireColor, steps: MoveEdge[], source: ApiRepertoireLine['source'] = 'manual', label = '', annotations: ApiRepertoireLine['annotations'] = [], conflictPolicy: 'reject' | 'replace' = 'reject') => {
     const moduleId = editingIdsRef.current[color]
     if (moduleId === undefined || steps.length === 0) return
     setState((s) => {
       let tree = s.trees[moduleId] ?? {}
+      if (conflictPolicy === 'replace') {
+        for (const conflict of findResponseConflicts(tree, color, steps)) tree = removeMoveFromTree(tree, color, conflict.originFen, conflict.existingUci)
+      }
       for (const step of steps) {
         tree = addMoveToTree(tree, step.originFen, step)
       }
       return { ...s, trees: { ...s.trees, [moduleId]: tree } }
     })
-    addRepertoireLine(moduleId, steps, label, source, annotations).then(
+    addRepertoireLine(moduleId, steps, label, source, annotations, conflictPolicy).then(
       () => {
         fetchRepertoireTree(moduleId).then(
           (tree) => setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } })),
@@ -555,6 +570,10 @@ function useApiRepertoireStore(enabled: boolean) {
     (color: RepertoireColor, fen: string): RepertoireMove[] => activeTree[color][normalizeFen(fen)] ?? [],
     [activeTree],
   )
+  const getEditingTree = useCallback((color: RepertoireColor): RepertoireTree => {
+    const moduleId = state.editingModuleIds[color]
+    return moduleId === undefined ? {} : state.trees[moduleId] ?? {}
+  }, [state.editingModuleIds, state.trees])
   const isMoveSaved = useCallback(
     (color: RepertoireColor, fen: string, uci: string): boolean => {
       const moduleId = state.editingModuleIds[color]
@@ -617,6 +636,7 @@ function useApiRepertoireStore(enabled: boolean) {
     editingLines,
     activeProfile,
     getContinuations,
+    getEditingTree,
     isMoveSaved,
     isMoveInActiveProfile,
     addMove,
@@ -634,6 +654,13 @@ function useApiRepertoireStore(enabled: boolean) {
       runAndReload(async () => {
         const module = await createRepertoire(color, name, description)
         if (profileId !== undefined) await setProfileModule(profileId, module.id, 0, true)
+        return module
+      }),
+    importModule: (color: RepertoireColor, name: string, lines: Array<{ steps: MoveEdge[]; label?: string; annotations?: ApiRepertoireLine['annotations' ] }>, profileId?: number) =>
+      runAndReload(async () => {
+        const module = await createRepertoire(color, name)
+        if (profileId !== undefined) await setProfileModule(profileId, module.id, 0, true)
+        for (const line of lines) await addRepertoireLine(module.id, line.steps, line.label ?? '', 'pgn_import', line.annotations ?? [])
         return module
       }),
     renameModule: (id: number, name: string, description?: string) =>
@@ -794,11 +821,15 @@ export function useRepertoire(user: AuthUser | null) {
   )
 
   const addLine = useCallback(
-    (color: RepertoireColor, steps: MoveEdge[], source: ApiRepertoireLine['source'] = 'manual', label = '', annotations: ApiRepertoireLine['annotations'] = []) => {
+    (color: RepertoireColor, steps: MoveEdge[], source: ApiRepertoireLine['source'] = 'manual', label = '', annotations: ApiRepertoireLine['annotations'] = [], conflictPolicy: 'reject' | 'replace' = 'reject') => {
       if (isAuthenticated) {
-        api.addLine(color, steps, source, label, annotations)
+        api.addLine(color, steps, source, label, annotations, conflictPolicy)
         return
       }
+      const tree = local.getEditingTree(color)
+      const conflicts = findResponseConflicts(tree, color, steps)
+      if (conflicts.length > 0 && conflictPolicy === 'reject') return
+      if (conflictPolicy === 'replace') for (const conflict of conflicts) local.removeMove(color, conflict.originFen, conflict.existingUci)
       for (const step of steps) {
         local.addMove(color, step.originFen, step)
       }
@@ -820,6 +851,7 @@ export function useRepertoire(user: AuthUser | null) {
 
   return {
     getContinuations,
+    getEditingTree: isAuthenticated ? api.getEditingTree : local.getEditingTree,
     isMoveSaved: active.isMoveSaved,
     isMoveInActiveProfile: isAuthenticated
       ? api.isMoveInActiveProfile
@@ -849,6 +881,7 @@ export function useRepertoire(user: AuthUser | null) {
     renameProfile: isAuthenticated ? api.renameProfile : local.renameProfile,
     deleteProfile: isAuthenticated ? api.deleteProfile : local.deleteProfile,
     createModule: isAuthenticated ? api.createModule : local.createModule,
+    importModule: isAuthenticated ? api.importModule : local.importModule,
     renameModule: isAuthenticated ? api.renameModule : local.renameModule,
     deleteModule: isAuthenticated ? api.deleteModule : local.deleteModule,
     setModuleMembership: isAuthenticated ? api.setModuleMembership : local.setModuleMembership,

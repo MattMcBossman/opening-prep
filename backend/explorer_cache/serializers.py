@@ -61,6 +61,7 @@ def _comma_separated_choice_validator(allowed: set[str], label: str):
 
 validate_ratings = _comma_separated_choice_validator(ALLOWED_RATINGS, "rating band(s)")
 validate_speeds = _comma_separated_choice_validator(ALLOWED_SPEEDS, "speed(s)")
+validate_databases = _comma_separated_choice_validator({"lichess", "chesscom"}, "database(s)")
 
 
 class ExplorerStatsQuerySerializer(serializers.Serializer):
@@ -74,6 +75,11 @@ class ExplorerStatsQuerySerializer(serializers.Serializer):
     speeds = serializers.CharField(required=False, validators=[validate_speeds])
 
 
+class ExplorerOpeningSerializer(serializers.Serializer):
+    eco = serializers.CharField()
+    name = serializers.CharField()
+
+
 class ExplorerMoveStatSerializer(serializers.Serializer):
     """One row of `ExplorerResponse.moves` - output only, never parsed from a request."""
 
@@ -83,11 +89,13 @@ class ExplorerMoveStatSerializer(serializers.Serializer):
     draws = serializers.IntegerField()
     black = serializers.IntegerField()
     totalGames = serializers.IntegerField()
+    opening = ExplorerOpeningSerializer(allow_null=True, required=False)
 
-
-class ExplorerOpeningSerializer(serializers.Serializer):
-    eco = serializers.CharField()
-    name = serializers.CharField()
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if "opening" not in instance:
+            data.pop("opening", None)
+        return data
 
 
 class ExplorerResponseSerializer(serializers.Serializer):
@@ -118,6 +126,9 @@ class MyGamesExplorerQuerySerializer(serializers.Serializer):
     since = serializers.CharField(required=False, validators=[validate_month])
     until = serializers.CharField(required=False, validators=[validate_month])
     speeds = serializers.CharField(required=False, validators=[validate_speeds])
+    databases = serializers.CharField(
+        required=False, default="lichess,chesscom", validators=[validate_databases]
+    )
 
 
 class EngineEvalQuerySerializer(serializers.Serializer):

@@ -63,17 +63,20 @@ was not installed on the host.
 - Added email-link request/callback endpoints and Google authorization-code
   OIDC start/callback endpoints.
 - Added account resolution by verified email, session serialization of email,
-  and optional post-sign-in Lichess linking while retaining legacy direct
-  Lichess sign-in compatibility.
+  and optional post-sign-in Lichess linking. Lichess cannot create or sign into
+  a Mainline account; anonymous users retain the separate browser-local API
+  token path for explorer requests.
 - Added frontend Google/email sign-in UI, API helpers, auth-error handling, and
   responsive popover styling.
 - Changed private remote development to Tailscale Serve HTTPS so Google OAuth
   callbacks use a secure origin.
 - Added Render environment declarations and setup documentation for Google and
   SMTP credentials.
-- Added focused backend authentication tests, but the complete suite is not
-  clean yet because several older exact-response assertions do not include the
-  newly added `email` or per-move `opening` fields.
+- Added focused backend authentication tests and updated older exact-response
+  assertions for the new `email` and per-move `opening` fields.
+- Made verified-email account creation tolerate concurrent first sign-ins, and
+  reject Google/Lichess identity collisions with `account_conflict` instead of
+  silently switching, reassigning, or failing with a database error.
 
 ### Configuration still required
 
@@ -91,22 +94,15 @@ was not installed on the host.
    console-email sign-in, one-time link consumption, expiry/error redirects,
    logout, Lichess linking, and repertoire persistence across refresh.
 
-### Code and verification follow-ups
+### Verification follow-ups
 
-1. Update the older account session test to expect the new nullable `email`
-   field.
-2. Update the two explorer view tests to expect optional per-move opening
-   metadata, then rerun the full PostgreSQL backend suite.
-3. Run frontend unit tests, lint, build, and the mobile authentication flow at
-   the Tailscale HTTPS origin.
-4. Review identity-collision behavior before production: Google subject is the
-   durable provider identity, verified email may join an existing account, and
-   attaching Google/Lichess identities must never silently move an identity
-   between users.
-5. Exercise simultaneous/replayed magic-link callbacks and concurrent
-   first-time sign-ins to confirm database uniqueness failures become safe
-   user-facing outcomes rather than 500 responses.
-6. Only after local acceptance, configure the corresponding Google and SMTP
+1. Restore a Node/npm runtime in the command environment, then run frontend
+   unit tests, lint, build, and the mobile authentication flow at the Tailscale
+   HTTPS origin. Backend verification is clean.
+2. Exercise simultaneous callbacks under real browser/database concurrency as
+   an acceptance check; row locking, uniqueness races, and replay outcomes now
+   have covered safe code paths.
+3. Only after local acceptance, configure the corresponding Google and SMTP
    secrets in Render and perform the production callback/delivery checks in
    `deployment-plan.md`.
 
@@ -114,9 +110,9 @@ was not installed on the host.
 
 - Generator-focused tests: 4 passed.
 - Generator-adjacent backend suites: 130 passed.
-- Full backend suite with a disposable test Fernet key: 180 passed, 3 failed.
-  The failures are the stale exact-response assertions described above, not in
-  generator code.
+- Full backend suite: 198 passed after the authentication/linking hardening.
+- Frontend checks could not be rerun in the consolidation environment because
+  neither `node` nor `npm` is currently on `PATH`.
 - Django system check, Ruff checks for generator/settings files, and Git
   whitespace validation passed.
 - Live generator fetch was not completed because the stored Lichess token
