@@ -8,6 +8,21 @@ At the end of the work period, report for every branch: commits, files changed,
 tests run, screenshots or API examples where relevant, known risks, and the
 specific review action requested.
 
+## Progress
+
+| Task | Branch | Status | Result |
+| --- | --- | --- | --- |
+| T1 | `autonomous/t1-opening-name-hardening` | Starting | — |
+| T2 | `autonomous/t2-module-manager-regressions` | Starting | — |
+| T3 | `autonomous/t3-player-index-lifecycle` | Starting | — |
+| T4 | `autonomous/t4-api-schema-audit` | Queued | — |
+| T5 | `autonomous/t5-accessibility-audit` | Queued | — |
+| T6 | `autonomous/t6-session-restoration` | Queued | — |
+| T7 | `autonomous/t7-cache-error-paths` | Queued | — |
+| T8 | `autonomous/t8-dependency-attribution` | Queued | — |
+| T9 | `autonomous/t9-opening-seed-safety` | Queued | — |
+| T10 | `autonomous/t10-retired-player-index` | Queued | — |
+
 ## Ready
 
 ### T1 — Opening-name override hardening
