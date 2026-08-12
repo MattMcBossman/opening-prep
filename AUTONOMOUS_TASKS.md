@@ -12,11 +12,11 @@ specific review action requested.
 
 | Task | Branch | Status | Result |
 | --- | --- | --- | --- |
-| T1 | `autonomous/t1-opening-name-hardening` | Starting | — |
+| T1 | `autonomous/t1-opening-name-hardening` | Completed | `85dbab8`; curated-FEN validation, cache override/ECO integration coverage, and retained-name loading behavior. |
 | T2 | `autonomous/t2-module-manager-regressions` | Starting | — |
-| T3 | `autonomous/t3-player-index-lifecycle` | Starting | — |
-| T4 | `autonomous/t4-api-schema-audit` | Queued | — |
-| T5 | `autonomous/t5-accessibility-audit` | Queued | — |
+| T3 | `autonomous/t3-player-index-lifecycle` | Completed | `483cc15`; deterministic ingestion lifecycle, isolation/filter/retry tests, and IndexedDB recovery documentation. |
+| T4 | `autonomous/t4-api-schema-audit` | Completed | `7a44313`; warning-free validated OpenAPI, streaming export coverage, and reconciled contract. |
+| T5 | `autonomous/t5-accessibility-audit` | In progress | Auditing keyboard, focus, names, containment, and reduced motion. |
 | T6 | `autonomous/t6-session-restoration` | Queued | — |
 | T7 | `autonomous/t7-cache-error-paths` | Queued | — |
 | T8 | `autonomous/t8-dependency-attribution` | Queued | — |
