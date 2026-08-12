@@ -13,15 +13,15 @@ specific review action requested.
 | Task | Branch | Status | Result |
 | --- | --- | --- | --- |
 | T1 | `autonomous/t1-opening-name-hardening` | Completed | `85dbab8`; curated-FEN validation, cache override/ECO integration coverage, and retained-name loading behavior. |
-| T2 | `autonomous/t2-module-manager-regressions` | Starting | — |
+| T2 | `autonomous/t2-module-manager-regressions` | Completed | `1382800`; five-viewport manager/action/focus coverage and cross-color View module fix. |
 | T3 | `autonomous/t3-player-index-lifecycle` | Completed | `483cc15`; deterministic ingestion lifecycle, isolation/filter/retry tests, and IndexedDB recovery documentation. |
 | T4 | `autonomous/t4-api-schema-audit` | Completed | `7a44313`; warning-free validated OpenAPI, streaming export coverage, and reconciled contract. |
-| T5 | `autonomous/t5-accessibility-audit` | In progress | Auditing keyboard, focus, names, containment, and reduced motion. |
-| T6 | `autonomous/t6-session-restoration` | Queued | — |
-| T7 | `autonomous/t7-cache-error-paths` | Queued | — |
-| T8 | `autonomous/t8-dependency-attribution` | Queued | — |
-| T9 | `autonomous/t9-opening-seed-safety` | Queued | — |
-| T10 | `autonomous/t10-retired-player-index` | Queued | — |
+| T5 | `autonomous/t5-accessibility-audit` | Completed | `c72d530`; keyboard tabs, modal/sheet focus and Escape behavior, accessible relationships, and reduced-motion coverage. |
+| T6 | `autonomous/t6-session-restoration` | Completed | `c5cfc56`; validated session parsing plus refresh, isolation, module, filters, and selected-drill browser coverage. |
+| T7 | `autonomous/t7-cache-error-paths` | Completed | `b170982`; failed-refresh preservation and retry-countdown boundaries added to existing 429/502/single-flight coverage. |
+| T8 | `autonomous/t8-dependency-attribution` | Completed | `0ef8bd4`; dependency/data/API inventory and draft third-party notices with unresolved provenance/legal flags. |
+| T9 | `autonomous/t9-opening-seed-safety` | Completed | `61674a0`; legacy seed refusal for curated catalogs plus safe dry-run reporting. |
+| T10 | `autonomous/t10-retired-player-index` | Completed | `11b20cc`; unreachable server player-query contract removed and live export→IndexedDB boundary documented/tested. |
 
 ## Ready
 
