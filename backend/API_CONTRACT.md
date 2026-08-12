@@ -11,7 +11,7 @@ own `urls.py`.
 
 ## Conventions
 
-- **Auth**: session cookie, set by a Google/email callback. DRF defaults to
+- **Auth**: session cookie, set by the Google OIDC callback. DRF defaults to
   `IsAuthenticated`; endpoints usable anonymously opt out explicitly.
 - **CSRF**: unsafe methods require the `X-CSRFToken` header. The frontend obtains
   the cookie from `GET /api/v1/auth/session/`.
@@ -42,7 +42,7 @@ When signed out: `{"authenticated": false, "user": null}`.
 Browser redirects implementing Google's server-side authorization-code OpenID
 Connect flow. Callback state and the verified Google identity are validated
 before Django starts the Mainline session. A provider identity or verified
-email already owned by a different account redirects with
+email already owned by a different sign-in-capable account redirects with
 `authError=account_conflict`; identities are never silently reassigned.
 
 ### `PUT /api/v1/auth/chess-com/`

@@ -1,32 +1,40 @@
-# React + TypeScript + Vite
+# Mainline frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite. The frontend provides the responsive Explorer,
+module authoring/management, personal-game browser index, and drills. See the
+repository [README](../README.md) for setup and [ROADMAP](../ROADMAP.md) for
+unfinished work.
 
-Currently, two official plugins are available:
+## Commands
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
+npm test
+npm run lint
+npm run build
+npm run test:e2e
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The Vite development server proxies `/api` to Django on port 8000. Browse via
+Vite (`http://localhost:5173`) so session cookies remain first-party. Run
+`npm run setup:engine` if the Stockfish asset needs to be recopied from the
+installed package.
+
+Playwright requires a one-time Chromium installation:
+
+```bash
+npx playwright install chromium
+```
+
+## Layout
+
+- `src/components/` — Explorer, drill, and management presentation.
+- `src/hooks/` — game, repertoire, explorer, engine, auth, and persistence state.
+- `src/lib/` — chess/repertoire logic, API clients, PGN support, and caches.
+- `src/workers/` — browser-side personal-game parsing/indexing work.
+- `src/audio/` — synthesized Web Audio cues.
+- `e2e/` — Playwright phone/desktop regression flows.
+
+The `openingtree/` repository is reference material only; no frontend code is
+imported from its React 16 application.

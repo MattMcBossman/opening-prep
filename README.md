@@ -1,10 +1,10 @@
 # Mainline
 
-A web app for building and drilling a personal chess opening repertoire, inspired by Chessly's drills mode and openingtree.com's player-stats explorer. See [AGENTS.md](AGENTS.md) for the full project reference (features, architecture decisions, and roadmap).
+A web app for building and drilling a personal chess opening repertoire, inspired by Chessly's drills mode and openingtree.com's player-stats explorer. See [AGENTS.md](AGENTS.md) for architecture decisions and [ROADMAP.md](ROADMAP.md) for the consolidated plan.
 
 ## Status
 
-Phase 1 (opening explorer MVP) is implemented: move-by-move line browser (step through the line with the Back/Forward buttons or the ←/→ arrow keys; press R to reset the explorer board or restart the active drill session), Lichess Opening Explorer stats (normalized-FEN/filter-keyed browser and PostgreSQL caches; requires a user-supplied token when signed out), and client-side Stockfish (WASM) evaluation with iterative deepening. Opening identification always performs dedicated public-Lichess-database lookups, independent of the selected stats source or module name. A persistent, normalized-FEN-keyed Mainline naming layer can replace Lichess's wording with richer curated names while retaining Lichess as the statistical and fallback source. A position with neither a curated nor native Lichess name inherits the deepest named ancestor in its exact history plus the intervening moves; 10,000 public Lichess games is the initial completeness-guarantee threshold. Stockfish results are shared across explorer/drill consumers in memory and, when signed in, persisted by normalized FEN plus engine build so revisiting a position can skip analysis.
+Phase 1 (opening explorer MVP) is implemented: move-by-move line browser (step through the line with the Back/Forward buttons or the ←/→ arrow keys; press R to reset the explorer board or restart the active drill session), Lichess Opening Explorer stats (normalized-FEN/filter-keyed browser and PostgreSQL caches; signed-in users link Lichess so its token remains server-held), and client-side Stockfish (WASM) evaluation with iterative deepening. Opening identification always performs dedicated public-Lichess-database lookups, independent of the selected stats source or module name. A persistent, normalized-FEN-keyed Mainline naming layer can replace Lichess's wording with richer curated names while retaining Lichess as the statistical and fallback source. An unnamed position with at least 50,000 public Lichess games receives a unique ancestor-plus-moves label; lower-volume descendants inherit that complete resolved label without appending their own moves. Stockfish results are shared across explorer/drill consumers in memory and, when signed in, persisted by normalized FEN plus engine build so revisiting a position can skip analysis.
 
 Explorer history, the active page/phone section, data source and filters, and a selected drill starting position are retained in tab-scoped `sessionStorage`, so a refresh or development-server reload restores the working context without making it permanent across browser sessions.
 
@@ -15,7 +15,7 @@ The Moves panel keeps played history in its score grid and presents preparation 
 PGN import/export preserves RAV paths, authored line labels, per-ply comments,
 and numeric or symbolic annotation glyphs for signed-in repertoires.
 
-Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints on repeated attempts. Finishing a line pauses without auto-scrolling; View in explorer, Next/Finish, Restart, and Shuffle drills stay directly below the board. Desktop shows Analysis and Lichess statistics automatically, while phones use compact Analysis/Stats buttons. The sole post-drill engine review streams three Stockfish candidates during iterative deepening toward depth 24, so the eval bar and arrows appear before the final cacheable result; rank 1 drives the eval bar and calibrated verdict, while recurring moves across all candidates drive continuation arrows and support move-order observations. Signed-in users share the strongest compatible normalized-FEN result through PostgreSQL, while signed-out sessions reuse it in browser memory. A session ends with a perfect/failed summary and a "Retry failed" option.
+Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Each saved-module card can also launch that module alone from its displayed shared opening position, whether or not it is attached to the active profile. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints on repeated attempts. Finishing a line pauses without auto-scrolling; View in explorer, Next/Finish, Restart, and Shuffle drills stay directly below the board. Desktop shows Analysis and Lichess statistics automatically, while phones use compact Analysis/Stats buttons. The sole post-drill engine review streams three Stockfish candidates during iterative deepening toward depth 24, so the eval bar and arrows appear before the final cacheable result; rank 1 drives the eval bar and calibrated verdict, while recurring moves across all candidates drive continuation arrows and support move-order observations. Signed-in users share the strongest compatible normalized-FEN result through PostgreSQL, while signed-out sessions reuse it in browser memory. A session ends with a perfect/failed summary and a "Retry failed" option.
 
 A2 concrete position analysis is complete. It adds a public, versioned
 normalized-FEN cache of deterministic material, pawn, file, activity, king, and
@@ -25,12 +25,13 @@ highlights exact board squares.
 
 Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate; drills add corrective wrong-move feedback and a completion chime. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference. Dark mode is the first-visit default; an explicit light or dark choice remains persisted.
 
-Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Lichess never authenticates a Mainline account. Public Lichess explorer data requires signing into Mainline and linking Lichess; signed-out users see that action instead of a personal-token field. Chess.com linking stores no credentials and is not ownership verification because its generally available Published Data API has no OAuth flow. Signing in is optional — signed-out users can create reusable local opening modules and compose profiles in versioned `localStorage`, and an existing local repertoire is imported into the backend the first time you sign in. The explorer is scoped to one selected module rather than a composed profile: saved modules open read-only, Edit creates a buffered draft, and Save/Discard explicitly commits or abandons the changes with unload/navigation protection. Selecting New module (also the default when none exist) immediately opens an unnamed draft; its name is requested only when Save is chosen. Profiles remain the composition used by drills and profile coverage. The opening library has immutable JSON-backed releases split into official Mainline modules and community-published user modules, with anonymous read-only loading in the explorer; signing in additionally enables publishing owned modules, persistent profile pins, editable copies, and per-line gap filling. Signed-in users with linked Lichess can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines. Private phone access to the laptop-hosted development stack is wired through Tailscale. Mobile-first engineering, automated Android/iPhone-sized browser coverage, and hands-on Android/Tailscale validation are complete; a top-right phone menu consolidates repertoire color, profile/module management, sound, theme, and account controls. The remaining product roadmap stays in [AGENTS.md](AGENTS.md#development-roadmap).
+Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Lichess never authenticates a Mainline account. Public Lichess explorer data requires signing into Mainline and linking Lichess; signed-out users see that action instead of a personal-token field. Chess.com linking stores no credentials and is not ownership verification because its generally available Published Data API has no OAuth flow. Signing in is optional — signed-out users can create reusable local opening modules and compose profiles in versioned `localStorage`, and an existing local repertoire is imported into the backend the first time you sign in. The explorer is scoped to one selected module rather than a composed profile: saved modules open read-only, Edit creates a buffered draft, and Save/Discard explicitly commits or abandons the changes with unload/navigation protection. Selecting New module (also the default when none exist) immediately opens an unnamed draft; its name is requested only when Save is chosen. Profiles remain the composition used by drills and profile coverage. The opening library has immutable JSON-backed releases split into official Mainline modules and community-published user modules, with anonymous read-only loading in the explorer; signing in additionally enables publishing owned modules, persistent profile pins, editable copies, and per-line gap filling. Signed-in users with linked Lichess can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines. Private phone access to the laptop-hosted development stack is wired through Tailscale. Mobile-first engineering, automated Android/iPhone-sized browser coverage, and hands-on Android/Tailscale validation are complete; a top-right phone menu consolidates repertoire color, profile/module management, sound, theme, and account controls. Remaining work is consolidated in [ROADMAP.md](ROADMAP.md), with isolated branch work in [AUTONOMOUS_TASKS.md](AUTONOMOUS_TASKS.md).
 
 The signed-in **My games** explorer can use Lichess, the linked Chess.com
-username, or both sources combined. Chess.com monthly PGNs are incrementally
-indexed into PostgreSQL on first use while partial results remain visible;
-afterward, moving around the explorer uses fast indexed position lookups.
+username, or both sources combined. The backend streams game records while a
+Web Worker incrementally parses them into a compact IndexedDB position graph in
+the browser; partial results remain visible, later positions are local lookups,
+and personal-game positions do not consume PostgreSQL storage.
 
 Mainline sign-in uses Google OpenID Connect. Lichess OAuth is retained as an optional linked data source
 rather than the primary account requirement.
@@ -48,15 +49,17 @@ positions are discounted.
 
 ## Project layout
 
-- `frontend/` — React + TypeScript + Vite app. See [frontend/README.md](frontend/README.md) for template-specific notes (this will likely be replaced with app-specific docs as the project grows).
+- `frontend/` — React + TypeScript + Vite app. See [frontend/README.md](frontend/README.md) for commands and layout.
 - `backend/` — Django + DRF + PostgreSQL app (accounts/Lichess OAuth, repertoire persistence, explorer/engine-eval and MultiPV position-analysis caches, drill statistics). See [backend/README.md](backend/README.md) for setup and [backend/API_CONTRACT.md](backend/API_CONTRACT.md) for the endpoint contract.
 - `openingtree/` — git submodule; a pre-existing React app used as a **reference implementation only** for Lichess/Chess.com game-history iteration and PGN parsing (see [AGENTS.md](AGENTS.md#inspiration-source-openingtree-submodule)). Not built or run directly as part of this app.
 - `deployment-plan.md` — operating plan for private Tailscale development,
   a disposable free-Render invited alpha, and the paid Render production
   topology, release runbook, security/configuration contract, rollback, legal/
   attribution/contact/feedback surface, and launch gates.
-- `mobile-plan.md` — completed mobile engineering and physical-phone acceptance record.
+- `docs/archive/` — completed phase plans, mobile acceptance record, and retired handoffs.
 - `position-analysis-plan.md` — phased cached end-of-drill analysis, recurring plans, and deterministic positional features.
+- `ROADMAP.md` — authoritative priorities, remaining work, gaps, and backburner.
+- `AUTONOMOUS_TASKS.md` — isolated feature-branch tasks that need no product decision.
 
 ## Getting started
 
@@ -68,7 +71,6 @@ cp .env.example .env   # then fill in DJANGO_SECRET_KEY / TOKEN_ENCRYPTION_KEY, 
 docker compose up -d   # optional disposable PostgreSQL on :5433
 uv sync
 uv run manage.py migrate
-uv run manage.py seed_opening_templates  # Vienna, Sicilian, and Stonewall starter releases
 uv run manage.py runserver
 ```
 
@@ -89,9 +91,9 @@ the proxy. PostgreSQL remains local and is never exposed. See
 [deployment-plan.md](deployment-plan.md) for the verification checklist.
 
 Before testing Google sign-in for the first time, follow the laptop-only
-[authentication setup checklist](backend/README.md#one-time-google-and-email-sign-in-setup-for-tailscale-development).
+[authentication setup checklist](backend/README.md#one-time-google-sign-in-setup-for-tailscale-development).
 
-The global-library candidate generator and the unfinished authentication rollout are summarized together in [current-work-handoff.md](current-work-handoff.md). Generator usage is documented in [backend/repertoire/OPENING_GENERATOR.md](backend/repertoire/OPENING_GENERATOR.md).
+Generator usage is documented in [backend/repertoire/OPENING_GENERATOR.md](backend/repertoire/OPENING_GENERATOR.md). Retired implementation plans and handoffs live under [docs/archive](docs/archive/README.md).
 
 `remote-dev` owns ports 8000 (Django) and 5173 (Vite). Stop separately started
 development servers before running it. The script checks both ports before

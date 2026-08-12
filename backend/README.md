@@ -98,7 +98,7 @@ partial stack.
 ```bash
 uv run manage.py runserver     # dev server on :8000
 uv run manage.py migrate       # apply migrations
-uv run manage.py seed_opening_templates  # idempotently publish starter global openings
+uv run manage.py seed_opening_templates  # legacy empty/demo-database starter content only
 uv run manage.py makemigrations
 uv run pytest                  # tests
 uv run ruff check .            # lint
@@ -135,11 +135,13 @@ dev server is running.
 - `explorer_cache/` — FEN-keyed public and short-lived per-user Lichess explorer caches, plus a versioned engine-eval cache populated by client-side Stockfish.
 - `drills/` — drill sessions, per-attempt history, weakness aggregates.
 
-Global opening templates are curated through Django admin. A published release
-stores immutable `tree` and `lines` JSON snapshots, so profiles pin an exact
-version and editable copies retain their source provenance. Before production
-content is loaded, add a curator publishing workflow that validates both JSON
-shapes; see [`../profile-modules-plan.md`](../profile-modules-plan.md).
+Global opening templates are curated through Django admin or the existing
+publication APIs. A published release stores immutable validated `tree` and
+`lines` JSON snapshots, so profiles pin an exact version and editable copies
+retain source provenance. The legacy `seed_opening_templates` command still
+contains early demo releases and must not be run against a curated database;
+the replacement/versioning workflow remains in
+[`../ROADMAP.md`](../ROADMAP.md).
 
 ## Notes
 
@@ -152,10 +154,11 @@ shapes; see [`../profile-modules-plan.md`](../profile-modules-plan.md).
 - **Chess.com linking** validates and stores only a public username through the
   Published Data API. It stores no Chess.com credentials and is not ownership
   verification; Chess.com authentication requires a separate partner request.
-  **My games** can filter to Lichess, Chess.com, or combine both. Monthly
-  Chess.com archive payloads are cached and incrementally parsed into a
-  persistent PostgreSQL position index; partial results remain available while
-  that first index is built, and later positions use grouped indexed queries.
+  **My games** can filter to Lichess, Chess.com, or combine both. The backend
+  streams game records; a browser Web Worker incrementally parses them into an
+  IndexedDB position graph, exposes partial results during ingestion, and
+  serves later positions locally without storing personal-game positions in
+  PostgreSQL.
 - **Docker**: the repository-root `Dockerfile` builds the combined React/Django
   Render image; `backend/Dockerfile` remains a backend-only image. Development deliberately
   runs Django on the host instead, for a faster edit/reload/debug loop; Compose

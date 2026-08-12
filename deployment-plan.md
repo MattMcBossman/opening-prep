@@ -2,8 +2,8 @@
 
 ## Status and objective
 
-**The remote-development foundation is implemented; mobile optimization is now
-the active milestone in [mobile-plan.md](mobile-plan.md).** This document covers
+**The remote-development and mobile foundations are implemented. Current
+product priority is tracked only in [ROADMAP.md](ROADMAP.md).** This document covers
 three deliberately separate stages: laptop-hosted private development, a
 disposable free-Render alpha for invited friends, and paid production once data
 durability and predictable availability matter.

@@ -1,4 +1,8 @@
 # Phase 3 — Drills (Chessly-style)
+
+> Historical design record. Use `README.md`, `AGENTS.md`, and `ROADMAP.md` for
+> current behavior and priorities.
+
 ## Problem statement
 Add a drill mode that lets a user practice saved repertoire lines from the existing FEN-keyed repertoire tree, get immediate feedback on incorrect moves, and track weak positions without introducing backend/accounts yet.
 ## Current state

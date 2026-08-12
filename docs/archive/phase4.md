@@ -1,4 +1,9 @@
 # Phase 4 — Backend (accounts, repertoire persistence, caching, drill stats)
+
+> Historical design record. It intentionally describes the system before and
+> during Phase 4; use `README.md`, `AGENTS.md`, and `ROADMAP.md` for current
+> behavior and priorities.
+
 ## Problem statement
 Everything through Phase 3 lives in the browser: the repertoire is a `localStorage` blob, the Lichess API token is pasted in by hand and kept client-side, explorer responses are cached only for the lifetime of a tab, and drill results vanish when the session ends. That blocks anything that needs durable or shared state — using the same repertoire on a second device, spaced-repetition scheduling that depends on history, or respecting Lichess's rate limits across users. Phase 4 adds the Django backend that the architecture has always assumed, without taking away the ability to use the app signed out.
 ## Current state

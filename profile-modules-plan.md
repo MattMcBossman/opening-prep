@@ -1,11 +1,14 @@
 # Composable profiles, opening modules, and selected-position drills
 
-## Live progress
+> Detailed implementation record and remaining feature contract. Priority is
+> controlled by `ROADMAP.md`, not by historical “next” language below.
+
+## Implementation record
 
 Last updated: 2026-08-10
 
 Completed acceptance milestone: the physical Android/Tailscale smoke
-matrix in [mobile-plan.md](mobile-plan.md). Mobile engineering and automated
+matrix in [docs/archive/mobile-plan.md](docs/archive/mobile-plan.md). Mobile engineering and automated
 verification are complete. Managed production deployment remains deferred until
 the project is ready for independent uptime or external users.
 
@@ -20,7 +23,7 @@ full-screen accessible repertoire manager, drill-first portrait/landscape
 layouts, and drill/Explorer session continuity. Automated coverage spans
 320–430px portrait, 667×375 landscape, Android Chrome emulation, and
 iPhone-sized touch emulation. The documented hands-on Android/Tailscale smoke
-matrix in `mobile-plan.md` is also complete.
+matrix in `docs/archive/mobile-plan.md` is also complete.
 
 Mobile profile management (M3) is complete: Manage opens as a contained desktop
 dialog and a safe-area-aware full-screen phone sheet, traps focus, closes with
@@ -83,11 +86,10 @@ Equal or worse positions retain their full exposure while already-winning
 positions are progressively discounted. Per-reply gap details, rare-tail
 treatment, and minimum-sample confidence remain.
 
-### Coverage-analysis redesign (next product follow-up)
+### Remaining coverage-analysis contract
 
-This is the next feature area to revisit after the current analysis/comparison
-work. Preserve the shipped on-demand dashboard while replacing its aggregate
-and reliability rules incrementally.
+Preserve the shipped on-demand dashboard while completing its reliability rules
+incrementally. Sequencing is controlled by `ROADMAP.md`.
 
 The current dashboard calls a position “fully covered” only at effectively
 100% (`>= 99.999%`) and averages position percentages equally. Replace those
@@ -409,13 +411,11 @@ Implemented in this slice:
 
 Deferred beyond this implementation contract:
 
-- First-class global publishing is a Phase 6 follow-up. Authorized curators
-  need an in-app workspace to select a personal module, save release metadata
-  as a draft, validate and preview its lines/annotations/start anchor, and
-  publish a new immutable version with changelog, provenance, permissions, and
-  audit history. The existing creation-time validation, Django-admin path, and
-  seedable starter content remain the lower-level foundation.
-- Module/global-release start anchors are a Phase 6 follow-up: persist a
+- Direct community publishing of an owned module is shipped, with immutable
+  validated releases. The remaining refinement is an in-app review workspace
+  for richer metadata, draft validation/preview, start anchors, superseding
+  versions, provenance, permissions, and audit history.
+- Module/global-release start anchors remain planned: persist a
   normalized FEN together with the preferred UCI prefix/ply, derive a sensible
   common-prefix default, validate it against authored lines, and display it in
   module cards, global previews, explorer navigation, drills, and coverage.
