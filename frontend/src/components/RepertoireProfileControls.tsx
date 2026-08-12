@@ -53,7 +53,7 @@ export function RepertoireProfileControls(props: Props) {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null
   const editableModules = activeProfile?.modules.filter((module) => module.enabled && module.color === color) ?? []
 
-  if (profiles.length === 0) return null
+  if (profiles.length === 0 && !disabled) return null
 
   const closeManager = () => {
     setManaging(false)
@@ -63,12 +63,18 @@ export function RepertoireProfileControls(props: Props) {
   return (
     <div className="repertoire-profile-controls" aria-label="Repertoire profile and editing module">
       <label><span>Profile</span><select value={activeProfileId ?? ''} disabled={disabled} onChange={(event) => onProfileChange(Number(event.target.value))}>
-        {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+        {profiles.length === 0
+          ? <option value="">Loading…</option>
+          : profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
       </select></label>
       <label><span>Editing</span><select value={editingModuleId ?? ''} disabled={disabled || editableModules.length === 0} onChange={(event) => onEditingModuleChange(Number(event.target.value))}>
-        {editableModules.length === 0 ? <option value="">No {color} module</option> : editableModules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}
+        {profiles.length === 0
+          ? <option value="">Loading…</option>
+          : editableModules.length === 0
+            ? <option value="">No {color} module</option>
+            : editableModules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}
       </select></label>
-      <button ref={manageButtonRef} type="button" className="profile-manage-button" aria-expanded={managing} aria-haspopup="dialog" onClick={() => managing ? closeManager() : setManaging(true)}>Manage</button>
+      <button ref={manageButtonRef} type="button" className="profile-manage-button" disabled={disabled} aria-expanded={managing} aria-haspopup="dialog" onClick={() => managing ? closeManager() : setManaging(true)}>Manage</button>
       {managing && createPortal(
         <div className="profile-manager-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManager() }}>
           <ProfileManager {...props} activeProfile={activeProfile} onClose={closeManager} />
@@ -140,26 +146,16 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
       <h4>Personal opening modules</h4>
       <div className="manager-card-list">{props.modules.map((module) => {
         const membership = activeProfile.modules.find((candidate) => candidate.id === module.id)
-        const membershipIndex = membership ? activeProfile.modules.findIndex((candidate) => candidate.id === module.id) : -1
-        const moveMembership = async (offset: -1 | 1) => {
-          if (!membership) return
-          const other = activeProfile.modules[membershipIndex + offset]
-          if (!other) return
-          await props.onSetMembership(activeProfile.id, other.id, membership.sortOrder, other.enabled)
-          await props.onSetMembership(activeProfile.id, module.id, other.sortOrder, membership.enabled)
-        }
         const isEditing = props.editingModuleId === module.id
         const preparedLineCount = Number.isFinite(module.lineCount) ? module.lineCount : (membership?.lineCount ?? 0)
         return <article className="manager-card" key={module.id}>
-          <div className="manager-card-title"><span><strong>{module.name}</strong><small className="manager-card-meta"><span>{module.color}</span><span>Personal</span><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small>{module.hasResponseConflicts && <small className="panel-status error">Needs response cleanup</small>}</span><span className="manager-status">{membership ? (membership.enabled ? 'In profile' : 'Paused') : 'Not attached'}</span></div>
+          <div className="manager-card-title"><span><strong>{module.name}</strong><small className="manager-card-meta"><span>{module.color}</span><span>Personal</span><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small><small className="global-module-summary"><span>{module.commonStart || 'No shared starting line'}</span></small>{module.hasResponseConflicts && <small className="panel-status error">Needs response cleanup</small>}</span><span className="manager-status">{membership ? (membership.enabled ? 'Enabled' : 'Disabled') : 'Detached'}</span></div>
           {moduleRename?.id === module.id && <form className="manager-inline-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleRename.name, props.modules.map(({ name }) => name), (value) => props.onRenameModule(module.id, value), module.name).then((saved) => { if (saved) setModuleRename(null) }) }}>
             <label htmlFor={`rename-module-${module.id}`}>Module name</label><input id={`rename-module-${module.id}`} type="text" maxLength={100} autoFocus value={moduleRename.name} onChange={(event) => setModuleRename({ id: module.id, name: event.target.value })} />
             <div className="manager-actions"><button type="submit" disabled={busy}>Save name</button><button type="button" onClick={() => setModuleRename(null)}>Cancel</button></div>
           </form>}
           <div className="manager-actions manager-membership-actions">
-            {membership ? <><label className="manager-enabled"><input type="checkbox" checked={membership.enabled} onChange={(event) => void run(() => props.onSetMembership(activeProfile.id, module.id, membership.sortOrder, event.target.checked))} /> Included</label>
-              <button type="button" aria-label={`Move ${module.name} earlier`} disabled={busy || membershipIndex === 0} onClick={() => void run(() => moveMembership(-1))}>Move up</button>
-              <button type="button" aria-label={`Move ${module.name} later`} disabled={busy || membershipIndex === activeProfile.modules.length - 1} onClick={() => void run(() => moveMembership(1))}>Move down</button>
+            {membership ? <><label className="manager-enabled"><input type="checkbox" checked={membership.enabled} onChange={(event) => void run(() => props.onSetMembership(activeProfile.id, module.id, membership.sortOrder, event.target.checked))} /> Enabled in profile</label>
               <button type="button" disabled={busy} onClick={() => void run(() => props.onRemoveMembership(activeProfile.id, module.id))}>Detach</button></> : <button type="button" disabled={busy} onClick={() => void run(() => props.onSetMembership(activeProfile.id, module.id, activeProfile.modules.length, true))}>Attach to profile</button>}
             {membership?.enabled && module.color === props.color && <button type="button" className={isEditing ? 'selected-action' : ''} aria-pressed={isEditing} disabled={busy || isEditing} onClick={() => props.onEditingModuleChange(module.id)}>{isEditing ? 'Editing this module' : 'Edit lines here'}</button>}
           </div>
@@ -193,7 +189,7 @@ function GlobalLibrary({ libraryRevision, profile, busy, run, editingModuleId, e
     <div className="manager-card-list">{templates.slice().sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "official" ? -1 : 1).map((template) => {
       const release = template.latestRelease
       const pinned = release ? pins.some((pin) => pin.id === release.id) : false
-      return <article className="manager-card global-module-card" key={template.slug}><div className="manager-card-title"><span><strong>{template.name}</strong><small>{template.kind === 'official' ? 'Official · Mainline' : 'Community · ' + template.publisherName} · {template.color}{release ? ' · release v' + release.version : ' · no published release'}</small></span>{pinned && <span className="manager-status">In profile · read-only</span>}</div>
+      return <article className="manager-card global-module-card" key={template.slug}><div className="manager-card-title"><span><strong>{template.name}</strong><small>{template.kind === 'official' ? 'Official · Mainline' : 'Community · ' + template.publisherName} · {template.color}{release ? ' · release v' + release.version : ' · no published release'}</small>{release && <small className="global-module-summary"><span>{release.commonStart || 'No shared starting line'}</span><span>{release.lineCount} line{release.lineCount === 1 ? '' : 's'}</span></small>}</span>{pinned && <span className="manager-status">In profile · read-only</span>}</div>
         {release && <div className="manager-actions"><button type="button" disabled={busy} onClick={() => fetchOpeningTemplateRelease(template.slug, release.version).then((snapshot) => { onPreviewTemplate(snapshot) }, (reason) => setError(reason instanceof Error ? reason.message : 'Load failed.'))}>View module</button>
           {canManage && (pinned ? <button type="button" disabled={busy} onClick={() => void run(() => onUnpinTemplate(profile.id, release.id))}>Remove read-only</button> : <button type="button" disabled={busy} onClick={() => void run(() => onPinTemplate(profile.id, release.id, pins.length))}>Add read-only</button>)}
           {canManage && <button type="button" disabled={busy} onClick={() => void run(() => onCopyTemplate(template.slug, release.version, profile.id))}>Copy as editable</button>}</div>}

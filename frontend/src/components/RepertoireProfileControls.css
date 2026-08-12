@@ -107,6 +107,18 @@
   color: var(--border);
 }
 
+.global-module-summary {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-h) !important;
+  font-size: 13px;
+}
+
+.global-module-summary span:last-child {
+  white-space: nowrap;
+}
+
 .manager-status {
   flex: 0 0 auto;
   padding: 3px 7px;

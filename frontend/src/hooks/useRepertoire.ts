@@ -37,7 +37,7 @@ import type {
   RepertoireSummary,
 } from '../lib/repertoireApi'
 import type { AuthUser } from '../lib/authApi'
-import { collectDrillLines } from '../lib/repertoireDrills'
+import { collectDrillLines, commonDrillLineStart } from '../lib/repertoireDrills'
 import type { DrillLine } from '../lib/repertoireDrills'
 import type { Repertoire, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
 
@@ -168,13 +168,17 @@ function useLocalRepertoireStore() {
     })
   }, [editingModule])
 
-  const modules: RepertoireSummary[] = store.modules.map((module) => ({
-    id: module.id, name: module.name, description: '', color: module.color,
-    moveCount: Object.values(module.tree).reduce((sum, moves) => sum + moves.length, 0),
-    lineCount: collectDrillLines(module.color, (fen) => module.tree[normalizeFen(fen)] ?? []).length,
-    hasResponseConflicts: Object.entries(module.tree).some(([fen, moves]) => sideToMove(fen) === module.color && moves.length > 1),
-    createdAt: '', updatedAt: '',
-  }))
+  const modules: RepertoireSummary[] = store.modules.map((module) => {
+    const lines = collectDrillLines(module.color, (fen) => module.tree[normalizeFen(fen)] ?? [])
+    return {
+      id: module.id, name: module.name, description: '', color: module.color,
+      moveCount: Object.values(module.tree).reduce((sum, moves) => sum + moves.length, 0),
+      lineCount: lines.length,
+      commonStart: commonDrillLineStart(lines, module.color),
+      hasResponseConflicts: Object.entries(module.tree).some(([fen, moves]) => sideToMove(fen) === module.color && moves.length > 1),
+      createdAt: '', updatedAt: '',
+    }
+  })
   const profiles: RepertoireProfileSummary[] = store.profiles.map((profile) => ({
     id: profile.id, name: profile.name, description: '', createdAt: '', updatedAt: '',
     modules: profile.modules.flatMap((link) => {
@@ -186,6 +190,7 @@ function useLocalRepertoireStore() {
         color: module.color,
         moveCount: module.moveCount,
         lineCount: module.lineCount,
+        commonStart: module.commonStart,
         enabled: link.enabled,
         sortOrder: link.sortOrder,
       }] : []

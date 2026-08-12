@@ -106,15 +106,17 @@ Treat this submodule as a **reference implementation only**: port the API integr
 ## Development Roadmap
 Tracks implementation progress. Check off a phase once it has shipped; update sub-items as needed. Decision: keep Phases 5-6 as single phases for now, revisit splitting if either grows unwieldy.
 
-### Next active milestone — Mobile-first experience
+### Next active milestone — Simplify profile and module management
 
-Mobile optimization is the next implementation priority, ahead of additional
-Phase 5/6 feature work. Follow [mobile-plan.md](mobile-plan.md): make the board
-and primary action the phone-first hierarchy, add explicit mobile sections for
-Moves/Stats/Prep, make profile management and drills touch-friendly, and pass
-automated plus real-Android verification without regressing desktop. Private
-phone access is provided by [deployment-plan.md](deployment-plan.md); managed
-production hosting and PWA/native-app work remain deferred.
+The current Profiles & opening modules screen exposes profile creation and
+renaming, module membership/editing/deletion/publication, and the global library
+in one dense surface. Redesign it around progressive disclosure and clear task
+boundaries so routine actions do not compete with destructive, publishing, and
+library workflows. Keep the active profile/module selectors quick, separate
+profile composition from module maintenance, move advanced/global-library
+actions into focused secondary views, and preserve equivalent signed-in and
+anonymous behavior. Design phone and desktop presentations deliberately rather
+than enlarging or compressing one layout into the other.
 
 ### Next product follow-up — Coverage
 
@@ -165,4 +167,5 @@ Before starting Phase 5, review and resolve these Phase 2/3 design notes:
 - [ ] **Community-module moderation and reporting** — add user reports, moderator review/unpublish tools, audit history, and appropriate abuse controls before community discovery is promoted broadly.
 - [ ] **Phase 5 — Player data via `openingtree`**: port Lichess/Chess.com game iterators + PGN parsing, time-range filters, GM-inspiration browsing and own-game deviation analysis. **Partially shipped**: signed-in users can switch the explorer panel (`ExplorerSourceToggle`) to "My games", which shows opening-tree-style move stats from either or both linked Lichess and Chess.com identities, scoped to the active board color. Source checkboxes live with the date/game-type filters. Both sources now follow openingtree's browser-index design: the backend streams Lichess game-export NDJSON or Chess.com Published Data archive records, while a Web Worker parses games incrementally into a compact FEN graph persisted in IndexedDB. Later positions are local lookups, and no player-game positions or raw archives consume PostgreSQL storage. Do not label the current position's `totalGames` as total account games loaded. Still open: GM/other-player lookup and comparing games against the saved repertoire to find deviations.
 - [ ] **Phase 6 — Gap detection & long-term features**: repertoire coverage dashboard (current-position and on-demand per-color scoring are frequency-weighted from Lichess move counts), move-frequency arrows on the explorer board (one arrow per observed next move, opacity proportional to play percentage and always scoped to the active source/filters, like openingtree), per-module/global-release start anchors (FEN plus preferred move-order prefix, with board/name previews and open/drill/coverage-from-start actions), curator-facing global-opening draft/validate/preview/publish/version workflow, similar-position suggestions/diffing, spaced repetition, composable profiles/opening modules (management UI for signed-in and anonymous users, provenance-aware overlays, explicit-line path authoring, authored-path drills, versioned anonymous storage, multi-module drill attribution, selected-position drills, immutable global-release preview/pin/copy, validated starter content, per-line gap review/fill, explicit-path PGN import, and persisted label/comment/NAG round-tripping are shipped), play-vs-bot from a selected position.
-- [ ] **Phase 7 — Mobile-first responsive experience**: board-first phone layouts, a compact settings header, Moves/Stats/Prep navigation, responsive explorer statistics, touch-safe full-screen repertoire management, drill-first portrait/landscape layouts, visible-focus/reduced-motion behavior, and Android/iPhone-sized Playwright coverage are shipped while preserving desktop behavior. The only open acceptance gate in [mobile-plan.md](mobile-plan.md) is the hands-on Android/Tailscale smoke matrix (touch, cellular, orientation, zoom, and device-specific browser behavior), which cannot be completed from the workstation. Managed production hosting and PWA/native-app work remain later decisions; PostgreSQL backup policy, off-platform exports, and restore drills remain a way-back-burner goal.
+- [x] **Phase 7 — Mobile-first responsive experience**: board-first phone layouts, a compact settings header, Moves/Stats/Prep navigation, responsive explorer statistics, touch-safe full-screen repertoire management, drill-first portrait/landscape layouts, visible-focus/reduced-motion behavior, Android/iPhone-sized Playwright coverage, and hands-on Android/Tailscale validation are complete while preserving desktop behavior. Managed production hosting and PWA/native-app work remain later decisions; PostgreSQL backup policy, off-platform exports, and restore drills remain a way-back-burner goal.
+- [ ] **Profile/module management UX simplification**: replace the overloaded all-in-one manager with a calmer task-based flow. Prioritize switching the active profile and editing target; give profile composition, module details/maintenance, publishing, and global-library browsing their own progressively disclosed surfaces; reduce repeated metadata and simultaneous actions; keep destructive actions contextual and clearly separated; and retain responsive, accessible behavior across phone and desktop.

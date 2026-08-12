@@ -95,7 +95,7 @@ class RepertoireListCreateView(generics.ListCreateAPIView):
     serializer_class = RepertoireSerializer
 
     def get_queryset(self):
-        return Repertoire.objects.filter(owner=self.request.user)
+        return Repertoire.objects.filter(owner=self.request.user).prefetch_related("lines__steps__move")
 
     def perform_create(self, serializer):
         module = serializer.save(owner=self.request.user)
@@ -129,7 +129,7 @@ class RepertoireProfileListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return RepertoireProfile.objects.filter(owner=self.request.user).prefetch_related(
-            "module_links__module", "template_links__release__template"
+            "module_links__module__lines__steps__move", "template_links__release__template"
         )
 
     def perform_create(self, serializer):
@@ -147,7 +147,7 @@ class RepertoireProfileDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return RepertoireProfile.objects.filter(owner=self.request.user).prefetch_related(
-            "module_links__module", "template_links__release__template"
+            "module_links__module__lines__steps__move", "template_links__release__template"
         )
 
 

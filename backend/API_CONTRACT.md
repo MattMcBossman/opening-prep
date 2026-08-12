@@ -208,7 +208,9 @@ Generates a recommended PGN tree from a supplied move prefix. It accepts a linke
 With `{"moduleId": number, "changelog": string}`, snapshots an owned, non-empty personal module into the community catalog. Re-publishing the same module creates the next immutable version. Official status cannot be granted through this endpoint.
 
 ### `GET /api/v1/opening-templates/`
-Lists published templates with metadata for their latest immutable release.
+Lists published templates with lightweight metadata for their latest immutable
+release, including its precomputed common SAN starting line and line count. The
+full tree and lines are intentionally omitted until release detail is requested.
 
 ### `GET /api/v1/opening-templates/{slug}/releases/{version}/`
 Returns release metadata plus its normalized-FEN `tree` object and explicit

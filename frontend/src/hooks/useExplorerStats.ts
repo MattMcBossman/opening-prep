@@ -42,6 +42,10 @@ const MY_GAMES_POLL_INTERVAL_MS = 4000
 // Keep progressing it in the background for up to four minutes; later
 // positions are SQL lookups and normally settle immediately.
 const MY_GAMES_MAX_POLL_ATTEMPTS = 60
+// The worker can index hundreds of games per second. Querying its full position
+// aggregate and rerendering React once per game moves that work back onto the
+// UI thread. Coalesce progress signals while always querying the latest index.
+const MY_GAMES_PROGRESS_REFRESH_MS = 100
 
 /**
  * Fetches Lichess explorer stats for `fen`. `enabled` lets a caller that only
@@ -114,7 +118,18 @@ export function useExplorerStats(
 
   useEffect(() => {
     if (source !== 'my-games') return
-    return subscribeToPersonalGamesProgress(() => setTick((value) => value + 1))
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = subscribeToPersonalGamesProgress(() => {
+      if (refreshTimer) return
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null
+        setTick((value) => value + 1)
+      }, MY_GAMES_PROGRESS_REFRESH_MS)
+    })
+    return () => {
+      unsubscribe()
+      if (refreshTimer) clearTimeout(refreshTimer)
+    }
   }, [source])
 
   useEffect(() => {

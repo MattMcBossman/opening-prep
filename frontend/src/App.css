@@ -55,7 +55,7 @@
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   margin-left: auto;
 }
 
@@ -100,7 +100,7 @@
 .repertoire-profile-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   padding-left: 4px;
   box-sizing: border-box;
   min-width: 0;
@@ -116,9 +116,9 @@
 }
 
 .repertoire-profile-controls select {
-  width: 160px;
+  width: 140px;
   min-width: 0;
-  max-width: 160px;
+  max-width: 140px;
   padding: 5px 7px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -130,8 +130,13 @@
   flex: 0 0 auto;
 }
 
-.repertoire-profile-controls select:disabled {
+.repertoire-profile-controls select:disabled,
+.profile-manage-button:disabled {
   opacity: 0.6;
+}
+
+.profile-manage-button:disabled {
+  cursor: default;
 }
 
 .profile-manage-button,

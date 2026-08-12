@@ -8,6 +8,7 @@ export type RepertoireSummary = {
   color: RepertoireColor
   moveCount: number
   lineCount: number
+  commonStart: string
   hasResponseConflicts?: boolean
   createdAt: string
   updatedAt: string
@@ -20,6 +21,7 @@ export type ProfileModuleSummary = {
   color: RepertoireColor
   moveCount: number
   lineCount: number
+  commonStart: string
   hasResponseConflicts?: boolean
   sortOrder: number
   enabled: boolean
@@ -52,7 +54,7 @@ export type OpeningTemplateSummary = {
   color: RepertoireColor
   kind: "official" | "community"
   publisherName: string
-  latestRelease: { id: number; version: number; publishedAt: string } | null
+  latestRelease: { id: number; version: number; publishedAt: string; commonStart: string; lineCount: number } | null
 }
 
 export type OpeningTemplateRelease = {
@@ -63,6 +65,8 @@ export type OpeningTemplateRelease = {
   color: RepertoireColor
   version: number
   publishedAt: string
+  commonStart: string
+  lineCount: number
   tree: RepertoireTree
   lines: Array<{ id: string; label: string; source: string; sortOrder: number; steps: MoveEdge[] }>
 }

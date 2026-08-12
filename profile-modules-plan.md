@@ -4,7 +4,7 @@
 
 Last updated: 2026-08-10
 
-Current acceptance milestone: complete the physical Android/Tailscale smoke
+Completed acceptance milestone: the physical Android/Tailscale smoke
 matrix in [mobile-plan.md](mobile-plan.md). Mobile engineering and automated
 verification are complete. Managed production deployment remains deferred until
 the project is ready for independent uptime or external users.
@@ -19,14 +19,14 @@ Moves/Stats/Prep navigation, responsive statistics, 44px touch targets, a
 full-screen accessible repertoire manager, drill-first portrait/landscape
 layouts, and drill/Explorer session continuity. Automated coverage spans
 320–430px portrait, 667×375 landscape, Android Chrome emulation, and
-iPhone-sized touch emulation. The remaining acceptance item is the documented
-hands-on Android/Tailscale smoke matrix in `mobile-plan.md`.
+iPhone-sized touch emulation. The documented hands-on Android/Tailscale smoke
+matrix in `mobile-plan.md` is also complete.
 
 Mobile profile management (M3) is complete: Manage opens as a contained desktop
 dialog and a safe-area-aware full-screen phone sheet, traps focus, closes with
 Escape or its visible close control, restores focus and page scrolling on exit,
 and presents profile/module creation and renaming as labeled validated forms
-instead of browser prompts. At 360px, module membership and ordering, explicit
+instead of browser prompts. At 360px, module membership controls, explicit
 editing-target selection, immutable-global provenance, preview/pin/copy/gap
 fill, and deliberate destructive confirmations remain fully available through
 touch-sized controls.

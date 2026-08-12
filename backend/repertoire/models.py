@@ -121,6 +121,8 @@ class OpeningTemplateRelease(models.Model):
     changelog = models.TextField(blank=True)
     tree = models.JSONField(default=dict)
     lines = models.JSONField(default=list)
+    common_start = models.CharField(max_length=500, blank=True)
+    line_count = models.PositiveIntegerField(default=0)
     published_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -135,6 +137,9 @@ class OpeningTemplateRelease(models.Model):
     def save(self, *args, **kwargs):
         if self.pk and OpeningTemplateRelease.objects.filter(pk=self.pk).exists():
             raise ValueError("Published opening-template releases are immutable.")
+        from .release_metadata import release_summary
+
+        self.common_start, self.line_count = release_summary(self.lines, self.template.color)
         self.full_clean()
         return super().save(*args, **kwargs)
 

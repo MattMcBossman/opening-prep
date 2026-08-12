@@ -1,5 +1,6 @@
 import { START_FEN } from '../hooks/useGame'
 import { normalizeFen, sideToMove } from './chessUtils'
+import { formatMoveListFromPly } from './chessUtils'
 import type { RepertoireColor, RepertoireMove } from '../types'
 
 export type DrillMover = 'own' | 'opponent'
@@ -79,6 +80,19 @@ export function createDrillStartContext(
 export type PreparedDrill = {
   lines: DrillLine[]
   rootFen: string
+}
+
+export function commonDrillLineStart(lines: readonly DrillLine[], color?: RepertoireColor): string {
+  if (lines.length === 0) return ''
+  const common: string[] = []
+  const shortest = Math.min(...lines.map((line) => line.steps.length))
+  for (let index = 0; index < shortest; index += 1) {
+    const first = lines[0].steps[index]
+    if (lines.some((line) => line.steps[index].uci !== first.uci)) break
+    common.push(first.san)
+  }
+  const entryPlies = color === 'white' ? 3 : color === 'black' ? 2 : common.length
+  return formatMoveListFromPly(0, common.slice(0, entryPlies))
 }
 
 /** Reconstructs move-one history for opening a completed drill in Explorer. */

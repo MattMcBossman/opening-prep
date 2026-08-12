@@ -14,6 +14,7 @@ from .models import (
     RepertoireLineStep,
     RepertoireProfile,
 )
+from .release_metadata import repertoire_summary
 
 
 class RepertoireSerializer(serializers.ModelSerializer):
@@ -21,6 +22,7 @@ class RepertoireSerializer(serializers.ModelSerializer):
 
     moveCount = serializers.IntegerField(source="moves.count", read_only=True)
     lineCount = serializers.IntegerField(source="lines.count", read_only=True)
+    commonStart = serializers.SerializerMethodField()
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     description = serializers.CharField(required=False, allow_blank=True)
@@ -28,6 +30,9 @@ class RepertoireSerializer(serializers.ModelSerializer):
 
     def get_hasResponseConflicts(self, obj):
         return bool(services.legacy_response_conflicts(obj))
+
+    def get_commonStart(self, obj):
+        return repertoire_summary(obj)[0]
 
     class Meta:
         model = Repertoire
@@ -38,6 +43,7 @@ class RepertoireSerializer(serializers.ModelSerializer):
             "color",
             "moveCount",
             "lineCount",
+            "commonStart",
             "hasResponseConflicts",
             "source_release",
             "createdAt",
@@ -55,10 +61,14 @@ class ProfileModuleSerializer(serializers.ModelSerializer):
     color = serializers.CharField(source="module.color", read_only=True)
     moveCount = serializers.IntegerField(source="module.moves.count", read_only=True)
     lineCount = serializers.IntegerField(source="module.lines.count", read_only=True)
+    commonStart = serializers.SerializerMethodField()
     hasResponseConflicts = serializers.SerializerMethodField()
 
     def get_hasResponseConflicts(self, obj):
         return bool(services.legacy_response_conflicts(obj.module))
+
+    def get_commonStart(self, obj):
+        return repertoire_summary(obj.module)[0]
 
     sortOrder = serializers.IntegerField(source="sort_order")
 
@@ -71,6 +81,7 @@ class ProfileModuleSerializer(serializers.ModelSerializer):
             "color",
             "moveCount",
             "lineCount",
+            "commonStart",
             "hasResponseConflicts",
             "sortOrder",
             "enabled",
@@ -122,6 +133,8 @@ class OpeningTemplateReleaseSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source="template.name", read_only=True)
     color = serializers.CharField(source="template.color", read_only=True)
     publishedAt = serializers.DateTimeField(source="published_at", read_only=True)
+    commonStart = serializers.CharField(source="common_start", read_only=True)
+    lineCount = serializers.IntegerField(source="line_count", read_only=True)
 
     class Meta:
         model = OpeningTemplateRelease
@@ -132,20 +145,32 @@ class OpeningTemplateReleaseSerializer(serializers.ModelSerializer):
             "color",
             "version",
             "changelog",
+            "commonStart",
+            "lineCount",
             "tree",
             "lines",
             "publishedAt",
         ]
 
 
+class OpeningTemplateReleaseSummarySerializer(serializers.ModelSerializer):
+    publishedAt = serializers.DateTimeField(source="published_at", read_only=True)
+    commonStart = serializers.CharField(source="common_start", read_only=True)
+    lineCount = serializers.IntegerField(source="line_count", read_only=True)
+
+    class Meta:
+        model = OpeningTemplateRelease
+        fields = ["id", "version", "publishedAt", "commonStart", "lineCount"]
+
+
 class OpeningTemplateSerializer(serializers.ModelSerializer):
     latestRelease = serializers.SerializerMethodField()
     publisherName = serializers.SerializerMethodField()
 
-    @extend_schema_field(OpeningTemplateReleaseSerializer)
+    @extend_schema_field(OpeningTemplateReleaseSummarySerializer)
     def get_latestRelease(self, obj):
         release = obj.releases.order_by("-version").first()
-        return OpeningTemplateReleaseSerializer(release).data if release else None
+        return OpeningTemplateReleaseSummarySerializer(release).data if release else None
 
     def get_publisherName(self, obj):
         if obj.kind == OpeningTemplate.OFFICIAL:

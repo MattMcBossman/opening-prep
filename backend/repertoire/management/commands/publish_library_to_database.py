@@ -6,7 +6,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections, transaction
 
-from repertoire.models import OpeningTemplate, OpeningTemplateRelease
+from repertoire.models import OpeningTemplate, OpeningTemplateRelease, ProfileTemplateRelease
+from repertoire.release_metadata import release_summary
 from repertoire.validation import validate_release_snapshot
 
 
@@ -24,9 +25,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         slugs = list(dict.fromkeys(options["slugs"]))
-        sources = list(
-            OpeningTemplate.objects.filter(slug__in=slugs).prefetch_related("releases")
-        )
+        sources = list(OpeningTemplate.objects.filter(slug__in=slugs).prefetch_related("releases"))
         found = {template.slug for template in sources}
         missing = [slug for slug in slugs if slug not in found]
         if missing:
@@ -66,6 +65,9 @@ class Command(BaseCommand):
                     # releases. Retire them from the public catalog without
                     # destroying those references.
                     OpeningTemplate.objects.using(alias).update(is_published=False)
+                    ProfileTemplateRelease.objects.using(alias).filter(
+                        release__template__is_published=False
+                    ).delete()
 
                 for snapshot in snapshots:
                     template, _ = OpeningTemplate.objects.using(alias).get_or_create(
@@ -89,21 +91,25 @@ class Command(BaseCommand):
                     latest = template.releases.using(alias).order_by("-version").first()
                     if latest and latest.tree == snapshot["tree"] and latest.lines == snapshot["lines"]:
                         self.stdout.write(
-                            f"Kept {template.name} v{latest.version} "
-                            f"({len(snapshot['lines'])} lines)"
+                            f"Kept {template.name} v{latest.version} ({len(snapshot['lines'])} lines)"
                         )
                         continue
                     version = (latest.version + 1) if latest else 1
+                    common_start, line_count = release_summary(snapshot["lines"], snapshot["color"])
                     # The snapshot was validated above. bulk_create deliberately
                     # avoids the model's default-database immutability lookup.
                     OpeningTemplateRelease.objects.using(alias).bulk_create(
-                        [OpeningTemplateRelease(
-                            template_id=template.pk,
-                            version=version,
-                            changelog="Initial Mainline alpha release.",
-                            tree=snapshot["tree"],
-                            lines=snapshot["lines"],
-                        )]
+                        [
+                            OpeningTemplateRelease(
+                                template_id=template.pk,
+                                version=version,
+                                changelog="Initial Mainline alpha release.",
+                                tree=snapshot["tree"],
+                                lines=snapshot["lines"],
+                                common_start=common_start,
+                                line_count=line_count,
+                            )
+                        ]
                     )
                     self.stdout.write(
                         self.style.SUCCESS(
