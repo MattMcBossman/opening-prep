@@ -46,11 +46,9 @@ const MY_GAMES_MAX_POLL_ATTEMPTS = 60
  * line is finished - showing them earlier would hint at the prepared move) skip
  * the request entirely rather than burning an API call per position visited.
  *
- * `signedIn` routes through the backend's caching proxy (using the account's
- * stored Lichess token) instead of the anonymous direct-to-Lichess path with a
- * pasted `apiToken` - see lichessExplorer.ts's `fetchExplorerStats`. `apiToken`
- * is otherwise unused while signed in, except as a fallback if the backend
- * proxy reports it has no usable token of its own.
+ * `signedIn` routes through the backend's caching proxy using the linked
+ * account's stored Lichess token. Signed-out users are prompted to sign in and
+ * link Lichess rather than being asked to create and paste an API token.
  *
  * `source: 'my-games'` switches to the signed-in user's own Lichess games
  * instead of the public database (see `fetchMyGamesExplorerStats`) - this
@@ -128,10 +126,10 @@ export function useExplorerStats(
       return
     }
 
-    if (source === 'lichess' && !signedIn && !apiToken) {
+    if (source === 'lichess' && !signedIn) {
       setData(null)
       setLoading(false)
-      setError('Add a Lichess API token to load explorer stats.')
+      setError('Sign in and link a Lichess account to load explorer data.')
       setResultIdentity(identityKey)
       return
     }
@@ -139,7 +137,7 @@ export function useExplorerStats(
     if (source === 'my-games' && !signedIn) {
       setData(null)
       setLoading(false)
-      setError('Sign in with Lichess to see stats from your own games.')
+      setError('Sign in to link a Lichess or Chess.com account and view your own game history.')
       setResultIdentity(identityKey)
       return
     }

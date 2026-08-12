@@ -27,6 +27,11 @@ export function AuthControl({ user, loading, onGoogleLogin, onLinkLichess, onLin
     if (!open) return
 
     const closeOnOutsidePointer = (event: PointerEvent) => {
+      // A touch scroll starts with pointerdown, before the browser can tell it
+      // apart from a tap. Closing here collapsed the inline mobile account
+      // section while leaving its containing settings menu open. Mobile has a
+      // prominent X, so reserve outside-pointer dismissal for mouse/pen input.
+      if (event.pointerType === 'touch') return
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -78,7 +83,7 @@ export function AuthControl({ user, loading, onGoogleLogin, onLinkLichess, onLin
   }
 
   return (
-    <div ref={containerRef} className="mainline-auth-control">
+    <div ref={containerRef} className={`mainline-auth-control${open ? ' open' : ''}`}>
       <button
         ref={triggerRef}
         type="button"
@@ -86,7 +91,7 @@ export function AuthControl({ user, loading, onGoogleLogin, onLinkLichess, onLin
         onClick={() => setOpen((shown) => !shown)}
         aria-expanded={open}
       >
-        {open ? 'Close' : user ? user.username : 'Sign in'}
+        {user ? user.username : 'Sign in'}
       </button>
       {open && (
         <div className="mainline-auth-popover">

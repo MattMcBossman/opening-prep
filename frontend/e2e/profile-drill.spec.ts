@@ -12,6 +12,46 @@ test.beforeEach(async ({ page }) => {
   }))
 })
 
+test('signed-out explorer keeps both sources visible and prompts for linked accounts', async ({ page }) => {
+  await page.goto('/')
+
+  const signInButton = page.getByRole('button', { name: 'Sign in', exact: true })
+  await signInButton.click()
+  await expect(signInButton).toHaveText('Sign in')
+  const triggerBox = await signInButton.boundingBox()
+  const popoverBox = await page.locator('.mainline-auth-popover').boundingBox()
+  const closeBox = await page.getByRole('button', { name: 'Close account menu' }).boundingBox()
+  expect(triggerBox && popoverBox && closeBox).toBeTruthy()
+  expect(popoverBox!.y).toBeLessThan(triggerBox!.y + triggerBox!.height)
+  expect(popoverBox!.y + popoverBox!.height).toBeGreaterThan(triggerBox!.y)
+  expect(Math.abs((closeBox!.x + closeBox!.width) - (triggerBox!.x + triggerBox!.width))).toBeLessThanOrEqual(1)
+  expect(Math.abs(closeBox!.y - triggerBox!.y)).toBeLessThanOrEqual(1)
+  await page.getByRole('button', { name: 'Close account menu' }).click()
+
+  await expect(page.getByText('and link a Lichess account to load explorer data.')).toBeVisible()
+  await expect(page.getByLabel('Lichess API token')).toHaveCount(0)
+  await page.getByRole('tab', { name: 'My games' }).click()
+  await expect(page.getByText('to link a Lichess or Chess.com account and view your own game history.')).toBeVisible()
+  await expect(page.locator('.explorer-panel a', { hasText: 'Sign in' })).toHaveAttribute('href', /\/auth\/google\/start\//)
+})
+
+test('mobile sign-in expands inside the settings menu instead of stacking a popover', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open menu' }).click()
+  const signInButton = page.getByRole('button', { name: 'Sign in', exact: true })
+  await signInButton.click()
+
+  await expect(signInButton).toBeHidden()
+  await expect(page.locator('.mainline-auth-popover')).toHaveCSS('position', 'relative')
+  await expect(page.locator('.mainline-auth-popover')).toHaveCSS('box-shadow', 'none')
+  await expect(page.getByRole('button', { name: 'Close account menu' })).toBeVisible()
+
+  await page.locator('.app-layout').dispatchEvent('pointerdown', { pointerType: 'touch' })
+  await page.mouse.wheel(0, 300)
+  await expect(page.locator('.mainline-auth-popover')).toBeVisible()
+})
+
 test('anonymous profile and module management survives a refresh', async ({ page }) => {
   await page.goto('/')
   const profileSelect = page.locator('.repertoire-profile-controls select').first()

@@ -9,7 +9,6 @@ import type { MoveInput } from './hooks/useGame'
 import { useAuth } from './hooks/useAuth'
 import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
-import { useLichessToken } from './hooks/useLichessToken'
 import { useTheme } from './hooks/useTheme'
 import { useBoardColor } from './hooks/useBoardColor'
 import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
@@ -23,7 +22,6 @@ import { ExplorerStatsTable } from './components/ExplorerStatsTable'
 import { EngineEvalPanel } from './components/EngineEvalPanel'
 import { EvalBar } from './components/EvalBar'
 import { OpeningName } from './components/OpeningName'
-import { LichessTokenSettings } from './components/LichessTokenSettings'
 import { AuthControl } from './components/AuthControl'
 import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { AccountMergePrompt } from './components/AccountMergePrompt'
@@ -46,7 +44,7 @@ import type { DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import { findResponseConflicts } from './lib/repertoireTree'
 import type { ExplorerOpening, RepertoireMove } from './types'
-import { lichessLoginUrl } from './lib/authApi'
+import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
@@ -89,12 +87,11 @@ function App() {
   const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition, loadContinuationPath } = useGame()
   const { theme, toggleTheme } = useTheme()
   const { boardColor, toggleBoardColor } = useBoardColor()
-  const { token, setToken } = useLichessToken()
+  const token = ''
   const auth = useAuth()
   const isSignedIn = auth.user !== null
   const [explorerSource, setExplorerSource] = useState<ExplorerSource>(initialView.explorerSource ?? 'lichess')
-  // Signed-out users have no "my games" source at all - always show the public database.
-  const effectiveExplorerSource = isSignedIn ? explorerSource : 'lichess'
+  const effectiveExplorerSource = explorerSource
   // Each source owns its filters independently: switching tabs restores that
   // source's dates/game types instead of silently applying the other source's
   // selection. Rating bands exist only in the public-source entry.
@@ -619,16 +616,15 @@ function App() {
               className={`panel explorer-panel mobile-section-panel ${mobileExplorerSection === 'stats' ? 'mobile-active' : ''}`}
               role="tabpanel"
             >
-              <h2>Lichess explorer</h2>
+              <h2>{effectiveExplorerSource === 'my-games' ? 'My games explorer' : 'Lichess explorer'}</h2>
               <div className="explorer-toolbar">
-                {isSignedIn && <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />}
+                <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />
                 <ExplorerFiltersPanel
                   source={effectiveExplorerSource}
                   filters={explorerFilters}
                   onChange={setExplorerFilters}
                 />
               </div>
-              {!isSignedIn && <LichessTokenSettings token={token} onChange={setToken} />}
               <ExplorerStatsTable
                 data={explorer.data}
                 loading={explorer.loading}
@@ -639,7 +635,7 @@ function App() {
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
                 onRetry={explorer.retry}
-                linkLichessHref={lichessLoginUrl(window.location.pathname + window.location.search + window.location.hash)}
+                accountActionHref={(isSignedIn ? lichessLoginUrl : googleLoginUrl)(window.location.pathname + window.location.search + window.location.hash)}
               />
               {positionCoverage && positionCoverage.totalGames > 0 && (
                 <p className="panel-status">

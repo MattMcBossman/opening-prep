@@ -5,7 +5,7 @@ type Props = {
   onChange: (source: ExplorerSource) => void
 }
 
-/** Only rendered for signed-in users - see App.tsx (the "my games" source needs a linked Lichess account). */
+/** Always visible; signed-out selections explain which linked account the source requires. */
 export function ExplorerSourceToggle({ source, onChange }: Props) {
   return (
     <div className="mode-toggle" role="tablist" aria-label="Explorer data source">

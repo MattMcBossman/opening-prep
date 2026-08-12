@@ -21,8 +21,8 @@ type Props = {
   pollExhausted?: boolean
   /** Restarts polling - only used/shown when `pollExhausted`. */
   onRetry?: () => void
-  /** OAuth destination used to turn missing-Lichess-account errors into actions. */
-  linkLichessHref?: string
+  /** Google sign-in or Lichess-link destination for account-required states. */
+  accountActionHref?: string
 }
 
 function percent(n: number, total: number): number {
@@ -100,18 +100,24 @@ export function ExplorerStatsTable({
   isPolling,
   pollExhausted,
   onRetry,
-  linkLichessHref,
+  accountActionHref,
 }: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
-  if (error && linkLichessHref) {
+  if (error && accountActionHref) {
+    if (error === 'Sign in and link a Lichess account to load explorer data.') {
+      return <p className="panel-status error"><a href={accountActionHref}>Sign in</a> and link a Lichess account to load explorer data.</p>
+    }
+    if (error === 'Sign in to link a Lichess or Chess.com account and view your own game history.') {
+      return <p className="panel-status error"><a href={accountActionHref}>Sign in</a> to link a Lichess or Chess.com account and view your own game history.</p>
+    }
     if (error === 'Sign in with Lichess to load explorer stats.') {
-      return <p className="panel-status error"><a href={linkLichessHref}>Sign in with Lichess</a> to load explorer stats.</p>
+      return <p className="panel-status error"><a href={accountActionHref}>Link your Lichess account</a> to load explorer stats.</p>
     }
     if (
       error === 'Link your Lichess account to see stats from your own games.'
       || error === 'Sign in with Lichess to see stats from your own games.'
     ) {
-      return <p className="panel-status error"><a href={linkLichessHref}>Link your Lichess account</a> to see stats from your own games.</p>
+      return <p className="panel-status error"><a href={accountActionHref}>Link your Lichess account</a> to see stats from your own games.</p>
     }
   }
   if (error) return <p className="panel-status error">{error}</p>

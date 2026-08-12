@@ -1499,7 +1499,7 @@
 .mainline-auth-popover {
   position: absolute;
   z-index: 30;
-  top: calc(100% + 8px);
+  top: 0;
   right: 0;
   display: grid;
   width: min(360px, calc(100vw - 24px));
@@ -1515,10 +1515,10 @@
 
 .mainline-auth-popover .auth-popover-close {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 32px;
-  min-height: 32px;
+  top: 0;
+  right: 0;
+  width: 44px;
+  min-height: 44px;
   padding: 0;
   border-color: transparent;
   background: transparent;
@@ -1856,6 +1856,31 @@
 
   .header-controls.mobile-open {
     display: flex;
+  }
+
+  /* The account UI already lives inside the mobile settings popover. Expand it
+     in that surface instead of stacking a second floating popover on top. */
+  .mainline-auth-control.open > .auth-control {
+    display: none;
+  }
+
+  .mainline-auth-popover {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    max-width: none;
+    padding: 12px 0 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .mainline-auth-popover .auth-popover-close {
+    top: 0;
+    right: 0;
   }
 
   .mobile-repertoire-color {
