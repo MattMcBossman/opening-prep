@@ -183,6 +183,17 @@ describe('prepareDrillLines', () => {
     expect(prepared.lines[0].steps.map((item) => item.uci)).toEqual(['g1f3'])
   })
 
+  it('treats a zero-ply selected position as the root of every line', () => {
+    const prepared = prepareDrillLines(
+      [FULL_LINE],
+      'selected_position',
+      { selectedFen: 'stale-restored-root', selectedPly: 0, prefixUci: [] },
+    )
+    expect(prepared.lines).toHaveLength(1)
+    expect(prepared.lines[0].steps).toEqual(FULL_LINE.steps)
+    expect(prepared.rootFen).toBe(START_FEN)
+  })
+
   it('excludes a line that ends exactly at the selected position', () => {
     const short = { ...FULL_LINE, steps: FULL_LINE.steps.slice(0, 2) }
     expect(prepareDrillLines([short], 'selected_position', context).lines).toEqual([])

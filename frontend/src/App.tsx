@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
-import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
+import type { PieceDataType, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useGame, START_FEN } from './hooks/useGame'
@@ -48,6 +48,10 @@ import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
+// react-chessboard otherwise adds its own black border to the drag target.
+// All destination highlighting is owned by `squareStyles` below so the same
+// translucent layer is used for click and drag interactions exactly once.
+const DROP_SQUARE_STYLE: CSSProperties = { boxShadow: 'none' }
 const LAST_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
 // Quiet moves get a small center dot.
 const LEGAL_TARGET_STYLE: CSSProperties = {
@@ -58,6 +62,10 @@ const LEGAL_TARGET_STYLE: CSSProperties = {
 // outer ring remains visible on both light and dark board squares.
 const CAPTURE_TARGET_STYLE: CSSProperties = {
   backgroundImage: 'radial-gradient(circle closest-side, rgba(0, 0, 0, 0.2) 0 calc(100% - 1px), transparent 100%)',
+}
+
+function pieceMatchesColor(piece: PieceDataType | null, color: 'white' | 'black'): boolean {
+  return piece?.pieceType.startsWith(color === 'white' ? 'w' : 'b') ?? false
 }
 
 const VIEW_SESSION_KEY = 'opening-prep:view-session:v1'
@@ -118,6 +126,7 @@ function App() {
   const repertoire = useRepertoire(auth.user)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+  const [hoveredSquare, setHoveredSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>(initialView.mode ?? 'explorer')
   const [mobileExplorerSection, setMobileExplorerSection] = useState<'moves' | 'stats' | 'prep'>(initialView.mobileSection ?? 'stats')
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
@@ -333,6 +342,7 @@ function App() {
   // reset) invalidates the current selection.
   useEffect(() => {
     setSelectedSquare(null)
+    setHoveredSquare(null)
   }, [fen])
 
   const legalMoves = useMemo(() => {
@@ -353,28 +363,37 @@ function App() {
     }
     if (selectedSquare) {
       styles[selectedSquare] = { ...styles[selectedSquare], ...SELECTED_SQUARE_STYLE }
+      const hoveredTarget = hoveredSquare !== selectedSquare
+        && legalMoves.some((move) => move.to === hoveredSquare)
+        ? hoveredSquare
+        : null
       for (const move of legalMoves) {
+        if (move.to === hoveredTarget) continue
         styles[move.to] = {
           ...styles[move.to],
           ...(move.isCapture() ? CAPTURE_TARGET_STYLE : LEGAL_TARGET_STYLE),
         }
       }
+      if (hoveredTarget) {
+        styles[hoveredTarget] = { ...styles[hoveredTarget], ...SELECTED_SQUARE_STYLE }
+      }
     }
     return Object.keys(styles).length > 0 ? styles : undefined
-  }, [selectedSquare, legalMoves, moves, pointer])
+  }, [selectedSquare, hoveredSquare, legalMoves, moves, pointer])
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
     // A drag is a new interaction, independent of any earlier tap-to-move
     // selection. Clear it even when the drop is cancelled or illegal so a
     // stale origin/highlight cannot remain on the board.
     setSelectedSquare(null)
+    setHoveredSquare(null)
     if (!targetSquare) return false
     return playMove({ from: sourceSquare, to: targetSquare, promotion: 'q' })
   }
 
   function handleSquareClick({ square, piece }: SquareHandlerArgs) {
     if (!selectedSquare) {
-      if (piece) setSelectedSquare(square)
+      if (pieceMatchesColor(piece, sideToMove(fen))) setSelectedSquare(square)
       return
     }
     if (square === selectedSquare) {
@@ -385,7 +404,7 @@ function App() {
     if (!moved) {
       // Illegal target: if the clicked square holds a piece, select it instead of
       // just clearing the selection outright.
-      setSelectedSquare(piece ? square : null)
+      setSelectedSquare(pieceMatchesColor(piece, sideToMove(fen)) ? square : null)
     }
   }
 
@@ -572,14 +591,25 @@ function App() {
               <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
             </div>
             <div className="board-with-eval">
-              <div className="board-wrapper">
+              <div className="board-wrapper" data-active-piece-color={sideToMove(fen)}>
                 <Chessboard
                   options={{
                     position: fen,
                     boardOrientation: boardColor,
+                    canDragPiece: ({ piece }) => pieceMatchesColor(piece, sideToMove(fen)),
+                    onPieceDrag: ({ square }) => {
+                      setSelectedSquare(square)
+                    },
+                    onPieceDragCancel: () => {
+                      setSelectedSquare(null)
+                      setHoveredSquare(null)
+                    },
                     onPieceDrop: handlePieceDrop,
                     onSquareClick: handleSquareClick,
+                    onMouseOverSquare: ({ square }) => setHoveredSquare(square),
+                    onMouseOutSquare: ({ square }) => setHoveredSquare((current) => current === square ? null : current),
                     squareStyles,
+                    dropSquareStyle: DROP_SQUARE_STYLE,
                     showAnimations: true,
                     animationDurationInMs: 300,
                     id: 'opening-prep-explorer-board',
@@ -635,6 +665,7 @@ function App() {
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
                 onRetry={explorer.retry}
+                showFullGameCounts={effectiveExplorerSource === 'my-games'}
                 accountActionHref={(isSignedIn ? lichessLoginUrl : googleLoginUrl)(window.location.pathname + window.location.search + window.location.hash)}
               />
               {positionCoverage && positionCoverage.totalGames > 0 && (

@@ -2,6 +2,12 @@ import { ApiError, apiRequest } from './apiClient'
 import type { ExplorerMoveStat, ExplorerResponse, RepertoireColor } from '../types'
 import { normalizeFen } from './chessUtils'
 import { recordClientCacheMetric } from './cacheMetrics'
+import {
+  personalGamesRefreshInProgress,
+  personalGamesRefreshError,
+  queryPersonalGamesIndex,
+  refreshPersonalGamesIndex,
+} from './personalGamesIndex'
 
 // As of 2026, Lichess requires a personal API token (Bearer auth) on every Opening
 // Explorer request, and the endpoint moved from explorer.lichess.ovh to explorer.lichess.org.
@@ -222,17 +228,18 @@ export async function fetchMyGamesExplorerStats(
   }
   recordClientCacheMetric('explorerMiss')
 
-  const params = new URLSearchParams({ fen, moves: '12', color })
-  applyPlayerFilters(params, filters)
-  const data = await apiRequest<ExplorerResponse>(`/explorer/my-games/?${params.toString()}`, { signal })
-
-  // Never cache a still-indexing result: Lichess hasn't finished computing it
-  // yet, so caching it (even briefly) would show a stale "no data" result on
-  // the next poll instead of letting useExplorerStats's retry loop see
-  // whatever progress Lichess has made since. A finished result is still
-  // cached normally.
-  if (!data.stillIndexing) {
-    cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
-  }
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const sources = filters?.databases ?? ['lichess', 'chesscom']
+  // Start streaming in the persistent worker, but do not hide already indexed
+  // positions while a first import or incremental refresh is still running.
+  void refreshPersonalGamesIndex(userId, sources).catch(() => {
+    // The next progress-driven/local query surfaces the stored source error.
+  })
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const data = await queryPersonalGamesIndex(userId, fen, color, filters)
+  const refreshError = personalGamesRefreshError(userId, sources)
+  if (refreshError) throw refreshError
+  if (personalGamesRefreshInProgress(userId, sources)) data.stillIndexing = true
+  if (!data.stillIndexing) cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS })
   return data
 }

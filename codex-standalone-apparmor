@@ -1,0 +1,10 @@
+# Allow only the standalone Codex executable to create the user namespaces
+# required by its bubblewrap sandbox. The process otherwise remains unconfined.
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile codex-standalone /home/matt/.codex/packages/standalone/releases/**/bin/codex flags=(unconfined) {
+  userns,
+}

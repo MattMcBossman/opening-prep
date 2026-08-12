@@ -247,28 +247,16 @@ required — the frontend then keeps using its existing direct-to-Lichess path.
 Upstream `429` is surfaced as `429` with `Retry-After` passed through. Concurrent
 requests for the same key should not produce duplicate upstream calls.
 
-### `GET /api/v1/explorer/my-games/?fen=<fen>&color=<white|black>&moves=12&speeds=bullet,blitz&databases=lichess,chesscom`
-**Authenticated only** — there's no anonymous path, since this always needs the
-caller's own linked accounts. `databases` selects Lichess, Chess.com, or both
-(the default). Lichess is a live proxy for its player-scoped
-opening explorer (the signed-in user's own games), unlike the longer-lived shared cache on
-`/explorer/stats/`. Completed results are cached per user for
-`PLAYER_EXPLORER_CACHE_TTL_SECONDS`; partial `stillIndexing` snapshots are never
-cached so polling continues to observe progress. `color` is the color the signed-in user played (matching
-the app's White/Black repertoire toggle), not whose turn it is at `fen`.
-Optional `since`/`until` month filters and comma-separated `speeds`
-(`ultraBullet`, `bullet`, `blitz`, `rapid`, `classical`, `correspondence`)
-are forwarded to Lichess's player explorer.
-Response shape is `ExplorerResponse` plus optional `stillIndexing: true` and
-`queuePosition` fields while Lichess reports background indexing. `totalGames`
-is the number of matching games currently available for the selected position;
-it is not a global account-import progress count. While Lichess is still
-processing the account, this is a best-effort partial result, not an error. The
-proxy returns the latest promptly available snapshot (including an immediately
-following terminal line) and the frontend polls through unchanged partial
-snapshots for updates. `queuePosition` is diagnostic and is not presented as a
-game-count progress indicator. `401` when
-no Lichess account is linked.
+### `GET /api/v1/explorer/game-export/<lichess|chesscom>/?since=<unix-ms>`
+**Authenticated streaming endpoint.** It emits one NDJSON game record at a time
+for the signed-in user's linked account. The optional `since` timestamp supports
+incremental browser refreshes. Lichess records are proxied from its user game
+export; Chess.com records are streamed from matching monthly Published Data
+archives. Mainline does not persist these records or their positions server-side.
+The frontend Web Worker parses the stream, stores a per-user aggregate FEN graph
+in IndexedDB, and answers “My games” position queries locally. Returns `401` when
+the requested account is not linked, `429` on an upstream rate limit, and `502`
+when the upstream export is unavailable.
 
 ### `GET /api/v1/explorer/evals/?fen=<fen>&engineVersion=<build>`
 Cached engine evaluation, or `404` when nothing is cached. Shape matches

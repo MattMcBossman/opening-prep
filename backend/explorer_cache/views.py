@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from . import analysis_cache, cache, feature_cache, player_stats
+from . import analysis_cache, cache, feature_cache, game_exports
 from .position_features import compare_position_features
 from .serializers import (
     EngineEvalQuerySerializer,
@@ -15,8 +15,6 @@ from .serializers import (
     ExplorerStatsQuerySerializer,
     MoveComparisonQuerySerializer,
     MoveComparisonSerializer,
-    MyGamesExplorerQuerySerializer,
-    MyGamesExplorerResponseSerializer,
     PositionAnalysisQuerySerializer,
     PositionAnalysisSerializer,
     PositionAnalysisUploadSerializer,
@@ -90,60 +88,28 @@ class ExplorerStatsView(APIView):
         return Response(ExplorerResponseSerializer(data).data)
 
 
-class MyGamesExplorerView(APIView):
-    """`GET /explorer/my-games/?fen=...&color=...&moves=...` - see API_CONTRACT.md.
+class PersonalGameExportView(APIView):
+    """Stream source game records for the browser's persistent opening index."""
 
-    Authenticated (the default): unlike `/explorer/stats/`, this always needs
-    the caller's own linked Lichess account (both to know which player to
-    query and to authenticate the request), so there is no anonymous path.
-    Completed results are cached briefly per user; indexing snapshots remain live.
-    """
-
-    @extend_schema(
-        summary="Opening-tree stats from the signed-in user's own Lichess games.",
-        description=(
-            "Live proxy for Lichess's player-scoped opening explorer. Completed results use a short, "
-            "per-user cache; still-indexing snapshots are never cached. `color` is the color the "
-            "signed-in user played (matching the app's "
-            "White/Black repertoire toggle), not whose turn it is at `fen`. May return "
-            "`stillIndexing: true` with a best-effort partial result if Lichess hasn't finished "
-            "processing the account's games yet."
-        ),
-        parameters=[MyGamesExplorerQuerySerializer],
-        responses={
-            200: MyGamesExplorerResponseSerializer,
-            401: NO_TOKEN_RESPONSE,
-            429: RATE_LIMITED_RESPONSE,
-            502: UPSTREAM_UNAVAILABLE_RESPONSE,
-        },
-    )
-    def get(self, request):
-        query = MyGamesExplorerQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        data_in = query.validated_data
-
+    @extend_schema(exclude=True)
+    def get(self, request, source: str):
         try:
-            data = player_stats.fetch_combined_player_stats(
-                request.user,
-                data_in["fen"],
-                data_in["moves"],
-                data_in["color"],
-                since=data_in.get("since"),
-                until=data_in.get("until"),
-                speeds=data_in.get("speeds"),
-                databases=data_in.get("databases", "lichess,chesscom"),
-            )
+            since_ms = int(request.query_params["since"]) if request.query_params.get("since") else None
+        except ValueError:
+            return Response({"detail": "since must be a Unix timestamp in milliseconds."}, status=400)
+        try:
+            if source == "lichess":
+                return game_exports.stream_lichess_games(request.user, since_ms)
+            if source == "chesscom":
+                return game_exports.stream_chesscom_games(request.user, since_ms)
+            return Response({"detail": "Unknown game source."}, status=404)
         except cache.TokenRequired:
-            return Response(
-                {"detail": "Link your Lichess account to see stats from your own games."}, status=401
-            )
+            return Response({"detail": f"Link your {source} account first."}, status=401)
         except cache.UpstreamRateLimited as exc:
             headers = {"Retry-After": exc.retry_after} if exc.retry_after else {}
-            return Response({"detail": "Lichess rate-limited this request."}, status=429, headers=headers)
+            return Response({"detail": f"{source} rate-limited this request."}, status=429, headers=headers)
         except cache.UpstreamUnavailable:
-            return Response({"detail": "The Lichess explorer is currently unavailable."}, status=502)
-
-        return Response(MyGamesExplorerResponseSerializer(data).data)
+            return Response({"detail": f"{source} game export is unavailable."}, status=502)
 
 
 class EngineEvalView(APIView):

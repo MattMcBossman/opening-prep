@@ -151,7 +151,10 @@ export function prepareDrillLines(
   // occurrence by ply/FEN in that case; selectedPly disambiguates repetitions.
   if (prefixLength === 0) {
     eligible = deduped.filter((line) => {
-      if (context.selectedPly === 0) return normalizedFenMatches(context.selectedFen, START_FEN)
+      // Move zero is the common root occurrence of every authored opening line.
+      // Do not reject all lines because the selected FEN differs textually in
+      // counters or was restored from older tab state.
+      if (context.selectedPly === 0) return true
       return normalizedFenMatches(line.steps[context.selectedPly - 1]?.resultingFen ?? '', context.selectedFen)
     })
   }
@@ -165,7 +168,7 @@ export function prepareDrillLines(
     })
     // A line ending exactly at the selected position has nothing left to drill.
     .filter((line) => line.steps.length > 0)
-  return { lines: mergeDrillLines(sliced), rootFen: context.selectedFen }
+  return { lines: mergeDrillLines(sliced), rootFen: context.selectedPly === 0 ? START_FEN : context.selectedFen }
 }
 
 /**

@@ -109,11 +109,24 @@ denial cannot leave a partial development stack behind.
 
 The `render-launch` branch configures one free Render Web Service and one free
 Render Postgres database for a small, disposable invited alpha. Render runs
-migrations and the idempotent starter-library seed before starting a single Gunicorn worker; the app exposes liveness
+migrations and the idempotent starter-library seed before starting a single,
+two-thread Gunicorn worker with a 120-second request timeout. The second thread
+keeps health checks and ordinary traffic responsive while incremental player-game
+indexing is in progress; the app exposes liveness
 at `/api/v1/health/`, database readiness at `/api/v1/ready/`, and the alpha
 privacy notice at `/privacy/`. Alpha data has no durability guarantee. See the
 launch and expiry checklist in [deployment-plan.md](deployment-plan.md) before
 sharing the service URL.
+
+Personal Lichess and Chess.com explorer data is indexed in a browser Web Worker
+and checkpointed in IndexedDB after each source, before rate-limit waits, and on
+export failures, following openingtree's load-once model. The backend
+only streams authenticated game records; it does not retain raw games or
+per-ply player positions in PostgreSQL.
+
+Browser tabs identify the active environment as `Mainline — Dev` for the local
+Vite/Tailscale stack and `Mainline — Alpha` for the Render image. Render injects
+the alpha label while building the frontend in the root Dockerfile.
 
 Frontend, in another terminal:
 

@@ -3,7 +3,6 @@
 from django.db import transaction
 
 from drills.models import DrillSession
-from explorer_cache.models import PlayerStatsCache
 from repertoire.models import OpeningTemplate, Repertoire, RepertoireProfile
 
 from .models import ChessComAccount, EmailIdentity, GoogleAccount, LichessAccount, User
@@ -64,10 +63,6 @@ def merge_legacy_lichess_user(*, legacy_user: User, target_user: User) -> Liches
         module.save(update_fields=["name", "owner", "updated_at"])
     DrillSession.objects.filter(user=legacy_user).update(user=target_user)
     OpeningTemplate.objects.filter(publisher=legacy_user).update(publisher=target_user)
-
-    # These rows are short-lived derived data and can collide on their compound
-    # uniqueness key after a merge. Let the target account refill them normally.
-    PlayerStatsCache.objects.filter(user=legacy_user).delete()
 
     legacy_chess = ChessComAccount.objects.select_for_update().filter(user=legacy_user).first()
     if legacy_chess:

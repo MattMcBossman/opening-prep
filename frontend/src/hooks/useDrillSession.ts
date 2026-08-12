@@ -146,6 +146,14 @@ export function useDrillSession({
     stateRef.current = state
   }, [state])
 
+  // Auto-play timing depends only on drill state. Keep side-effect callbacks in
+  // refs so an unrelated parent render (for example a streaming engine update)
+  // cannot cancel and restart the opponent's 320ms timer indefinitely.
+  const autoPlayCallbacksRef = useRef({ onStepApplied, onLineComplete, recording })
+  useEffect(() => {
+    autoPlayCallbacksRef.current = { onStepApplied, onLineComplete, recording }
+  }, [onStepApplied, onLineComplete, recording])
+
   /**
    * Whenever the current position is awaiting an opponent auto-play (see
    * `pendingAutoPlayStep`), schedules it as its own delayed step - reacting to
@@ -170,18 +178,19 @@ export function useDrillSession({
     const timeoutId = setTimeout(() => {
       const next = advanceAutoPlay(state)
       if (next === state) return
+      const callbacks = autoPlayCallbacksRef.current
       setState(next)
-      for (const step of next.lastAppliedSteps) onStepApplied?.(step)
-      if (next.completionPause) onLineComplete?.()
+      for (const step of next.lastAppliedSteps) callbacks.onStepApplied?.(step)
+      if (next.completionPause) callbacks.onLineComplete?.()
       // A line can also complete via the opponent's auto-played reply (e.g. a
       // one-ply line where the reply itself is the leaf) - see the matching
       // check in attemptMove for the own-move case.
       if (isSessionComplete(next) && !isSessionComplete(state)) {
-        recording?.onSessionFinish(Object.entries(next.results).map(([lineId, outcome]) => ({ lineId, outcome })))
+        callbacks.recording?.onSessionFinish(Object.entries(next.results).map(([lineId, outcome]) => ({ lineId, outcome })))
       }
     }, AUTO_PLAY_DELAY_MS)
     return () => clearTimeout(timeoutId)
-  }, [state, onStepApplied, onLineComplete, recording])
+  }, [state])
 
   /**
    * Attempts one of the drilling color's own moves. Any resulting ply is

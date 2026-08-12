@@ -9,7 +9,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 COPY frontend/scripts/copy-engine.mjs ./scripts/copy-engine.mjs
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+RUN VITE_APP_ENV=alpha npm run build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS backend
 

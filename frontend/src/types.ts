@@ -21,6 +21,8 @@ export type ExplorerResponse = {
   stillIndexing?: boolean
   /** Lichess's indexing queue position; not a count of games remaining. */
   queuePosition?: number
+  /** Browser-side personal-game import cooldown after an upstream 429. */
+  gameExportRateLimit?: { source: 'lichess' | 'chesscom'; retryAt: number }
 }
 
 export type RepertoireColor = 'white' | 'black'

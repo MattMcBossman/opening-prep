@@ -76,7 +76,7 @@ export function OpeningGeneratorPanel({ color, prefixUci, openingName, lichessTo
   }
 
   return <section className="panel opening-generator-panel">
-    <div className="opening-generator-heading"><div><h2>Recommended tree</h2><p>Build a practical repertoire from the selected explorer position.</p></div><button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>{open ? 'Close' : 'Open generator'}</button></div>
+    <div className="opening-generator-heading"><div><h2>Recommended tree <span className="development-tag">In development</span></h2><p>Build a practical repertoire from the selected explorer position.</p></div><button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>{open ? 'Close' : 'Open generator'}</button></div>
     {open && <div className="opening-generator-form">
       {prefixUci.length === 0 && <p className="panel-status error">Play or load an opening line before generating.</p>}
       <label>Module name<input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="e.g. Fried Liver Attack" /></label>

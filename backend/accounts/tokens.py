@@ -49,9 +49,8 @@ def get_lichess_username(user: User) -> str | None:
     """
     Returns the linked Lichess username for `user`, or `None` if there isn't
     one - same collapsed "no linked account"/"not signed in" cases as
-    `get_lichess_access_token`, for the same reason (e.g. the my-games
-    explorer proxy in `explorer_cache/player_stats.py`, which needs the
-    username to query Lichess's player-scoped opening explorer).
+    `get_lichess_access_token`. The personal-game export proxy needs both
+    values to stream the linked player's game history to the browser index.
     """
     account = _lichess_account(user)
     return account.lichess_username if account else None

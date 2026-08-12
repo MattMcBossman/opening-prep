@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchExplorerStats, fetchMyGamesExplorerStats } from '../lib/lichessExplorer'
 import type { LichessDatabaseFilters } from '../lib/lichessExplorer'
+import { subscribeToPersonalGamesProgress } from '../lib/personalGamesIndex'
 import type { ExplorerResponse, RepertoireColor } from '../types'
 
 export type ExplorerSource = 'lichess' | 'my-games'
@@ -20,12 +21,14 @@ function mergeExplorerResponses(responses: ExplorerResponse[]): ExplorerResponse
     }
   }
   const indexing = responses.find((response) => response.stillIndexing)
+  const gameExportRateLimit = responses.find((response) => response.gameExportRateLimit)?.gameExportRateLimit
   return {
     totalGames: responses.reduce((total, response) => total + response.totalGames, 0),
     moves: [...rows.values()].sort((a, b) => b.totalGames - a.totalGames).slice(0, 12),
     opening: responses.find((response) => response.opening)?.opening ?? null,
     ...(indexing ? { stillIndexing: true } : {}),
     ...(indexing?.queuePosition !== undefined ? { queuePosition: indexing.queuePosition } : {}),
+    ...(gameExportRateLimit ? { gameExportRateLimit } : {}),
   }
 }
 
@@ -108,6 +111,11 @@ export function useExplorerStats(
     setSnapshotStable(false)
     setTick((t) => t + 1)
   }, [])
+
+  useEffect(() => {
+    if (source !== 'my-games') return
+    return subscribeToPersonalGamesProgress(() => setTick((value) => value + 1))
+  }, [source])
 
   useEffect(() => {
     if (pollTimeoutRef.current) {

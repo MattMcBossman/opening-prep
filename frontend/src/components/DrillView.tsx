@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
-import type { Arrow, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
+import type { Arrow, PieceDataType, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useDrillSession } from '../hooks/useDrillSession'
@@ -62,6 +62,7 @@ type Props = {
 }
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
+const DROP_SQUARE_STYLE: CSSProperties = { boxShadow: 'none' }
 const LAST_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(255, 235, 59, 0.5)' }
 const LEGAL_TARGET_STYLE: CSSProperties = {
   backgroundImage: 'radial-gradient(circle, rgba(0, 0, 0, 0.2) 22%, transparent 24%)',
@@ -74,6 +75,10 @@ const HINT_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(76, 175, 80, 0
 const WRONG_MOVE_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(239, 92, 92, 0.42)' }
 const FACT_EVIDENCE_SQUARE_STYLE: CSSProperties = {
   boxShadow: 'inset 0 0 0 5px rgba(155, 113, 255, 0.82)',
+}
+
+function pieceMatchesColor(piece: PieceDataType | null, color: RepertoireColor): boolean {
+  return piece?.pieceType.startsWith(color === 'white' ? 'w' : 'b') ?? false
 }
 // Distinct from the green save-hint squares above - this is a warning about an
 // unprepped opponent try, not a hint about the user's own next move.
@@ -139,6 +144,7 @@ export function DrillView({
     signedIn: user !== null,
   })
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+  const [hoveredSquare, setHoveredSquare] = useState<string | null>(null)
   const [wrongMovePreview, setWrongMovePreview] = useState<{ fen: string; key: number } | null>(null)
 
   const { state } = session
@@ -147,10 +153,16 @@ export function DrillView({
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
+  const boardInputEnabled = isOwnTurn && !session.complete && !isPaused && !wrongMovePreview
   const isDesktopReview = useMediaQuery('(min-width: 701px)')
   const soundedWrongAttemptRef = useRef<number | null>(null)
   const [reviewSection, setReviewSection] = useState<'analysis' | 'stats' | null>(null)
   const reviewPanelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setSelectedSquare(null)
+    setHoveredSquare(null)
+  }, [fen])
 
   const openReviewSection = useCallback((section: 'analysis' | 'stats') => {
     setReviewSection(section)
@@ -299,8 +311,16 @@ export function DrillView({
     }
     if (selectedSquare) {
       styles[selectedSquare] = { ...styles[selectedSquare], ...SELECTED_SQUARE_STYLE }
+      const hoveredTarget = hoveredSquare !== selectedSquare
+        && legalMoves.some((move) => move.to === hoveredSquare)
+        ? hoveredSquare
+        : null
       for (const move of legalMoves) {
+        if (move.to === hoveredTarget) continue
         styles[move.to] = { ...styles[move.to], ...(move.isCapture() ? CAPTURE_TARGET_STYLE : LEGAL_TARGET_STYLE) }
+      }
+      if (hoveredTarget) {
+        styles[hoveredTarget] = { ...styles[hoveredTarget], ...SELECTED_SQUARE_STYLE }
       }
     }
     if (feedback?.kind === 'wrong') {
@@ -322,7 +342,7 @@ export function DrillView({
       }
     }
     return styles
-  }, [selectedSquare, legalMoves, feedback, state.lastAppliedSteps, fen, isPaused, selectedFact, session.similarPosition, similarComparisonOpen])
+  }, [selectedSquare, hoveredSquare, legalMoves, feedback, state.lastAppliedSteps, fen, isPaused, selectedFact, session.similarPosition, similarComparisonOpen])
 
   // Drawn only while paused. Rank one remains visually distinct; every
   // opponent continuation uses one blue so the board does not imply separate
@@ -381,6 +401,7 @@ export function DrillView({
     // Dragging starts a separate move interaction from tap-to-move. Always
     // discard an earlier selected square, including after a rejected drop.
     setSelectedSquare(null)
+    setHoveredSquare(null)
     if (!targetSquare) return false
     // Wrong moves remain unapplied to the drill session, but tryMove lets the
     // controlled preview position land briefly before restoring `fen`.
@@ -389,7 +410,7 @@ export function DrillView({
 
   function handleSquareClick({ square, piece }: SquareHandlerArgs) {
     if (!selectedSquare) {
-      if (piece) setSelectedSquare(square)
+      if (boardInputEnabled && pieceMatchesColor(piece, color)) setSelectedSquare(square)
       return
     }
     if (square === selectedSquare) {
@@ -397,7 +418,7 @@ export function DrillView({
       return
     }
     const moved = tryMove({ from: selectedSquare, to: square, promotion: 'q' })
-    setSelectedSquare(moved ? null : piece ? square : null)
+    setSelectedSquare(moved ? null : boardInputEnabled && pieceMatchesColor(piece, color) ? square : null)
   }
 
   if (state.lines.length === 0) {
@@ -440,7 +461,7 @@ export function DrillView({
           <BoardColorToggle boardColor={color} onToggle={onToggleColor} />
         </div>
         <div className="board-with-eval">
-          <div className="board-wrapper">
+          <div className="board-wrapper" data-active-piece-color={boardInputEnabled ? color : 'none'}>
             {active && (
               <div data-testid="drill-chessboard">
                 <Chessboard
@@ -448,9 +469,23 @@ export function DrillView({
                   options={{
                     position: boardFen,
                     boardOrientation: color,
+                    canDragPiece: ({ piece }) => (
+                      boardInputEnabled
+                      && pieceMatchesColor(piece, color)
+                    ),
+                    onPieceDrag: ({ square }) => {
+                      setSelectedSquare(square)
+                    },
+                    onPieceDragCancel: () => {
+                      setSelectedSquare(null)
+                      setHoveredSquare(null)
+                    },
                     onPieceDrop: handlePieceDrop,
                     onSquareClick: handleSquareClick,
+                    onMouseOverSquare: ({ square }) => setHoveredSquare(square),
+                    onMouseOutSquare: ({ square }) => setHoveredSquare((current) => current === square ? null : current),
                     squareStyles,
+                    dropSquareStyle: DROP_SQUARE_STYLE,
                     arrows,
                     showAnimations: true,
                     animationDurationInMs: 300,

@@ -1,4 +1,5 @@
 import { formatCompactNumber } from '../lib/formatNumber'
+import { useEffect, useState } from 'react'
 import type { ExplorerMoveStat, ExplorerResponse } from '../types'
 
 type Props = {
@@ -23,6 +24,30 @@ type Props = {
   onRetry?: () => void
   /** Google sign-in or Lichess-link destination for account-required states. */
   accountActionHref?: string
+  /** Personal histories stay readable as exact counts instead of public-database K/M abbreviations. */
+  showFullGameCounts?: boolean
+}
+
+function formatGameCount(count: number, showFullGameCounts: boolean): string {
+  return showFullGameCounts ? count.toLocaleString() : formatCompactNumber(count)
+}
+
+function RateLimitNotice({ rateLimit }: { rateLimit: NonNullable<ExplorerResponse['gameExportRateLimit']> }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const seconds = Math.max(0, Math.ceil((rateLimit.retryAt - now) / 1000))
+  const minutes = Math.floor(seconds / 60)
+  const remainder = String(seconds % 60).padStart(2, '0')
+  const sourceName = rateLimit.source === 'lichess' ? 'Lichess' : 'Chess.com'
+  return (
+    <p className="panel-status">
+      {sourceName} is temporarily limiting game exports. Your loaded games are preserved; retrying in{' '}
+      {minutes}:{remainder}.
+    </p>
+  )
 }
 
 function percent(n: number, total: number): number {
@@ -67,27 +92,22 @@ function GamesFoundNote({
   isPolling,
   pollExhausted,
   onRetry,
-}: Pick<Props, 'data' | 'isPolling' | 'pollExhausted' | 'onRetry'>) {
+  showFullGameCounts = false,
+}: Pick<Props, 'data' | 'isPolling' | 'pollExhausted' | 'onRetry' | 'showFullGameCounts'>) {
   const visiblyUpdating = Boolean(data?.stillIndexing && isPolling)
-  const message = `Found ${formatCompactNumber(data?.totalGames ?? 0)} games`
-  return (
+  const message = `Found ${formatGameCount(data?.totalGames ?? 0, showFullGameCounts)} games`
+  return <>
     <p className="panel-status" aria-label={`${message}${visiblyUpdating ? ', checking for more.' : '.'}`}>
-      {message}
-      {visiblyUpdating ? (
-        <span className="loading-ellipsis" aria-hidden="true">
-          <span>.</span><span>.</span><span>.</span>
-        </span>
-      ) : '.'}
-      {pollExhausted && onRetry && (
-        <>
-          {' '}
-          <button type="button" onClick={onRetry}>
-            Try again
-          </button>
-        </>
-      )}
+        {message}
+        {visiblyUpdating ? (
+          <span className="loading-ellipsis" aria-hidden="true">
+            <span>.</span><span>.</span><span>.</span>
+          </span>
+        ) : '.'}
+        {pollExhausted && onRetry && <>{' '}<button type="button" onClick={onRetry}>Try again</button></>}
     </p>
-  )
+    {data?.gameExportRateLimit && <RateLimitNotice rateLimit={data.gameExportRateLimit} />}
+  </>
 }
 
 export function ExplorerStatsTable({
@@ -101,6 +121,7 @@ export function ExplorerStatsTable({
   pollExhausted,
   onRetry,
   accountActionHref,
+  showFullGameCounts = false,
 }: Props) {
   if (loading && !data) return <p className="panel-status">Loading explorer stats…</p>
   if (error && accountActionHref) {
@@ -124,7 +145,7 @@ export function ExplorerStatsTable({
   if (!data || data.moves.length === 0) {
     return (
       <>
-        {data && <GamesFoundNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />}
+        {data && <GamesFoundNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} showFullGameCounts={showFullGameCounts} />}
         <p className="panel-status">No Lichess game data for this position.</p>
       </>
     )
@@ -132,7 +153,7 @@ export function ExplorerStatsTable({
 
   return (
     <>
-      <GamesFoundNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} />
+      <GamesFoundNote data={data} isPolling={isPolling} pollExhausted={pollExhausted} onRetry={onRetry} showFullGameCounts={showFullGameCounts} />
       <table className="explorer-table">
         <thead>
           <tr>
@@ -162,7 +183,7 @@ export function ExplorerStatsTable({
                   )}
                 </td>
                 <td data-label="Games" className="explorer-games-cell">
-                  {formatCompactNumber(move.totalGames)}
+                  {formatGameCount(move.totalGames, showFullGameCounts)}
                   <span className="explorer-games-pct">
                     {' '}
                     ({Math.round(percent(move.totalGames, data.totalGames))}%)

@@ -112,7 +112,7 @@ export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, ge
   const gaps = rankCoverageGaps(scores, color)
   const loading = requested && progress < positions.length && !error
   return <section className="coverage-dashboard">
-    <h3>{color === 'white' ? 'White' : 'Black'} coverage</h3>
+    <h3>{color === 'white' ? 'White' : 'Black'} coverage <span className="development-tag">In development</span></h3>
     {!requested ? <>
       <p className="panel-status">{positions.length} prepared opponent position{positions.length === 1 ? '' : 's'} to score.</p>
       <button type="button" disabled={positions.length === 0 || (!signedIn && !apiToken)} onClick={() => setRequested(true)}>Calculate coverage</button>

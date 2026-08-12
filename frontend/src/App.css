@@ -234,6 +234,23 @@
   margin-top: 0;
 }
 
+.development-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .coverage-score {
   font-size: 1.05rem;
   margin-bottom: 0.35rem;
@@ -380,6 +397,15 @@
 .board-wrapper {
   flex: 1;
   min-width: 0;
+}
+
+/* react-chessboard uses `pointer` for pieces rejected by canDragPiece. Inactive
+   pieces are not actions, so keep the ordinary cursor while preserving the
+   library's grab cursor on the active side. */
+.board-wrapper[data-active-piece-color='white'] [data-piece^='b'],
+.board-wrapper[data-active-piece-color='black'] [data-piece^='w'],
+.board-wrapper[data-active-piece-color='none'] [data-piece] {
+  cursor: default !important;
 }
 .board-heading {
   display: flex;

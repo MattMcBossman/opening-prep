@@ -22,7 +22,7 @@ type Props = {
 export function DrillLineCompletePanel({ leafPly, positionAnalysis, positionAnalysisLoading, positionAnalysisError, positionFeatures, positionFeaturesLoading, positionFeaturesError, moveComparison, moveComparisonLoading, moveComparisonError, selectedFactId, onSelectFact, completionMoveQuality }: Props) {
   return (
     <div className="panel drill-line-complete">
-      <h3>Position analysis</h3>
+      <h3>Position analysis <span className="development-tag">In development</span></h3>
       <PositionAnalysisPanel
         analysis={positionAnalysis}
         loading={positionAnalysisLoading}
