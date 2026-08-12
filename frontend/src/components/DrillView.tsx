@@ -13,6 +13,7 @@ import { usePositionAnalysis } from '../hooks/usePositionAnalysis'
 import { usePositionFeatures } from '../hooks/usePositionFeatures'
 import { useMoveFeatureComparison } from '../hooks/useMoveFeatureComparison'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { useResetKeyboardShortcut } from '../hooks/useResetKeyboardShortcut'
 import { useRepertoire } from '../hooks/useRepertoire'
 import { denormalizeFen, sideToMove } from '../lib/chessUtils'
 import { completedDrillHistoryUci } from '../lib/repertoireDrills'
@@ -158,6 +159,14 @@ export function DrillView({
   const soundedWrongAttemptRef = useRef<number | null>(null)
   const [reviewSection, setReviewSection] = useState<'analysis' | 'stats' | null>(null)
   const reviewPanelRef = useRef<HTMLDivElement>(null)
+  const restartFromKeyboard = useCallback(() => {
+    setSelectedSquare(null)
+    setHoveredSquare(null)
+    setWrongMovePreview(null)
+    setReviewSection(null)
+    session.startNewSession()
+  }, [session])
+  useResetKeyboardShortcut(restartFromKeyboard, active && state.lines.length > 0)
 
   useEffect(() => {
     setSelectedSquare(null)
@@ -528,13 +537,13 @@ export function DrillView({
               >
                 Stats
               </button>
-              <button type="button" onClick={session.startNewSession}>Restart session</button>
+              <button type="button" onClick={session.startNewSession} title="Restart session (R)">Restart session</button>
               <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>Shuffle drills</button>
             </div>
           )}
           {!isPaused && <>
             <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>Shuffle drills</button>
-            <button type="button" onClick={session.startNewSession}>Restart session</button>
+            <button type="button" onClick={session.startNewSession} title="Restart session (R)">Restart session</button>
           </>}
         </div>
       </div>

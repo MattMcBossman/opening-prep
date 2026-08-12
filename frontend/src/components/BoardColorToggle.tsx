@@ -7,7 +7,7 @@ type Props = {
 
 export function BoardColorToggle({ boardColor, onToggle }: Props) {
   const isBlack = boardColor === 'black'
-  const label = isBlack ? 'Black repertoire' : 'White repertoire'
+  const label = isBlack ? 'Black' : 'White'
 
   return (
     <button
@@ -16,12 +16,13 @@ export function BoardColorToggle({ boardColor, onToggle }: Props) {
       role="switch"
       aria-checked={isBlack}
       onClick={onToggle}
-      title={`Viewing from ${boardColor}'s side`}
+      aria-label={`${label} module; switch to ${isBlack ? 'White' : 'Black'}`}
+      title={`Switch to ${isBlack ? 'White' : 'Black'}`}
     >
       <span className="board-color-toggle-track">
         <span className="board-color-toggle-thumb" />
+        <span className="board-color-toggle-value">{label}</span>
       </span>
-      <span className="board-color-toggle-label">{label}</span>
     </button>
   )
 }

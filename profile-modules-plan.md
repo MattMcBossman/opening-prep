@@ -72,9 +72,11 @@ Coverage reliability: aggregate scoring now paces position requests and honors
 Lichess `Retry-After` responses with a visible countdown and automatic resume,
 rather than aborting the calculation on its first rate limit.
 
-Coverage redesign progress: the dashboard now uses a named 95% practical
-full-coverage target, weights the profile aggregate by matching-game volume,
-and reports fully covered, partially covered, and no-data positions separately.
+Coverage redesign progress: the dashboard's selected-module headline now sums
+matching games across distinct prepared leaves and divides by matching games at
+the module's listed opening position (falling back to the latest common
+ancestor). Its gap details use a named 95% practical full-coverage target and
+report fully covered, partially covered, and no-data positions separately.
 Positions are now ranked by uncovered matching-game count adjusted for the
 repertoire side's cached engine advantage, with one-tap Explorer navigation.
 Equal or worse positions retain their full exposure while already-winning
@@ -207,8 +209,8 @@ actionable:
   symbolic NAGs, with backend annotation validation.
 - [x] Add real-game-frequency-weighted prepared-response coverage for the
   currently selected opponent position.
-- [x] Aggregate weighted position coverage into an on-demand per-color
-  dashboard with bounded sequential loading and visible progress.
+- [x] Aggregate selected-module coverage as prepared-leaf games divided by
+  opening-position games, with bounded sequential loading and visible progress.
 - [x] Expose full anonymous multi-profile/module management in versioned local
   storage and the existing management UI (the server-backed global library is
   hidden until sign-in).

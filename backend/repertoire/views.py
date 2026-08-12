@@ -168,6 +168,9 @@ class RepertoireProfileModulesView(APIView):
             pk=serializer.validated_data["moduleId"],
             owner=request.user,
         )
+        if not serializer.validated_data["enabled"]:
+            profile.module_links.filter(module=module).delete()
+            return Response(RepertoireProfileSerializer(profile).data)
         ProfileModule.objects.update_or_create(
             profile=profile,
             module=module,

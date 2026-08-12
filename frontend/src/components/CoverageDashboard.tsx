@@ -3,8 +3,10 @@ import { ApiError } from '../lib/apiClient'
 import { fetchCachedEngineEvaluation, getRememberedEngineEvaluation } from '../lib/engineEvaluationCache'
 import { fetchExplorerStats } from '../lib/lichessExplorer'
 import type { LichessDatabaseFilters } from '../lib/lichessExplorer'
-import { aggregatePositionCoverage, calculatePositionCoverage, coverageGapImpact, FULLY_COVERED_TARGET_PERCENT, opponentPositions, rankCoverageGaps } from '../lib/repertoireCoverage'
+import { aggregatePositionCoverage, calculateModuleLeafCoverage, calculatePositionCoverage, coverageGapImpact, FULLY_COVERED_TARGET_PERCENT, moduleCoverageScope, opponentPositions, rankCoverageGaps } from '../lib/repertoireCoverage'
 import type { PositionCoverage } from '../lib/repertoireCoverage'
+import { collectDrillLines } from '../lib/repertoireDrills'
+import { normalizeFen } from '../lib/chessUtils'
 import type { RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
 
 type Props = {
@@ -43,9 +45,12 @@ function evaluationLabel(score: NonNullable<PositionCoverage['evaluation']>, col
 
 export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, getContinuations, onOpenPosition }: Props) {
   const positions = useMemo(() => opponentPositions(tree, color), [color, tree])
+  const scope = useMemo(() => moduleCoverageScope(collectDrillLines(color, getContinuations), color), [color, getContinuations])
+  const scanPositions = useMemo(() => [...new Set([scope.openingFen, ...scope.leafFens, ...positions].map(normalizeFen))], [positions, scope])
   const [requested, setRequested] = useState(false)
   const [runId, setRunId] = useState(0)
   const [scores, setScores] = useState<PositionCoverage[]>([])
+  const [gamesByFen, setGamesByFen] = useState<Record<string, number>>({})
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [rateLimitWait, setRateLimitWait] = useState<number | null>(null)
@@ -53,6 +58,7 @@ export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, ge
   useEffect(() => {
     setRequested(false)
     setScores([])
+    setGamesByFen({})
     setProgress(0)
     setError(null)
     setRateLimitWait(null)
@@ -64,8 +70,8 @@ export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, ge
     const run = async () => {
       const next: PositionCoverage[] = []
       setError(null)
-      for (let index = 0; index < positions.length; index += 1) {
-        const fen = positions[index]
+      for (let index = 0; index < scanPositions.length; index += 1) {
+        const fen = scanPositions[index]
         try {
           let stats
           for (let attempt = 0; ; attempt += 1) {
@@ -87,16 +93,19 @@ export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, ge
               }
             }
           }
-          next.push({
-            ...calculatePositionCoverage(stats.moves, getContinuations(fen), getContinuations),
-            fen,
-            openingName: stats.opening?.name,
-            evaluation: getRememberedEngineEvaluation(completeFen(fen))
-              ?? (signedIn ? await fetchCachedEngineEvaluation(completeFen(fen)).catch(() => null) : null),
-          })
-          setScores([...next])
+          setGamesByFen((current) => ({ ...current, [normalizeFen(fen)]: stats.totalGames }))
+          if (positions.includes(fen)) {
+            next.push({
+              ...calculatePositionCoverage(stats.moves, getContinuations(fen), getContinuations),
+              fen,
+              openingName: stats.opening?.name,
+              evaluation: getRememberedEngineEvaluation(completeFen(fen))
+                ?? (signedIn ? await fetchCachedEngineEvaluation(completeFen(fen)).catch(() => null) : null),
+            })
+            setScores([...next])
+          }
           setProgress(index + 1)
-          if (index + 1 < positions.length) await wait(REQUEST_INTERVAL_MS, controller.signal)
+          if (index + 1 < scanPositions.length) await wait(REQUEST_INTERVAL_MS, controller.signal)
         } catch (reason) {
           if (controller.signal.aborted) return
           setError(reason instanceof Error ? reason.message : 'Coverage could not be calculated.')
@@ -106,18 +115,24 @@ export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, ge
     }
     void run()
     return () => controller.abort()
-  }, [apiToken, filters, getContinuations, positions, requested, runId, signedIn])
+  }, [apiToken, filters, getContinuations, positions, requested, runId, scanPositions, signedIn])
 
   const summary = aggregatePositionCoverage(scores)
+  const moduleCoverage = calculateModuleLeafCoverage(scope, gamesByFen)
   const gaps = rankCoverageGaps(scores, color)
-  const loading = requested && progress < positions.length && !error
+  const loading = requested && progress < scanPositions.length && !error
   return <section className="coverage-dashboard">
     <h3>{color === 'white' ? 'White' : 'Black'} coverage <span className="development-tag">In development</span></h3>
     {!requested ? <>
-      <p className="panel-status">{positions.length} prepared opponent position{positions.length === 1 ? '' : 's'} to score.</p>
-      <button type="button" disabled={positions.length === 0 || (!signedIn && !apiToken)} onClick={() => setRequested(true)}>Calculate coverage</button>
+      <p className="panel-status">{scope.leafFens.length} prepared leaf position{scope.leafFens.length === 1 ? '' : 's'} to compare with the module opening position.</p>
+      <button type="button" disabled={scope.leafFens.length === 0 || (!signedIn && !apiToken)} onClick={() => setRequested(true)}>Calculate coverage</button>
     </> : <>
-      <p className="coverage-score"><strong>{summary.percent.toFixed(1)}%</strong> frequency-weighted coverage</p>
+      <p className="coverage-score"><strong>{moduleCoverage.percent.toFixed(1)}%</strong> opening coverage</p>
+      <p className="panel-status">
+        {moduleCoverage.leafGames.toLocaleString()} games across prepared leaves ÷{' '}
+        {moduleCoverage.openingGames.toLocaleString()} games at the module opening position.
+        {moduleCoverage.leavesWithData < moduleCoverage.totalLeaves && <> Data found for {moduleCoverage.leavesWithData} of {moduleCoverage.totalLeaves} leaves.</>}
+      </p>
       <p className="panel-status">
         {summary.coveredPositions} fully covered (at least {FULLY_COVERED_TARGET_PERCENT}%),{' '}
         {summary.partiallyCoveredPositions} partially covered, {summary.noDataPositions} with no data.
@@ -141,10 +156,10 @@ export function CoverageDashboard({ color, tree, apiToken, signedIn, filters, ge
           })}
         </ol>
       </div>}
-      {loading && <p className="panel-status">Scoring position {progress + 1} of {positions.length}…</p>}
+      {loading && <p className="panel-status">Scoring position {progress + 1} of {scanPositions.length}…</p>}
       {rateLimitWait !== null && <p className="panel-status">Lichess asked us to slow down. Resuming in {rateLimitWait}s…</p>}
       {error && <p className="panel-status error">{error}</p>}
-      {!loading && <button type="button" onClick={() => { setScores([]); setProgress(0); setError(null); setRunId((value) => value + 1) }}>Recalculate</button>}
+      {!loading && <button type="button" onClick={() => { setScores([]); setGamesByFen({}); setProgress(0); setError(null); setRunId((value) => value + 1) }}>Recalculate</button>}
     </>}
   </section>
 }

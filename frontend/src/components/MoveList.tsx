@@ -14,19 +14,28 @@ type Props = {
   onSelect: (index: number) => void
   boardColor: RepertoireColor
   isPlySaved: (index: number) => boolean
-  onTogglePlySaved: (index: number) => void
+  onTogglePlySaved: (index: number, point: { x: number; y: number }) => void
+  canEditModule?: boolean
   getContinuations: (fen: string) => RepertoireMove[]
   onPlayContinuationPath: (moves: RepertoireMove[]) => void
 }
 
-function StarButton({ saved, onToggle }: { saved: boolean; onToggle: () => void }) {
+function StarButton({ saved, onToggle, canEdit }: { saved: boolean; onToggle: (point: { x: number; y: number }) => void; canEdit: boolean }) {
+  const title = canEdit ? (saved ? 'Remove from module' : 'Save to module') : 'Select Edit to change this module'
   return (
     <button
       type="button"
       className={saved ? 'move-star active' : 'move-star'}
-      title={saved ? 'Remove from repertoire' : 'Save to repertoire'}
-      aria-label={saved ? 'Remove from repertoire' : 'Save to repertoire'}
-      onClick={onToggle}
+      title={title}
+      aria-label={title}
+      aria-disabled={!canEdit}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        onToggle({
+          x: event.clientX || rect.right,
+          y: event.clientY || rect.top + rect.height / 2,
+        })
+      }}
     >
       {saved ? '\u2605' : '\u2606'}
     </button>
@@ -56,6 +65,7 @@ export function MoveList({
   boardColor,
   isPlySaved,
   onTogglePlySaved,
+  canEditModule = true,
   getContinuations,
   onPlayContinuationPath,
 }: Props) {
@@ -85,7 +95,7 @@ export function MoveList({
       </button>
     )
     const star = (cell?: PlayedCell) => cell
-      ? <StarButton saved={isPlySaved(cell.index)} onToggle={() => onTogglePlySaved(cell.index)} />
+      ? <StarButton saved={isPlySaved(cell.index)} canEdit={canEditModule} onToggle={(point) => onTogglePlySaved(cell.index, point)} />
       : null
     return (
       <div className="move-row" key={`played-${index}`}>
@@ -119,7 +129,11 @@ export function MoveList({
           <div className="continuation-chain">
             {node.chain.map((item, itemIndex) => (
               <span className="continuation-move-group" key={`${node.key}-${item.move.uci}`}>
-                <span className="continuation-move-number">{movePrefix(item.ply)}</span>
+                {/* A Black move paired directly after White already inherits
+                    that row's move number: "4. a5 a6", not "4. a5 4... a6".
+                    Keep the ellipsis when the chain itself begins with Black. */}
+                {!(item.ply % 2 === 1 && node.chain[itemIndex - 1]?.ply === item.ply - 1)
+                  && <span className="continuation-move-number">{movePrefix(item.ply)}</span>}
                 <button
                   type="button"
                   className="continuation-move-button"

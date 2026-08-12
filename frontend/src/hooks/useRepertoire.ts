@@ -68,8 +68,8 @@ export function serializeLocalRepertoireV2(repertoire: Repertoire): LocalReperto
         id: 'default',
         name: 'Default',
         modules: [
-          { id: 'general-white', name: 'General White', color: 'white', tree: repertoire.white },
-          { id: 'general-black', name: 'General Black', color: 'black', tree: repertoire.black },
+          { id: 'general-white', name: 'Imported White module', color: 'white', tree: repertoire.white },
+          { id: 'general-black', name: 'Imported Black module', color: 'black', tree: repertoire.black },
         ],
       },
     ],
@@ -260,6 +260,12 @@ function useLocalRepertoireStore() {
       return { ...next, profiles, modules: [...next.modules, { id, name, color, tree }], editingModuleIds: { ...next.editingModuleIds, [color]: id } }
     })),
     renameModule: (id: number, name: string) => resolved(setStore((previous) => ({ ...previous, modules: previous.modules.map((module) => module.id === id ? { ...module, name } : module) }))),
+    duplicateModule: (id: number) => resolved(setStore((previous) => {
+      const source = previous.modules.find((module) => module.id === id)
+      if (!source) return previous
+      const [copyId, next] = allocate(previous)
+      return { ...next, modules: [...next.modules, { ...source, id: copyId, name: `${source.name} copy`, tree: structuredClone(source.tree) }] }
+    })),
     deleteModule: (id: number) => resolved(setStore((previous) => {
       const next = { ...previous, modules: previous.modules.filter((module) => module.id !== id), profiles: previous.profiles.map((profile) => ({ ...profile, modules: profile.modules.filter((link) => link.moduleId !== id) })) }
       return { ...next, editingModuleIds: editingForProfile(next, next.activeProfileId) }
@@ -365,8 +371,9 @@ function useApiRepertoireStore(enabled: boolean) {
             const activeModules = activeProfile?.modules.filter((module) => module.enabled && module.color === color) ?? []
             const previousId = previous.editingModuleIds[color]
             editingModuleIds[color] =
-              activeModules.find((module) => module.id === previousId)?.id ??
+              modules.find((module) => module.color === color && module.id === previousId)?.id ??
               activeModules[0]?.id ??
+              modules.find((module) => module.color === color)?.id ??
               (activeProfile ? undefined : defaults[color].id)
           }
           return {
@@ -608,10 +615,7 @@ function useApiRepertoireStore(enabled: boolean) {
 
   const setEditingModule = useCallback((color: RepertoireColor, moduleId: number) => {
     setState((s) => {
-      const valid =
-        s.profiles
-          .find((profile) => profile.id === s.activeProfileId)
-          ?.modules.some((module) => module.enabled && module.color === color && module.id === moduleId) ?? false
+      const valid = s.modules.some((module) => module.color === color && module.id === moduleId)
       return valid ? { ...s, editingModuleIds: { ...s.editingModuleIds, [color]: moduleId } } : s
     })
   }, [])
@@ -670,6 +674,15 @@ function useApiRepertoireStore(enabled: boolean) {
       }),
     renameModule: (id: number, name: string, description?: string) =>
       runAndReload(() => updateRepertoire(id, { name, ...(description === undefined ? {} : { description }) })),
+    duplicateModule: (id: number) => runAndReload(async () => {
+      const source = state.modules.find((module) => module.id === id)
+      if (!source) throw new Error('The module could not be found.')
+      const copy = await createRepertoire(source.color, `${source.name} copy`, source.description ?? '')
+      for (const line of state.lines[id] ?? []) {
+        await addRepertoireLine(copy.id, line.steps, line.label, line.source, line.annotations)
+      }
+      return copy
+    }),
     deleteModule: (id: number) => runAndReload(() => deleteRepertoire(id)),
     setModuleMembership: (profileId: number, moduleId: number, sortOrder: number, enabled: boolean) =>
       runAndReload(() => setProfileModule(profileId, moduleId, sortOrder, enabled)),
@@ -888,6 +901,7 @@ export function useRepertoire(user: AuthUser | null) {
     createModule: isAuthenticated ? api.createModule : local.createModule,
     importModule: isAuthenticated ? api.importModule : local.importModule,
     renameModule: isAuthenticated ? api.renameModule : local.renameModule,
+    duplicateModule: isAuthenticated ? api.duplicateModule : local.duplicateModule,
     deleteModule: isAuthenticated ? api.deleteModule : local.deleteModule,
     setModuleMembership: isAuthenticated ? api.setModuleMembership : local.setModuleMembership,
     removeModuleMembership: isAuthenticated ? api.removeModuleMembership : local.removeModuleMembership,

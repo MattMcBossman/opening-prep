@@ -10,12 +10,12 @@ describe('anonymous repertoire storage migration', () => {
     expect(parseLocalRepertoire({ white: whiteTree, black: {} })).toEqual({ white: whiteTree, black: {} })
   })
 
-  it('round-trips the versioned Default profile and General modules', () => {
+  it('round-trips the versioned Default profile and imported modules', () => {
     const repertoire = { white: whiteTree, black: {} }
     const stored = serializeLocalRepertoireV2(repertoire)
 
     expect(stored.version).toBe(2)
-    expect(stored.profiles[0].modules.map((module) => module.name)).toEqual(['General White', 'General Black'])
+    expect(stored.profiles[0].modules.map((module) => module.name)).toEqual(['Imported White module', 'Imported Black module'])
     expect(parseLocalRepertoire(stored)).toEqual(repertoire)
   })
 

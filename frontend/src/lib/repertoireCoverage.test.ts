@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { aggregatePositionCoverage, calculatePositionCoverage, coverageGapImpact, opponentPositions, rankCoverageGaps } from './repertoireCoverage'
+import { aggregatePositionCoverage, calculateModuleLeafCoverage, calculatePositionCoverage, coverageGapImpact, moduleCoverageScope, opponentPositions, rankCoverageGaps } from './repertoireCoverage'
+import type { DrillLine } from './repertoireDrills'
 
 describe('calculatePositionCoverage', () => {
   it('weights prepared opponent replies by observed game frequency', () => {
@@ -19,6 +20,34 @@ describe('calculatePositionCoverage', () => {
 })
 
 describe('coverage dashboard helpers', () => {
+  it('uses the listed module opening position and sums distinct leaf samples', () => {
+    const common = [
+      { fen: 'start', san: 'e4', uci: 'e2e4', resultingFen: 'after-e4 w - -', mover: 'own' as const },
+      { fen: 'after-e4', san: 'e5', uci: 'e7e5', resultingFen: 'after-e5 b - -', mover: 'opponent' as const },
+      { fen: 'after-e5', san: 'Nc3', uci: 'b1c3', resultingFen: 'vienna w - -', mover: 'own' as const },
+    ]
+    const lines: DrillLine[] = [
+      { id: 'a', steps: [...common, { fen: 'vienna', san: 'Nf6', uci: 'g8f6', resultingFen: 'leaf-a b - -', mover: 'opponent' }] },
+      { id: 'b', steps: [...common, { fen: 'vienna', san: 'Nc6', uci: 'b8c6', resultingFen: 'leaf-b b - -', mover: 'opponent' }] },
+      { id: 'transpose', steps: [...common, { fen: 'vienna', san: 'Nc6', uci: 'b8c6', resultingFen: 'leaf-b b - -', mover: 'opponent' }] },
+    ]
+    const scope = moduleCoverageScope(lines, 'white')
+    expect(scope).toEqual({ openingFen: 'vienna w - -', leafFens: ['leaf-a b - -', 'leaf-b b - -'], openingPly: 3 })
+    expect(calculateModuleLeafCoverage(scope, {
+      'vienna w - -': 1_000,
+      'leaf-a b - -': 300,
+      'leaf-b b - -': 450,
+    })).toEqual({ leafGames: 750, openingGames: 1_000, percent: 75, leavesWithData: 2, totalLeaves: 2 })
+  })
+
+  it('falls back to the latest common ancestor when lines split before the listed opening depth', () => {
+    const lines: DrillLine[] = [
+      { id: 'e4', steps: [{ fen: 'start', san: 'e4', uci: 'e2e4', resultingFen: 'after-e4 b - -', mover: 'own' }] },
+      { id: 'd4', steps: [{ fen: 'start', san: 'd4', uci: 'd2d4', resultingFen: 'after-d4 b - -', mover: 'own' }] },
+    ]
+    expect(moduleCoverageScope(lines, 'white').openingPly).toBe(0)
+  })
+
   it('finds every position where the opponent can reply, including Black repertoire root', () => {
     const tree = {
       'root w - -': [{ san: 'e4', uci: 'e2e4', resultingFen: 'after-e4 b - -' }],

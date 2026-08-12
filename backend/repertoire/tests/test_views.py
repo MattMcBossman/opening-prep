@@ -88,7 +88,7 @@ class TestProfiles:
         listed = client.get("/api/v1/repertoires/profiles/")
         assert [profile["name"] for profile in listed.data] == ["Tournament"]
 
-    def test_add_update_and_remove_module_without_deleting_it(self, client, user):
+    def test_add_disable_as_detach_and_remove_module_without_deleting_it(self, client, user):
         profile = RepertoireProfile.objects.create(owner=user, name="Blitz")
         module = Repertoire.objects.create(owner=user, name="Vienna Game", color=Repertoire.WHITE)
 
@@ -106,8 +106,14 @@ class TestProfiles:
             {"moduleId": module.id, "sortOrder": 1, "enabled": False},
             format="json",
         )
-        assert updated.data["modules"][0]["enabled"] is False
-        assert ProfileModule.objects.filter(profile=profile, module=module).count() == 1
+        assert updated.data["modules"] == []
+        assert ProfileModule.objects.filter(profile=profile, module=module).count() == 0
+
+        client.post(
+            f"/api/v1/repertoires/profiles/{profile.id}/modules/",
+            {"moduleId": module.id},
+            format="json",
+        )
 
         removed = client.delete(
             f"/api/v1/repertoires/profiles/{profile.id}/modules/",

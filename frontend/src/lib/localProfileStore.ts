@@ -14,19 +14,23 @@ export type LocalProfileStore = {
 }
 
 export function defaultLocalProfileStore(repertoire: Repertoire = { white: {}, black: {} }): LocalProfileStore {
+  const modules: LocalModule[] = []
+  const links: LocalModuleLink[] = []
+  const editingModuleIds: Partial<Record<RepertoireColor, number>> = {}
+  for (const [color, id] of [['white', 2], ['black', 3]] as const) {
+    const tree = repertoire[color]
+    if (!Object.values(tree).some((moves) => moves.length > 0)) continue
+    modules.push({ id, name: `Imported ${color === 'white' ? 'White' : 'Black'} module`, color, tree })
+    links.push({ moduleId: id, enabled: true, sortOrder: links.length })
+    editingModuleIds[color] = id
+  }
   return {
     version: 3,
     nextId: 4,
     activeProfileId: 1,
-    editingModuleIds: { white: 2, black: 3 },
-    profiles: [{ id: 1, name: 'Default', modules: [
-      { moduleId: 2, enabled: true, sortOrder: 0 },
-      { moduleId: 3, enabled: true, sortOrder: 1 },
-    ] }],
-    modules: [
-      { id: 2, name: 'General White', color: 'white', tree: repertoire.white },
-      { id: 3, name: 'General Black', color: 'black', tree: repertoire.black },
-    ],
+    editingModuleIds,
+    profiles: [{ id: 1, name: 'Default', modules: links }],
+    modules,
   }
 }
 
@@ -50,7 +54,28 @@ function legacyRepertoire(value: unknown): Repertoire {
 export function parseLocalProfileStore(value: unknown): LocalProfileStore {
   if (value && typeof value === 'object' && 'version' in value && value.version === 3) {
     const candidate = value as LocalProfileStore
-    if (Array.isArray(candidate.profiles) && Array.isArray(candidate.modules)) return candidate
+    if (Array.isArray(candidate.profiles) && Array.isArray(candidate.modules)) {
+      const removedIds = new Set<number>()
+      const modules = candidate.modules.flatMap((module) => {
+        if (module.name !== 'General White' && module.name !== 'General Black') return [module]
+        if (!Object.values(module.tree).some((moves) => moves.length > 0)) {
+          removedIds.add(module.id)
+          return []
+        }
+        return [{ ...module, name: `Imported ${module.color === 'white' ? 'White' : 'Black'} module` }]
+      })
+      return {
+        ...candidate,
+        modules,
+        profiles: candidate.profiles.map((profile) => ({
+          ...profile,
+          modules: profile.modules.filter((link) => !removedIds.has(link.moduleId)),
+        })),
+        editingModuleIds: Object.fromEntries(
+          Object.entries(candidate.editingModuleIds).filter(([, id]) => id !== undefined && !removedIds.has(id)),
+        ),
+      }
+    }
   }
   return defaultLocalProfileStore(legacyRepertoire(value))
 }

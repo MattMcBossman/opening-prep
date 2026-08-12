@@ -1,6 +1,7 @@
 import { START_FEN } from '../hooks/useGame'
 import { normalizeFen, sideToMove } from './chessUtils'
 import type { EngineEvaluation, ExplorerMoveStat, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
+import type { DrillLine } from './repertoireDrills'
 
 export type PositionCoverage = {
   fen?: string
@@ -14,6 +15,63 @@ export type PositionCoverage = {
 }
 
 export const FULLY_COVERED_TARGET_PERCENT = 95
+
+export type ModuleCoverageScope = {
+  openingFen: string
+  leafFens: string[]
+  openingPly: number
+}
+
+export type ModuleLeafCoverage = {
+  leafGames: number
+  openingGames: number
+  percent: number
+  leavesWithData: number
+  totalLeaves: number
+}
+
+/**
+ * The module card's opening position is intentionally short: after three
+ * common plies for White modules (for example 1.e4 e5 2.Nc3), or two for
+ * Black modules (for example 1.e4 c6). If the lines branch sooner, use their
+ * most recent common ancestor instead. Identical transposed leaves are counted
+ * once because position explorer samples are position-based, not path-based.
+ */
+export function moduleCoverageScope(lines: readonly DrillLine[], color: RepertoireColor): ModuleCoverageScope {
+  if (lines.length === 0) return { openingFen: normalizeFen(START_FEN), leafFens: [], openingPly: 0 }
+  const shortest = Math.min(...lines.map((line) => line.steps.length))
+  let commonPlies = 0
+  for (; commonPlies < shortest; commonPlies += 1) {
+    const uci = lines[0].steps[commonPlies].uci
+    if (lines.some((line) => line.steps[commonPlies].uci !== uci)) break
+  }
+  const listedOpeningPlies = color === 'white' ? 3 : 2
+  const openingPly = Math.min(commonPlies, listedOpeningPlies)
+  const openingFen = openingPly === 0
+    ? normalizeFen(START_FEN)
+    : normalizeFen(lines[0].steps[openingPly - 1].resultingFen)
+  const leafFens = [...new Set(lines.flatMap((line) => {
+    const leaf = line.steps.at(-1)?.resultingFen
+    return leaf ? [normalizeFen(leaf)] : []
+  }))]
+  return { openingFen, leafFens, openingPly }
+}
+
+export function calculateModuleLeafCoverage(
+  scope: ModuleCoverageScope,
+  gamesByFen: Readonly<Record<string, number>>,
+): ModuleLeafCoverage {
+  const openingGames = gamesByFen[scope.openingFen] ?? 0
+  const samples = scope.leafFens.map((fen) => gamesByFen[fen] ?? 0)
+  const leafGames = samples.reduce((sum, games) => sum + games, 0)
+  return {
+    leafGames,
+    openingGames,
+    percent: openingGames === 0 ? 0 : Math.min(100, (leafGames / openingGames) * 100),
+    leavesWithData: samples.filter((games) => games > 0).length,
+    totalLeaves: scope.leafFens.length,
+  }
+}
 
 /**
  * Turns raw uncovered-game exposure into a practical priority. Engine scores are

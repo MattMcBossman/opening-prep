@@ -12,6 +12,7 @@ import { useEngineEval } from './hooks/useEngineEval'
 import { useTheme } from './hooks/useTheme'
 import { useBoardColor } from './hooks/useBoardColor'
 import { useHistoryKeyboardNav } from './hooks/useHistoryKeyboardNav'
+import { useResetKeyboardShortcut } from './hooks/useResetKeyboardShortcut'
 import type { ExplorerSource } from './hooks/useExplorerStats'
 import { useRepertoire } from './hooks/useRepertoire'
 import type { LichessDatabaseFilters } from './lib/lichessExplorer'
@@ -42,9 +43,10 @@ import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
 import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel } from './lib/repertoireDrills'
 import type { DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
-import { findResponseConflicts } from './lib/repertoireTree'
-import type { ExplorerOpening, RepertoireMove } from './types'
+import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
+import type { ExplorerOpening, RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
+import type { RepertoireLine as ApiRepertoireLine } from './lib/repertoireApi'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
@@ -124,6 +126,15 @@ function App() {
   )
   const evaluation = useEngineEval(fen, isSignedIn)
   const repertoire = useRepertoire(auth.user)
+  type PendingModuleChange =
+    | { kind: 'remove'; color: RepertoireColor; originFen: string; uci: string }
+    | { kind: 'add-line'; color: RepertoireColor; steps: Array<{ originFen: string; san: string; uci: string; resultingFen: string }>; source: 'manual' | 'pgn_import'; label: string; annotations: ApiRepertoireLine['annotations']; conflictPolicy: 'reject' | 'replace' }
+  const [moduleWorkspaceMode, setModuleWorkspaceMode] = useState<'viewing' | 'editing'>('viewing')
+  const [newModuleSelected, setNewModuleSelected] = useState(false)
+  const [moduleDraftTree, setModuleDraftTree] = useState<RepertoireTree | null>(null)
+  const [pendingModuleChanges, setPendingModuleChanges] = useState<PendingModuleChange[]>([])
+  const [moduleWorkspaceNotice, setModuleWorkspaceNotice] = useState<string | null>(null)
+  const [readOnlyStarNotice, setReadOnlyStarNotice] = useState<{ message: string; x: number; y: number } | null>(null)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [hoveredSquare, setHoveredSquare] = useState<string | null>(null)
@@ -136,7 +147,171 @@ function App() {
   )
   const [drillMounted, setDrillMounted] = useState(initialView.mode === 'drill' || Boolean(initialView.drillStartContext))
 
+  const selectedModuleId = repertoire.editingModuleIds[boardColor] ?? null
+  const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
+  const persistedModuleTree = viewedRelease?.tree ?? repertoire.getEditingTree(boardColor)
+  const moduleWorkspaceTree = moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
+  const newModuleHasStarredMoves = newModuleSelected && moduleDraftTree !== null
+    && Object.values(moduleDraftTree).some((savedMoves) => savedMoves.length > 0)
+  const hasUnsavedModuleChanges = newModuleSelected ? newModuleHasStarredMoves : pendingModuleChanges.length > 0
+
+  useEffect(() => {
+    setModuleWorkspaceMode('viewing')
+    setNewModuleSelected(false)
+    setModuleDraftTree(null)
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+  }, [boardColor, selectedModuleId, viewedRelease?.id])
+
+  useEffect(() => {
+    if (!hasUnsavedModuleChanges) return
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hasUnsavedModuleChanges])
+
+  useEffect(() => {
+    if (!readOnlyStarNotice) return
+    const timer = window.setTimeout(() => setReadOnlyStarNotice(null), 2200)
+    return () => window.clearTimeout(timer)
+  }, [readOnlyStarNotice])
+
+  const beginEditingModule = useCallback(() => {
+    setNewModuleSelected(false)
+    setModuleDraftTree(structuredClone(persistedModuleTree))
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+    setModuleWorkspaceMode('editing')
+  }, [persistedModuleTree])
+
+  const discardModuleChanges = useCallback(() => {
+    if (newModuleSelected) {
+      setModuleDraftTree({})
+      setPendingModuleChanges([])
+      setModuleWorkspaceNotice(null)
+      return
+    }
+    setNewModuleSelected(false)
+    setModuleDraftTree(null)
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+    setModuleWorkspaceMode('viewing')
+  }, [newModuleSelected])
+
+  const saveModuleChanges = useCallback(async () => {
+    if (newModuleSelected) {
+      const requestedName = window.prompt('Name this opening module')
+      if (requestedName === null) return
+      const name = requestedName.trim()
+      if (!name) {
+        setModuleWorkspaceNotice('Enter a name before saving the new module.')
+        return
+      }
+      if (repertoire.modules.some((module) => module.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+        setModuleWorkspaceNotice('Choose a different name; that module already exists.')
+        return
+      }
+      const lines = pendingModuleChanges.flatMap((change) => change.kind === 'add-line'
+        && change.steps.every((step) => (moduleDraftTree?.[normalizeFen(step.originFen)] ?? []).some((move) => move.uci === step.uci))
+        ? [{ steps: change.steps, label: change.label, annotations: change.annotations }]
+        : [])
+      let created: unknown
+      try {
+        created = lines.length > 0
+          ? await repertoire.importModule(boardColor, name, lines)
+          : await repertoire.createModule(boardColor, name)
+      } catch (error) {
+        setModuleWorkspaceNotice(error instanceof Error ? error.message : 'The new module could not be saved.')
+        return
+      }
+      if (created && typeof created === 'object' && 'id' in created && typeof created.id === 'number') {
+        repertoire.setEditingModule(boardColor, created.id)
+      }
+      setNewModuleSelected(false)
+      setModuleDraftTree(null)
+      setPendingModuleChanges([])
+      setModuleWorkspaceNotice('Module saved.')
+      setModuleWorkspaceMode('viewing')
+      return
+    }
+    for (const change of pendingModuleChanges) {
+      if (change.kind === 'remove') repertoire.removeMove(change.color, change.originFen, change.uci)
+      else repertoire.addLine(change.color, change.steps, change.source, change.label, change.annotations, change.conflictPolicy)
+    }
+    setModuleDraftTree(null)
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice('Module saved.')
+    setModuleWorkspaceMode('viewing')
+  }, [boardColor, moduleDraftTree, newModuleSelected, pendingModuleChanges, repertoire])
+
+  const addLineToModuleDraft = useCallback((
+    color: RepertoireColor,
+    steps: Array<{ originFen: string; san: string; uci: string; resultingFen: string }>,
+    source: 'manual' | 'pgn_import' = 'manual',
+    label = '',
+    annotations: ApiRepertoireLine['annotations'] = [],
+    conflictPolicy: 'reject' | 'replace' = 'reject',
+  ) => {
+    if (moduleWorkspaceMode !== 'editing' || !moduleDraftTree || color !== boardColor) {
+      setModuleWorkspaceNotice('Select Edit before importing lines into this module.')
+      return
+    }
+    const conflicts = findResponseConflicts(moduleDraftTree, color, steps)
+    if (conflicts.length > 0 && conflictPolicy === 'reject') return
+    let nextTree = moduleDraftTree
+    if (conflictPolicy === 'replace') {
+      for (const conflict of conflicts) nextTree = removeMoveFromTree(nextTree, color, conflict.originFen, conflict.existingUci)
+    }
+    for (const step of steps) nextTree = addMoveToTree(nextTree, step.originFen, step)
+    setModuleDraftTree(nextTree)
+    setPendingModuleChanges((current) => [...current, { kind: 'add-line', color, steps, source, label, annotations, conflictPolicy }])
+    setModuleWorkspaceNotice(null)
+  }, [boardColor, moduleDraftTree, moduleWorkspaceMode])
+
+  const allowLeavingModuleDraft = useCallback(() => {
+    if (!hasUnsavedModuleChanges) return true
+    if (!window.confirm('Discard the unsaved changes to this module?')) return false
+    setNewModuleSelected(false)
+    setModuleDraftTree(null)
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+    setModuleWorkspaceMode('viewing')
+    return true
+  }, [hasUnsavedModuleChanges])
+
+  const beginNewModule = useCallback(() => {
+    if (!allowLeavingModuleDraft()) return
+    repertoire.setPreviewRelease(null)
+    setNewModuleSelected(true)
+    setModuleDraftTree({})
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+    setModuleWorkspaceMode('editing')
+  }, [allowLeavingModuleDraft, repertoire])
+
+  const viewModule = useCallback((moduleId: number) => {
+    setNewModuleSelected(false)
+    setModuleDraftTree(null)
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+    setModuleWorkspaceMode('viewing')
+    repertoire.setEditingModule(boardColor, moduleId)
+  }, [boardColor, repertoire])
+
+  useEffect(() => {
+    if (repertoire.isSyncing || viewedRelease || newModuleSelected) return
+    if (repertoire.modules.some((module) => module.color === boardColor)) return
+    setNewModuleSelected(true)
+    setModuleDraftTree({})
+    setPendingModuleChanges([])
+    setModuleWorkspaceMode('editing')
+  }, [boardColor, newModuleSelected, repertoire.isSyncing, repertoire.modules, viewedRelease])
+
   const handleModeChange = useCallback((nextMode: AppMode) => {
+    if (nextMode !== mode && !allowLeavingModuleDraft()) return
     // Mount lazily on the first visit, then keep the drill alive while Explorer
     // is visible so switching back resumes the same session. Restarting is an
     // explicit action inside DrillView.
@@ -146,7 +321,7 @@ function App() {
       setDrillMounted(true)
     }
     setMode(nextMode)
-  }, [drillMounted])
+  }, [allowLeavingModuleDraft, drillMounted, mode])
 
   const resetDrillStartPosition = useCallback(() => {
     setDrillStartContext(undefined)
@@ -189,6 +364,7 @@ function App() {
   // ←/→ step through the current line, mirroring the Back/Forward buttons below the
   // board. Only in the explorer - the drill view has no move history to navigate.
   useHistoryKeyboardNav(goBack, goForward, mode === 'explorer')
+  useResetKeyboardShortcut(reset, mode === 'explorer')
 
   // Single entry point for playing a move in the explorer, so every route into the
   // board - drag, click-to-move, an explorer row, a saved continuation - sounds the
@@ -206,18 +382,27 @@ function App() {
     (index: number) => {
       const entry = moves[index]
       if (!entry) return false
-      return repertoire.isMoveSaved(boardColor, originFenForPly(moves, index), entry.uci)
+      return (moduleWorkspaceTree[normalizeFen(originFenForPly(moves, index))] ?? []).some((move) => move.uci === entry.uci)
     },
-    [moves, boardColor, repertoire],
+    [moves, moduleWorkspaceTree],
   )
 
   const onTogglePlySaved = useCallback(
-    (index: number) => {
+    (index: number, point: { x: number; y: number }) => {
       const entry = moves[index]
       if (!entry) return
       const originFen = originFenForPly(moves, index)
-      if (repertoire.isMoveSaved(boardColor, originFen, entry.uci)) {
-        repertoire.removeMove(boardColor, originFen, entry.uci)
+      if (moduleWorkspaceMode !== 'editing' || !moduleDraftTree) {
+        setReadOnlyStarNotice({
+          message: viewedRelease ? 'Save a copy to change this module.' : 'Select Edit to change this module.',
+          x: Math.max(8, Math.min(point.x + 10, window.innerWidth - 230)),
+          y: Math.max(8, Math.min(point.y + 10, window.innerHeight - 70)),
+        })
+        return
+      }
+      if ((moduleDraftTree[normalizeFen(originFen)] ?? []).some((move) => move.uci === entry.uci)) {
+        setModuleDraftTree(removeMoveFromTree(moduleDraftTree, boardColor, originFen, entry.uci))
+        setPendingModuleChanges((current) => [...current, { kind: 'remove', color: boardColor, originFen, uci: entry.uci }])
         return
       }
       // Saving a move also saves every earlier unsaved ply in this line - both the
@@ -232,25 +417,32 @@ function App() {
         uci: ancestor.uci,
         resultingFen: normalizeFen(ancestor.fenAfter),
       }))
-      const conflicts = findResponseConflicts(repertoire.getEditingTree(boardColor), boardColor, steps)
+      const conflicts = findResponseConflicts(moduleDraftTree, boardColor, steps)
       if (conflicts.length > 0) {
         const replace = window.confirm("This module already has a different response at this position. Replace that response and its continuation? Cancel to keep it and choose or create another module instead.")
         if (!replace) return
       }
-      repertoire.addLine(boardColor, steps, 'manual', '', [], conflicts.length > 0 ? 'replace' : 'reject')
+      let nextTree = moduleDraftTree
+      if (conflicts.length > 0) {
+        for (const conflict of conflicts) nextTree = removeMoveFromTree(nextTree, boardColor, conflict.originFen, conflict.existingUci)
+      }
+      for (const step of steps) nextTree = addMoveToTree(nextTree, step.originFen, step)
+      setModuleDraftTree(nextTree)
+      setPendingModuleChanges((current) => [...current, { kind: 'add-line', color: boardColor, steps, source: 'manual', label: '', annotations: [], conflictPolicy: conflicts.length > 0 ? 'replace' : 'reject' }])
+      setModuleWorkspaceNotice(null)
     },
-    [moves, boardColor, repertoire],
+    [moves, boardColor, moduleWorkspaceMode, moduleDraftTree, viewedRelease],
   )
 
   const handleToggleBoardColor = useCallback(() => {
+    if (!allowLeavingModuleDraft()) return
     toggleBoardColor()
     reset()
-  }, [toggleBoardColor, reset])
+  }, [allowLeavingModuleDraft, toggleBoardColor, reset])
 
-  const getRepertoireContinuations = repertoire.getContinuations
   const coverageContinuations = useCallback(
-    (positionFen: string) => getRepertoireContinuations(boardColor, positionFen),
-    [boardColor, getRepertoireContinuations],
+    (positionFen: string) => moduleWorkspaceTree[normalizeFen(positionFen)] ?? [],
+    [moduleWorkspaceTree],
   )
   const openCoveragePosition = useCallback((positionFen: string) => {
     if (!loadPosition(positionFen)) return
@@ -263,16 +455,17 @@ function App() {
     if (destination) playMoveSound(destination.san)
   }, [loadContinuationPath, playMoveSound])
   const isExplorerMoveSaved = useCallback(
-    (uci: string) => repertoire.isMoveInActiveProfile(boardColor, fen, uci),
-    [repertoire, boardColor, fen],
+    (uci: string) => (moduleWorkspaceTree[normalizeFen(fen)] ?? []).some((move) => move.uci === uci),
+    [moduleWorkspaceTree, fen],
   )
 
   const handleProfileChange = useCallback(
     (profileId: number) => {
+      if (!allowLeavingModuleDraft()) return
       repertoire.setActiveProfile(profileId)
       reset()
     },
-    [repertoire, reset],
+    [allowLeavingModuleDraft, repertoire, reset],
   )
 
   // The explorer always lists candidate moves for whoever is to move at the current
@@ -425,9 +618,6 @@ function App() {
           <span aria-hidden="true">{mobileSettingsOpen ? '×' : '☰'}</span>
         </button>
         <div id="header-settings" className={`header-controls ${mobileSettingsOpen ? 'mobile-open' : ''}`}>
-          <div className="mobile-repertoire-color">
-            <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
-          </div>
           {mode === 'drill' && (
             <fieldset className="header-drill-start-mode">
               <legend>Drill starting point</legend>
@@ -453,7 +643,10 @@ function App() {
               </label>
             </fieldset>
           )}
-          <RepertoireProfileControls
+          <div className="header-module-controls">
+            <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
+            <RepertoireProfileControls
+            context={mode}
             profiles={repertoire.profiles}
             modules={repertoire.modules}
             activeProfileId={repertoire.activeProfileId}
@@ -465,12 +658,13 @@ function App() {
             showGlobalLibrary
             canManageGlobalLibrary={isSignedIn}
             onProfileChange={handleProfileChange}
-            onEditingModuleChange={(moduleId) => repertoire.setEditingModule(boardColor, moduleId)}
+            onEditingModuleChange={viewModule}
             onCreateProfile={repertoire.createProfile}
             onRenameProfile={repertoire.renameProfile}
             onDeleteProfile={repertoire.deleteProfile}
             onCreateModule={repertoire.createModule}
             onRenameModule={repertoire.renameModule}
+            onDuplicateModule={repertoire.duplicateModule}
             onDeleteModule={repertoire.deleteModule}
             onSetMembership={repertoire.setModuleMembership}
             onRemoveMembership={repertoire.removeModuleMembership}
@@ -480,7 +674,15 @@ function App() {
             onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
             previewRelease={repertoire.previewRelease}
             onPreviewTemplate={repertoire.setPreviewRelease}
-          />
+            workspaceMode={moduleWorkspaceMode}
+            newModuleSelected={newModuleSelected}
+            hasUnsavedChanges={hasUnsavedModuleChanges}
+            onNewModule={beginNewModule}
+            onEditModule={beginEditingModule}
+            onSaveModule={saveModuleChanges}
+            onDiscardModuleChanges={discardModuleChanges}
+            />
+          </div>
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
           <AuthControl
@@ -507,6 +709,16 @@ function App() {
           {repertoire.syncErrorKind === 'load' ? 'Repertoire could not be loaded' : 'Repertoire change failed'}: {repertoire.syncError}{' '}
           <button type="button" onClick={repertoire.clearSyncError}>Dismiss</button>
         </p>
+      )}
+      {moduleWorkspaceNotice && <p className="panel-status auth-error-banner" role="status">{moduleWorkspaceNotice}</p>}
+      {readOnlyStarNotice && (
+        <div
+          className="cursor-notice"
+          role="status"
+          style={{ left: readOnlyStarNotice.x, top: readOnlyStarNotice.y }}
+        >
+          {readOnlyStarNotice.message}
+        </div>
       )}
       <AccountMergePrompt
         preview={auth.lichessMerge}
@@ -580,6 +792,7 @@ function App() {
               boardColor={boardColor}
               isPlySaved={isPlySaved}
               onTogglePlySaved={onTogglePlySaved}
+              canEditModule={moduleWorkspaceMode === 'editing'}
               getContinuations={coverageContinuations}
               onPlayContinuationPath={playRepertoirePath}
             />
@@ -588,7 +801,6 @@ function App() {
           <div className="board-column">
             <div className="board-heading">
               <OpeningName eco={resolvedOpening?.opening.eco ?? null} name={resolvedOpening?.opening.name ?? null} fen={fen} />
-              <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
             </div>
             <div className="board-with-eval">
               <div className="board-wrapper" data-active-piece-color={sideToMove(fen)}>
@@ -630,7 +842,7 @@ function App() {
               >
                 Forward →
               </button>
-              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN}>
+              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN} title="Reset (R)">
                 Reset
               </button>
               <button type="button" onClick={startDrillFromPosition} disabled={pointer === 0}>
@@ -684,7 +896,7 @@ function App() {
             <section className="panel">
               <CoverageDashboard
                 color={boardColor}
-                tree={repertoire.getTree(boardColor)}
+                tree={moduleWorkspaceTree}
                 apiToken={token}
                 signedIn={isSignedIn}
                 filters={explorerFiltersBySource.lichess}
@@ -708,11 +920,11 @@ function App() {
               <h2>PGN</h2>
               <PgnImportExportPanel
                 color={boardColor}
-                getTree={repertoire.getTree}
-                getEditingTree={repertoire.getEditingTree}
+                getTree={() => moduleWorkspaceTree}
+                getEditingTree={() => moduleWorkspaceTree}
                 getLines={(color) => repertoire.editingLines[color] ?? []}
-                isMoveSaved={repertoire.isMoveSaved}
-                addLine={repertoire.addLine}
+                isMoveSaved={(_color, positionFen, uci) => (moduleWorkspaceTree[normalizeFen(positionFen)] ?? []).some((move) => move.uci === uci)}
+                addLine={addLineToModuleDraft}
                 createModuleFromLines={(name, lines) => repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)}
               />
             </section>
