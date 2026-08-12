@@ -1,7 +1,7 @@
 """Position statistics derived from a linked Chess.com user's public PGNs."""
 
-import io
 import hashlib
+import io
 import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
@@ -157,14 +157,18 @@ def _index_archive(username: str, key: str, url: str, current_month: str) -> Non
 
 def _advance_index(username: str, archives: list[tuple[str, str]]) -> bool:
     """Index at least one archive, then yield after a short request budget."""
-    indexed_keys = set(
-        ChessComArchiveCache.objects.filter(
+    cache_rows = {
+        row.archive_key: row
+        for row in ChessComArchiveCache.objects.filter(
             username__iexact=username,
             archive_key__in=[key for key, _url in archives],
-            indexed_at__isnull=False,
-        ).values_list("archive_key", flat=True)
-    )
-    pending = [(key, url) for key, url in reversed(archives) if key not in indexed_keys]
+        )
+    }
+    pending = [
+        (key, url)
+        for key, url in reversed(archives)
+        if (row := cache_rows.get(key)) is None or row.indexed_at is None or row.is_expired
+    ]
     started = time.monotonic()
     current_month = timezone.now().strftime("%Y-%m")
     processed = 0
@@ -191,7 +195,10 @@ def fetch_chesscom_stats(
     normalized = normalize_fen(fen)
     speed_values = set(speeds.split(",")) if speeds else set()
     chesscom_speeds = set().union(*(SOURCE_SPEEDS.get(value, set()) for value in speed_values))
-    raw_key = f"source=chesscom-index-v1&moves={moves}&since={since or ''}&until={until or ''}&speeds={speeds or ''}"
+    raw_key = (
+        f"source=chesscom-index-v1&moves={moves}&since={since or ''}&until={until or ''}"
+        f"&speeds={speeds or ''}"
+    )
     params_key = hashlib.sha256(raw_key.encode()).hexdigest()[:32]
     cached = PlayerStatsCache.objects.filter(
         user=user, fen=normalized, color=color, params_key=params_key

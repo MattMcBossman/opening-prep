@@ -35,7 +35,10 @@ function mergeExplorerResponses(responses: ExplorerResponse[]): ExplorerResponse
 // looks broken. These bound how long this hook keeps quietly re-polling on
 // its own before leaving it to a manual retry.
 const MY_GAMES_POLL_INTERVAL_MS = 4000
-const MY_GAMES_MAX_POLL_ATTEMPTS = 15
+// A first-time Chess.com history index can span years of monthly archives.
+// Keep progressing it in the background for up to four minutes; later
+// positions are SQL lookups and normally settle immediately.
+const MY_GAMES_MAX_POLL_ATTEMPTS = 60
 
 /**
  * Fetches Lichess explorer stats for `fen`. `enabled` lets a caller that only

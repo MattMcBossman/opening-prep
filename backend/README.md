@@ -152,8 +152,10 @@ shapes; see [`../profile-modules-plan.md`](../profile-modules-plan.md).
 - **Chess.com linking** validates and stores only a public username through the
   Published Data API. It stores no Chess.com credentials and is not ownership
   verification; Chess.com authentication requires a separate partner request.
-  **My games** can filter to Lichess, Chess.com, or combine both; monthly
-  Chess.com archive payloads are cached before their PGNs are matched by FEN.
+  **My games** can filter to Lichess, Chess.com, or combine both. Monthly
+  Chess.com archive payloads are cached and incrementally parsed into a
+  persistent PostgreSQL position index; partial results remain available while
+  that first index is built, and later positions use grouped indexed queries.
 - **Docker**: the repository-root `Dockerfile` builds the combined React/Django
   Render image; `backend/Dockerfile` remains a backend-only image. Development deliberately
   runs Django on the host instead, for a faster edit/reload/debug loop; Compose
