@@ -52,6 +52,10 @@
   gap: 8px;
 }
 
+.mobile-manager-label {
+  display: none;
+}
+
 .profile-manager-views {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -388,6 +392,10 @@
     box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
   }
 
+  .manager-modules-heading + .manager-card-list {
+    margin-top: 12px;
+  }
+
   .manager-create-module {
     grid-template-areas:
       'color'
@@ -453,6 +461,18 @@
     border-style: dashed;
     background: transparent;
     color: var(--text);
+  }
+
+  .manager-membership-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .desktop-manager-label {
+    display: none;
+  }
+
+  .mobile-manager-label {
+    display: inline;
   }
 
   .manager-actions button {

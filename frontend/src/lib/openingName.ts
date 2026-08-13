@@ -3,7 +3,7 @@ import { formatMoveListFromPly } from './chessUtils'
 // Positions at or above this public-Lichess sample size are part of the naming
 // guarantee: native Lichess name when present, otherwise deepest named
 // ancestor plus the exact intervening move sequence.
-export const OPENING_NAME_GUARANTEE_MIN_GAMES = 50_000
+export const OPENING_NAME_GUARANTEE_MIN_GAMES = 250_000
 
 /** Resolves a native ancestor through the deepest position requiring a unique label. */
 export function inheritedOpeningName(

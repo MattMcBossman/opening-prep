@@ -8,7 +8,7 @@ describe('derivedLichessOpeningName', () => {
   })
 
   it('defines the initial public-Lichess naming guarantee threshold', () => {
-    expect(OPENING_NAME_GUARANTEE_MIN_GAMES).toBe(50_000)
+    expect(OPENING_NAME_GUARANTEE_MIN_GAMES).toBe(250_000)
   })
 
   it('inherits a native ancestor unchanged when no intermediate position needs a unique name', () => {

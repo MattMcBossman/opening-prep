@@ -14,6 +14,8 @@ export function MainlineGuide({ open, onClose }: Props) {
     if (!open) return
 
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const dialog = dialogRef.current
     dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus()
 
@@ -41,6 +43,7 @@ export function MainlineGuide({ open, onClose }: Props) {
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousBodyOverflow
       previousFocus?.focus()
     }
   }, [onClose, open])
@@ -63,7 +66,7 @@ export function MainlineGuide({ open, onClose }: Props) {
         </div>
         <ol className="mainline-guide-steps">
           <li><strong>Explore</strong><span>Play moves on the board to see common replies, opening statistics, and engine analysis.</span></li>
-          <li><strong>Build</strong><span>Save the moves you want to play and organize them into opening modules for White and Black.</span></li>
+          <li><strong>Build</strong><span>Save the opening lines you want to prepare for White and Black.</span></li>
           <li><strong>Drill</strong><span>Practice your repertoire from memory and get feedback when you stray from your prepared lines.</span></li>
         </ol>
         <p className="mainline-guide-return">You can open this guide again anytime by selecting the Mainline logo.</p>

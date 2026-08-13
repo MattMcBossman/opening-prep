@@ -773,6 +773,31 @@ function App() {
             onDiscardModuleChanges={discardModuleChanges}
             />
           </div>
+          {mode === 'drill' && (
+            <fieldset className="drill-start-mode mobile-drill-start-mode">
+              <legend>Drill starting point</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="mobile-drill-start-mode"
+                  value="selected_position"
+                  checked={drillStartMode === 'selected_position' && drillStartContext !== undefined}
+                  onChange={selectCurrentDrillStartPosition}
+                />
+                Start at selected position
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="mobile-drill-start-mode"
+                  value="beginning"
+                  checked={drillStartMode === 'beginning' || drillStartContext === undefined}
+                  onChange={() => setDrillStartMode('beginning')}
+                />
+                Start from move 1
+              </label>
+            </fieldset>
+          )}
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
           <AuthControl
@@ -976,7 +1001,8 @@ function App() {
             </div>
             <div className="board-controls explorer-board-controls">
               <button type="button" onClick={goBack} disabled={pointer === 0} title="Back (left arrow key)" aria-label="Back">
-                <span className="desktop-control-label">← Back</span><span className="mobile-control-label" aria-hidden="true">←</span>
+                <span className="desktop-control-label">← Back</span>
+                <svg className="mobile-control-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4M10 6l-6 6 6 6" /></svg>
               </button>
               <button
                 type="button"
@@ -985,10 +1011,12 @@ function App() {
                 title="Forward (right arrow key)"
                 aria-label="Forward"
               >
-                <span className="desktop-control-label">Forward →</span><span className="mobile-control-label" aria-hidden="true">→</span>
+                <span className="desktop-control-label">Forward →</span>
+                <svg className="mobile-control-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M14 6l6 6-6 6" /></svg>
               </button>
               <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN} title="Reset (R)" aria-label="Reset">
-                <span className="desktop-control-label">Reset</span><span className="mobile-control-label" aria-hidden="true">↻</span>
+                <span className="desktop-control-label">Reset</span>
+                <span className="mobile-reset-symbol" aria-hidden="true">↻</span>
               </button>
               <button
                 type="button"

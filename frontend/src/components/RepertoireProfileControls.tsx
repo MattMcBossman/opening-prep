@@ -145,8 +145,8 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
         <div className="manager-actions"><button type="submit" disabled={busy}>Save name</button><button type="button" onClick={() => setModuleRename(null)}>Cancel</button></div>
       </form>}
       <div className="manager-actions manager-membership-actions">
-        <button type="button" disabled={busy} onClick={() => { props.onEditingModuleChange(module.id); onClose() }}>View module</button>
-        <button type="button" disabled={busy || preparedLineCount === 0} onClick={() => { onClose(); props.onDrillModule(module) }}>Drill module</button>
+        <button type="button" disabled={busy} onClick={() => { props.onEditingModuleChange(module.id); onClose() }}><span className="desktop-manager-label">View module</span><span className="mobile-manager-label">View</span></button>
+        <button type="button" disabled={busy || preparedLineCount === 0} onClick={() => { onClose(); props.onDrillModule(module) }}><span className="desktop-manager-label">Drill module</span><span className="mobile-manager-label">Drill</span></button>
         <button type="button" disabled={busy} onClick={() => void run(() => props.onDuplicateModule(module.id))}>Duplicate</button>
         <button type="button" className="manager-more-button" aria-expanded={actionsOpen} onClick={() => setModuleActionsId(actionsOpen ? null : module.id)}>More</button>
       </div>
