@@ -18,6 +18,7 @@ import { useRepertoire } from './hooks/useRepertoire'
 import { fetchExplorerStats } from './lib/lichessExplorer'
 import type { LichessDatabaseFilters } from './lib/lichessExplorer'
 import { useSound } from './hooks/useSound'
+import { useMainlineGuide } from './hooks/useMainlineGuide'
 import { installAudioUnlock } from './audio/soundPlayer'
 import { MoveList } from './components/MoveList'
 import { ExplorerStatsTable } from './components/ExplorerStatsTable'
@@ -38,14 +39,16 @@ import { ExplorerFiltersPanel } from './components/ExplorerFiltersPanel'
 import { CoverageDashboard } from './components/CoverageDashboard'
 import { BoardColorToggle } from './components/BoardColorToggle'
 import { ModeToggle } from './components/ModeToggle'
+import { MainlineGuide } from './components/MainlineGuide'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
 import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
 import { inheritedOpeningName, OPENING_NAME_GUARANTEE_MIN_GAMES } from './lib/openingName'
-import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel } from './lib/repertoireDrills'
+import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel, prepareDrillLines } from './lib/repertoireDrills'
 import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
+import { diffModuleDraft, moduleMoveDraftState } from './lib/moduleDraftDiff'
 import type { RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
 import type { RepertoireLine as ApiRepertoireLine, RepertoireSummary } from './lib/repertoireApi'
@@ -151,9 +154,11 @@ function App() {
   const [newModuleSelected, setNewModuleSelected] = useState(false)
   const [moduleDraftTree, setModuleDraftTree] = useState<RepertoireTree | null>(null)
   const [pendingModuleChanges, setPendingModuleChanges] = useState<PendingModuleChange[]>([])
+  const [moduleSaveConfirmOpen, setModuleSaveConfirmOpen] = useState(false)
   const [moduleWorkspaceNotice, setModuleWorkspaceNotice] = useState<string | null>(null)
   const [readOnlyStarNotice, setReadOnlyStarNotice] = useState<{ message: string; x: number; y: number } | null>(null)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
+  const mainlineGuide = useMainlineGuide()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [hoveredSquare, setHoveredSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>(initialView.mode ?? 'explorer')
@@ -170,15 +175,18 @@ function App() {
   const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
   const persistedModuleTree = viewedRelease?.tree ?? repertoire.getEditingTree(boardColor)
   const moduleWorkspaceTree = moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
-  const newModuleHasStarredMoves = newModuleSelected && moduleDraftTree !== null
-    && Object.values(moduleDraftTree).some((savedMoves) => savedMoves.length > 0)
-  const hasUnsavedModuleChanges = newModuleSelected ? newModuleHasStarredMoves : pendingModuleChanges.length > 0
+  const moduleDraftDiff = useMemo(
+    () => diffModuleDraft(newModuleSelected ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
+    [boardColor, moduleDraftTree, newModuleSelected, persistedModuleTree],
+  )
+  const hasUnsavedModuleChanges = moduleDraftDiff.moves.length > 0 || moduleDraftDiff.lines.length > 0
 
   useEffect(() => {
     setModuleWorkspaceMode('viewing')
     setNewModuleSelected(false)
     setModuleDraftTree(null)
     setPendingModuleChanges([])
+    setModuleSaveConfirmOpen(false)
     setModuleWorkspaceNotice(null)
   }, [boardColor, selectedModuleId, viewedRelease?.id])
 
@@ -221,6 +229,7 @@ function App() {
   }, [newModuleSelected])
 
   const saveModuleChanges = useCallback(async () => {
+    setModuleSaveConfirmOpen(false)
     if (newModuleSelected) {
       const requestedName = window.prompt('Name this opening module')
       if (requestedName === null) return
@@ -256,9 +265,14 @@ function App() {
       setModuleWorkspaceMode('viewing')
       return
     }
-    for (const change of pendingModuleChanges) {
-      if (change.kind === 'remove') repertoire.removeMove(change.color, change.originFen, change.uci)
-      else repertoire.addLine(change.color, change.steps, change.source, change.label, change.annotations, change.conflictPolicy)
+    try {
+      for (const change of pendingModuleChanges) {
+        if (change.kind === 'remove') await repertoire.removeMove(change.color, change.originFen, change.uci)
+        else await repertoire.addLine(change.color, change.steps, change.source, change.label, change.annotations, change.conflictPolicy)
+      }
+    } catch (error) {
+      setModuleWorkspaceNotice(error instanceof Error ? `Module could not be saved: ${error.message}` : 'Module could not be saved. Your edits are still open.')
+      return
     }
     setModuleDraftTree(null)
     setPendingModuleChanges([])
@@ -408,6 +422,18 @@ function App() {
     [moves, moduleWorkspaceTree],
   )
 
+  const getPlySaveState = useCallback(
+    (index: number) => {
+      const entry = moves[index]
+      if (!entry) return 'unsaved' as const
+      const originFen = originFenForPly(moves, index)
+      return moduleWorkspaceMode === 'editing' && moduleDraftTree
+        ? moduleMoveDraftState(newModuleSelected ? {} : persistedModuleTree, moduleDraftTree, originFen, entry.uci)
+        : (isPlySaved(index) ? 'saved' as const : 'unsaved' as const)
+    },
+    [isPlySaved, moduleDraftTree, moduleWorkspaceMode, moves, newModuleSelected, persistedModuleTree],
+  )
+
   const onTogglePlySaved = useCallback(
     (index: number, point: { x: number; y: number }) => {
       const entry = moves[index]
@@ -479,16 +505,6 @@ function App() {
   const isExplorerMoveSaved = useCallback(
     (uci: string) => (moduleWorkspaceTree[normalizeFen(fen)] ?? []).some((move) => move.uci === uci),
     [moduleWorkspaceTree, fen],
-  )
-
-  const handleProfileChange = useCallback(
-    (profileId: number) => {
-      if (!allowLeavingModuleDraft()) return
-      setModuleDrill(null)
-      repertoire.setActiveProfile(profileId)
-      reset()
-    },
-    [allowLeavingModuleDraft, repertoire, reset],
   )
 
   // The explorer always lists candidate moves for whoever is to move at the current
@@ -570,6 +586,16 @@ function App() {
     return null
   }, [ancestorOpening, openingExplorer.data?.opening, pointer])
 
+  const selectedModuleHasDrillContinuation = useMemo(() => {
+    if (selectedModuleId === null) return false
+    const context = createDrillStartContext(fen, pointer, moves)
+    return prepareDrillLines(
+      repertoire.getModuleDrillLines(selectedModuleId),
+      'selected_position',
+      context,
+    ).lines.length > 0
+  }, [fen, moves, pointer, repertoire, selectedModuleId])
+
   const selectCurrentDrillStartPosition = useCallback(() => {
     setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
       openingName: resolvedOpening?.opening.name,
@@ -595,6 +621,8 @@ function App() {
     while (sharedPlies < shortest && lines.every((line) => line.steps[sharedPlies].uci === lines[0].steps[sharedPlies].uci)) sharedPlies += 1
     const openingPlies = Math.min(sharedPlies, module.color === 'white' ? 3 : 2)
     const openingStep = openingPlies > 0 ? lines[0].steps[openingPlies - 1] : null
+    setMobileSettingsOpen(false)
+    repertoire.setPreviewRelease(null)
     setBoardColor(module.color)
     setModuleDrill({ module, lines })
     setDrillStartContext({
@@ -658,6 +686,9 @@ function App() {
     const move = moves[Math.max(boardTransition.fromPointer, boardTransition.toPointer) - 1]
     return move?.san.includes('x') ?? false
   }, [boardTransition, moves])
+  const isUndoCaptureTransition = boardTransition.kind === 'history'
+    && isHistoryCaptureTransition
+    && boardTransition.toPointer < boardTransition.fromPointer
 
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
     // A drag is a new interaction, independent of any earlier tap-to-move
@@ -689,7 +720,13 @@ function App() {
   return (
     <div className="app-layout">
       <header className="app-header">
-        <h1>Mainline</h1>
+        <button type="button" className="app-brand app-brand-button" onClick={mainlineGuide.show} aria-label="Open the Mainline guide">
+          <svg className="app-logo" viewBox="0 0 64 64" aria-hidden="true">
+            <path className="app-logo-rook" d="M8 9h12v9h7V9h10v9h7V9h12v17l-6 6v15l5 5v4H9v-4l5-5V32l-6-6V9Z" />
+            <path className="app-logo-line" d="M29 21h6v15.5l7-6h3v3.5l-10 8v9h-6v-9l-10-8v-3.5h3l7 6V21Z" />
+          </svg>
+          <h1>Mainline</h1>
+        </button>
         <p>Opening explorer &amp; repertoire builder</p>
         <ModeToggle mode={mode} onChange={handleModeChange} />
         <button
@@ -703,31 +740,6 @@ function App() {
           <span aria-hidden="true">{mobileSettingsOpen ? '×' : '☰'}</span>
         </button>
         <div id="header-settings" className={`header-controls ${mobileSettingsOpen ? 'mobile-open' : ''}`}>
-          {mode === 'drill' && (
-            <fieldset className="header-drill-start-mode">
-              <legend>Drill starting point</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="drill-start-mode"
-                  value="selected_position"
-                  checked={drillStartMode === 'selected_position' && drillStartContext !== undefined}
-                  onChange={selectCurrentDrillStartPosition}
-                />
-                Start at selected position
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="drill-start-mode"
-                  value="beginning"
-                  checked={drillStartMode === 'beginning' || drillStartContext === undefined}
-                  onChange={() => setDrillStartMode('beginning')}
-                />
-                Start from move 1
-              </label>
-            </fieldset>
-          )}
           <div className="header-module-controls">
             <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
             <RepertoireProfileControls
@@ -742,20 +754,12 @@ function App() {
             disabled={repertoire.isSyncing}
             showGlobalLibrary
             canManageGlobalLibrary={isSignedIn}
-            onProfileChange={handleProfileChange}
             onEditingModuleChange={viewModule}
-            onCreateProfile={repertoire.createProfile}
-            onRenameProfile={repertoire.renameProfile}
-            onDeleteProfile={repertoire.deleteProfile}
             onCreateModule={repertoire.createModule}
             onRenameModule={repertoire.renameModule}
             onDuplicateModule={repertoire.duplicateModule}
             onDrillModule={startModuleDrill}
             onDeleteModule={repertoire.deleteModule}
-            onSetMembership={repertoire.setModuleMembership}
-            onRemoveMembership={repertoire.removeModuleMembership}
-            onPinTemplate={repertoire.pinTemplate}
-            onUnpinTemplate={repertoire.unpinTemplate}
             onCopyTemplate={repertoire.copyTemplate}
             onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
             previewRelease={repertoire.previewRelease}
@@ -765,7 +769,7 @@ function App() {
             hasUnsavedChanges={hasUnsavedModuleChanges}
             onNewModule={beginNewModule}
             onEditModule={beginEditingModule}
-            onSaveModule={saveModuleChanges}
+            onSaveModule={() => setModuleSaveConfirmOpen(true)}
             onDiscardModuleChanges={discardModuleChanges}
             />
           </div>
@@ -782,6 +786,7 @@ function App() {
           />
         </div>
       </header>
+      <MainlineGuide open={mainlineGuide.open} onClose={mainlineGuide.dismiss} />
       {auth.authError && (
         <p className="panel-status error auth-error-banner">
           {auth.authError}{' '}
@@ -806,6 +811,50 @@ function App() {
           {readOnlyStarNotice.message}
         </div>
       )}
+      {moduleSaveConfirmOpen && (
+        <div className="module-save-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModuleSaveConfirmOpen(false) }}>
+          <section className="module-save-dialog" role="dialog" aria-modal="true" aria-labelledby="module-save-title">
+            <h2 id="module-save-title">Confirm module updates</h2>
+            <p>The following updates will be applied when you confirm.</p>
+            <div className="module-save-summary">
+              <span className="module-save-metric module-save-metric-add">
+                <strong>{moduleDraftDiff.addedLineCount} lines <span className="module-save-metric-separator">·</span> {moduleDraftDiff.addedMoveCount} moves</strong>
+                <span>added</span>
+              </span>
+              <span className="module-save-metric module-save-metric-delete">
+                <strong>{moduleDraftDiff.deletedLineCount} lines <span className="module-save-metric-separator">·</span> {moduleDraftDiff.deletedMoveCount} moves</strong>
+                <span>deleted</span>
+              </span>
+            </div>
+            <details className="module-save-details">
+              <summary>Show update list</summary>
+              {(['add', 'delete'] as const).map((kind) => {
+                const updates = moduleDraftDiff.lines.filter((update) => update.kind === kind)
+                if (updates.length === 0) return null
+                return <section className="module-save-line-group" key={kind}>
+                  <h3>{kind === 'add' ? 'Added lines' : 'Deleted lines'}</h3>
+                  <ul>
+                    {updates.map((update) => (
+                      <li key={`line-${update.kind}-${update.line.id}`}>
+                        {update.line.steps.map((step, ply) => (
+                          <span key={`${step.uci}-${ply}`} className={ply >= update.changedFromPly ? `module-update-${update.kind}` : undefined}>
+                            {ply > 0 ? ' ' : ''}{ply % 2 === 0 ? `${Math.floor(ply / 2) + 1}. ${step.san}` : step.san}
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              })}
+            </details>
+            <div className="module-save-actions">
+              <button type="button" className="module-save-discard" onClick={() => { setModuleSaveConfirmOpen(false); discardModuleChanges() }}>Discard edits</button>
+              <button type="button" onClick={() => setModuleSaveConfirmOpen(false)}>Keep editing</button>
+              <button type="button" onClick={() => void saveModuleChanges()}>Confirm save</button>
+            </div>
+          </section>
+        </div>
+      )}
       <AccountMergePrompt
         preview={auth.lichessMerge}
         busy={auth.lichessMergeBusy}
@@ -826,7 +875,6 @@ function App() {
             active={mode === 'drill'}
             repertoire={repertoire}
             color={boardColor}
-            onToggleColor={handleToggleBoardColor}
             playMoveSound={playMoveSound}
             playDrillCompleteSound={playDrillCompleteSound}
             playWrongMoveSound={playWrongMoveSound}
@@ -842,6 +890,8 @@ function App() {
             drillLines={moduleDrill?.module.color === boardColor ? moduleDrill.lines : repertoire.drillLines[boardColor]}
             startContext={drillStartContext}
             startMode={drillStartMode}
+            onStartAtSelectedPosition={selectCurrentDrillStartPosition}
+            onStartFromBeginning={() => setDrillStartMode('beginning')}
             onViewInExplorer={viewDrillCompletionInExplorer}
             onResetStartPosition={resetDrillStartPosition}
           />
@@ -877,6 +927,7 @@ function App() {
               onSelect={goTo}
               boardColor={boardColor}
               isPlySaved={isPlySaved}
+              getPlySaveState={getPlySaveState}
               onTogglePlySaved={onTogglePlySaved}
               canEditModule={moduleWorkspaceMode === 'editing'}
               getContinuations={coverageContinuations}
@@ -912,7 +963,10 @@ function App() {
                     onMouseOutSquare: ({ square }) => setHoveredSquare((current) => current === square ? null : current),
                     squareStyles,
                     dropSquareStyle: DROP_SQUARE_STYLE,
-                    showAnimations: true,
+                    // react-chessboard cannot reliably infer the identity of a
+                    // piece restored by undoing a capture and may slide it in
+                    // from an unrelated square. Restore that snapshot cleanly.
+                    showAnimations: !isUndoCaptureTransition,
                     animationDurationInMs: isHistoryCaptureTransition ? 400 : 420,
                     id: 'opening-prep-explorer-board',
                   }}
@@ -920,22 +974,28 @@ function App() {
               </div>
               <EvalBar evaluation={evaluation} boardColor={boardColor} />
             </div>
-            <div className="board-controls">
-              <button type="button" onClick={goBack} disabled={pointer === 0} title="Back (left arrow key)">
-                ← Back
+            <div className="board-controls explorer-board-controls">
+              <button type="button" onClick={goBack} disabled={pointer === 0} title="Back (left arrow key)" aria-label="Back">
+                <span className="desktop-control-label">← Back</span><span className="mobile-control-label" aria-hidden="true">←</span>
               </button>
               <button
                 type="button"
                 onClick={goForward}
                 disabled={pointer === moves.length}
                 title="Forward (right arrow key)"
+                aria-label="Forward"
               >
-                Forward →
+                <span className="desktop-control-label">Forward →</span><span className="mobile-control-label" aria-hidden="true">→</span>
               </button>
-              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN} title="Reset (R)">
-                Reset
+              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN} title="Reset (R)" aria-label="Reset">
+                <span className="desktop-control-label">Reset</span><span className="mobile-control-label" aria-hidden="true">↻</span>
               </button>
-              <button type="button" onClick={startDrillFromPosition} disabled={pointer === 0}>
+              <button
+                type="button"
+                onClick={startDrillFromPosition}
+                disabled={!selectedModuleHasDrillContinuation}
+                title={!selectedModuleHasDrillContinuation ? 'The selected module has no moves after this position' : undefined}
+              >
                 Drill from here
               </button>
             </div>

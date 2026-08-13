@@ -1,0 +1,23 @@
+#!/bin/sh
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+
+case "$branch" in
+  render-launch|render-*|*/render-*|deploy|deploy/*|*/deploy|*/deploy/*|deployment|deployment/*|*/deployment|*/deployment/*|prod|prod/*|*/prod|*/prod/*|production|production/*|*/production|*/production/*|staging|staging/*|*/staging|*/staging/*|release|release/*|*/release|*/release/*)
+    # A deployment branch may receive merge commits, but never commits made
+    # directly on the branch (including cherry-picks and reverts).
+    if git rev-parse --verify --quiet MERGE_HEAD >/dev/null; then
+      exit 0
+    fi
+
+    cat >&2 <<EOF
+Direct commit blocked: '$branch' is a deployment branch.
+
+Create commits on a development or feature branch, then merge that branch into
+'$branch'. Use a merge commit rather than committing or cherry-picking here.
+EOF
+    exit 1
+    ;;
+esac
+
+exit 0

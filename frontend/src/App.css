@@ -45,6 +45,155 @@
   padding-bottom: 12px;
 }
 
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-brand-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-brand-button:hover h1 {
+  color: var(--accent);
+}
+
+.mobile-control-label {
+  display: none;
+}
+
+.mainline-guide-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 20px;
+  background: rgb(0 0 0 / 58%);
+}
+
+.mainline-guide {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: calc(100svh - 40px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 35%);
+}
+
+.mainline-guide-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 28px/1 var(--sans);
+  cursor: pointer;
+}
+
+.mainline-guide-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 34px;
+}
+
+.mainline-guide-heading h2 {
+  margin-bottom: 5px;
+  color: var(--text-h);
+  font-size: 21px;
+  text-transform: none;
+}
+
+.mainline-guide-steps {
+  display: grid;
+  gap: 12px;
+  margin: 22px 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: guide-step;
+}
+
+.mainline-guide-steps li {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  column-gap: 10px;
+  counter-increment: guide-step;
+}
+
+.mainline-guide-steps li::before {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 700;
+  content: counter(guide-step);
+}
+
+.mainline-guide-steps strong {
+  color: var(--text-h);
+}
+
+.mainline-guide-steps span,
+.mainline-guide-return {
+  font-size: 14px;
+}
+
+.mainline-guide-return {
+  margin-bottom: 18px;
+}
+
+.mainline-guide-start {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--accent-border);
+  border-radius: 7px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-logo {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+}
+
+.app-logo-rook {
+  fill: #20242b;
+}
+
+.app-logo-line {
+  fill: #d36b3f;
+}
+
+:root[data-theme='dark'] .app-logo-rook {
+  fill: #f4efe7;
+}
+
 .app-header p {
   color: var(--text);
   font-size: 14px;
@@ -63,24 +212,26 @@
   display: none;
 }
 
-.header-drill-start-mode {
+.drill-start-mode {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  margin: 0;
+  width: auto;
+  max-width: 100%;
+  margin: 0 0 0 auto;
   padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
+  background: var(--surface);
 }
 
-.header-drill-start-mode legend {
+.drill-start-mode legend {
   padding: 0 4px;
   color: var(--text);
   font-size: 11px;
 }
 
-.header-drill-start-mode label {
+.drill-start-mode label {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -89,7 +240,7 @@
   white-space: nowrap;
 }
 
-.header-drill-start-mode input[type='radio'] {
+.drill-start-mode input[type='radio'] {
   accent-color: var(--accent);
 }
 
@@ -400,6 +551,7 @@
 
 .board-with-eval {
   display: flex;
+  flex-direction: row-reverse;
   gap: 8px;
   align-items: stretch;
 }
@@ -425,10 +577,9 @@
   transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
-/* Adjacent capture/uncapture history steps use react-chessboard's native move
-   timing so the moving and removed/restored pieces settle in one synchronized
-   transition. Quiet history moves and broader position jumps keep the softer
-   explorer easing above. */
+/* Forward captures use react-chessboard's native move timing. Reverse captures
+   skip interpolation in App.tsx because the library can misidentify the piece
+   being restored. Quiet history moves keep the softer explorer easing above. */
 .board-wrapper.history-capture-transition [data-piece] {
   transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1) !important;
 }
@@ -771,14 +922,99 @@
   opacity: 0.5;
 }
 
-.move-star[aria-disabled='true'].active,
-.move-star[aria-disabled='true'].active:hover {
+.move-star[aria-disabled='true'].saved,
+.move-star[aria-disabled='true'].saved:hover {
   opacity: 1;
 }
 
-.move-star.active {
+.move-star.saved {
   color: var(--accent);
   opacity: 1;
+}
+
+.move-star.pending-add {
+  color: #d18b18;
+  opacity: 1;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, #d18b18 55%, transparent));
+}
+
+.move-star.pending-remove {
+  color: var(--text);
+  opacity: 0.42;
+  text-decoration: line-through;
+  text-decoration-color: #c94a4a;
+  text-decoration-thickness: 2px;
+}
+
+.module-save-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.module-save-dialog {
+  width: min(520px, 100%);
+  max-height: min(78vh, 680px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  background: var(--surface);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.35);
+}
+
+.module-save-dialog h2 { margin-top: 0; }
+.module-save-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 14px 0;
+}
+.module-save-metric {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.module-save-metric strong {
+  font-size: 18px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.module-save-metric > span {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+.module-save-metric-separator { color: var(--text); }
+.module-save-metric-add strong { color: var(--accent); }
+.module-save-metric-delete strong { color: var(--danger); }
+.module-save-details { margin: 14px 0; }
+.module-save-line-group h3 { margin: 12px 0 4px; font-size: 15px; }
+.module-save-details ul { padding-left: 22px; }
+.module-save-details li { margin: 5px 0; font-family: var(--mono); }
+.module-update-add { color: var(--accent); }
+.module-update-delete { color: var(--danger); }
+.module-save-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.module-save-actions .module-save-discard {
+  margin-right: auto;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.module-save-actions .module-save-discard:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger-bg), var(--danger) 8%);
 }
 
 /* A divider between the played line above and the saved-continuation rows below,
@@ -1301,6 +1537,17 @@
   flex-wrap: wrap;
   align-items: flex-start;
   text-align: left;
+}
+
+.drill-workspace {
+  width: 100%;
+  min-width: 0;
+}
+
+.drill-workspace-heading {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 10px;
 }
 
 .drill-progress {
@@ -1894,10 +2141,40 @@
     line-height: 1;
   }
 
-  .app-header h1 {
+  .app-brand {
     min-width: 0;
     box-sizing: border-box;
     padding-left: 8px;
+  }
+
+  .app-logo {
+    width: 34px;
+    height: 34px;
+  }
+
+  .desktop-control-label {
+    display: none;
+  }
+
+  .mobile-control-label {
+    display: inline;
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  .mainline-guide-backdrop {
+    align-items: end;
+    padding: 8px;
+  }
+
+  .mainline-guide {
+    width: 100%;
+    max-height: calc(100svh - 16px);
+    padding: 22px 18px;
+    border-radius: 14px;
+  }
+
+  .app-header h1 {
     text-align: center;
     font-size: clamp(18px, 5.5vw, 22px);
   }
@@ -1970,14 +2247,17 @@
     right: 0;
   }
 
-  .header-drill-start-mode {
+  .drill-start-mode {
+    width: 100%;
+    box-sizing: border-box;
     flex-direction: column;
     align-items: stretch;
     gap: 0;
-    padding: 4px 8px 8px;
+    margin: 4px 0 0;
+    padding: 6px 10px 10px;
   }
 
-  .header-drill-start-mode label {
+  .drill-start-mode label {
     min-height: 44px;
   }
 
@@ -2112,20 +2392,27 @@
   .board-heading {
     min-width: 0;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   .opening-name {
     min-width: 0;
-    /* Most names occupy one or two lines. Reserving both prevents the board and
-       document scroll position from jumping when an async lookup changes the
-       heading's wrap shortly after a move. */
+    /* Opening lookup can settle after the board is already visible. Keep this
+       a fixed two-line slot so a long mobile name cannot push the board down. */
+    height: 2.8em;
     min-height: 2.8em;
+    overflow: hidden;
     justify-content: center;
   }
 
   .opening-name-text {
+    display: -webkit-box;
+    line-height: 1.4;
     overflow-wrap: anywhere;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .board-with-eval {
@@ -2137,6 +2424,7 @@
   .board-wrapper {
     width: calc(100% - 40px);
     max-width: calc(100% - 40px);
+    touch-action: none;
   }
 
   .eval-bar,
@@ -2157,6 +2445,22 @@
     min-width: calc(50% - 4px);
     min-height: 44px;
     padding: 8px 10px;
+  }
+
+  .explorer-board-controls {
+    display: grid;
+    grid-template-columns: repeat(3, 44px) minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .explorer-board-controls button {
+    min-width: 0;
+    padding: 8px 4px;
+  }
+
+  .explorer-board-controls button:last-child {
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   .drill-review-actions {

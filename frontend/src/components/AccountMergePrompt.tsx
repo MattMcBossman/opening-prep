@@ -21,12 +21,11 @@ export function AccountMergePrompt({ preview, busy, error, onConfirm, onCancel }
       </p>
       <ul>
         <li>{preview.modules} saved module{preview.modules === 1 ? '' : 's'}</li>
-        <li>{preview.profiles} profile{preview.profiles === 1 ? '' : 's'}</li>
         <li>{preview.drillSessions} drill session{preview.drillSessions === 1 ? '' : 's'}</li>
         {preview.publishedOpenings > 0 && <li>{preview.publishedOpenings} published opening{preview.publishedOpenings === 1 ? '' : 's'}</li>}
       </ul>
       <p className="panel-status">
-        Existing modules stay separate; duplicate module and profile names receive a “merged” suffix. The older account is removed after a successful merge.
+        Existing modules stay separate; duplicate module names receive a “merged” suffix. The older account is removed after a successful merge.
       </p>
       {error && <p className="panel-status error">{error}</p>}
       <div className="board-controls">

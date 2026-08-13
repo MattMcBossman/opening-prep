@@ -26,7 +26,6 @@ import type { PositionAnalysis, PositionFact, RepertoireColor } from '../types'
 import { DrillFeedbackPanel } from './DrillFeedbackPanel'
 import { DrillLineCompletePanel } from './DrillLineCompletePanel'
 import { DrillSummary } from './DrillSummary'
-import { BoardColorToggle } from './BoardColorToggle'
 import { EvalBar } from './EvalBar'
 import { ExplorerStatsTable } from './ExplorerStatsTable'
 
@@ -36,7 +35,6 @@ type Props = {
   active: boolean
   repertoire: ReturnType<typeof useRepertoire>
   color: RepertoireColor
-  onToggleColor: () => void
   /** Plays the audio cue for a move, given its SAN. Owned by App so the mute toggle is shared. */
   playMoveSound: (san: string) => void
   /** Plays the distinct "drill complete" chime, independent of any move's own cue. */
@@ -57,6 +55,8 @@ type Props = {
   /** Explorer occurrence used by "Drill from here". */
   startContext?: DrillStartContext
   startMode: DrillStartMode
+  onStartAtSelectedPosition: () => void
+  onStartFromBeginning: () => void
   /** Opens the completed line's final position in the main explorer. */
   onViewInExplorer: (historyUci: string[], finalFen: string) => void
   onResetStartPosition: () => void
@@ -102,7 +102,6 @@ export function DrillView({
   active,
   repertoire,
   color,
-  onToggleColor,
   playMoveSound,
   playDrillCompleteSound,
   playWrongMoveSound,
@@ -114,6 +113,8 @@ export function DrillView({
   drillLines,
   startContext,
   startMode,
+  onStartAtSelectedPosition,
+  onStartFromBeginning,
   onViewInExplorer,
   onResetStartPosition,
 }: Props) {
@@ -154,7 +155,13 @@ export function DrillView({
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
+  const opponentMovePending = pendingAutoPlayStep(state) !== null
+  const [opponentAnimationInFlight, setOpponentAnimationInFlight] = useState(false)
+  const queuedMoveRef = useRef<{ from: string; to: string; promotion?: string } | null>(null)
+  const preserveSelectionRef = useRef(false)
   const boardInputEnabled = isOwnTurn && !session.complete && !isPaused && !wrongMovePreview
+  const boardInteractionEnabled = (boardInputEnabled || opponentMovePending || opponentAnimationInFlight)
+    && !session.complete && !isPaused && !wrongMovePreview
   const isDesktopReview = useMediaQuery('(min-width: 701px)')
   const soundedWrongAttemptRef = useRef<number | null>(null)
   const [reviewSection, setReviewSection] = useState<'analysis' | 'stats' | null>(null)
@@ -169,9 +176,20 @@ export function DrillView({
   useResetKeyboardShortcut(restartFromKeyboard, active && state.lines.length > 0)
 
   useEffect(() => {
+    if (preserveSelectionRef.current) {
+      preserveSelectionRef.current = false
+      return
+    }
     setSelectedSquare(null)
     setHoveredSquare(null)
   }, [fen])
+
+  useEffect(() => {
+    if (state.lastAppliedSteps.at(-1)?.mover !== 'opponent') return
+    setOpponentAnimationInFlight(true)
+    const timeoutId = window.setTimeout(() => setOpponentAnimationInFlight(false), 300)
+    return () => window.clearTimeout(timeoutId)
+  }, [fen, state.lastAppliedSteps])
 
   const openReviewSection = useCallback((section: 'analysis' | 'stats') => {
     setReviewSection(section)
@@ -406,6 +424,23 @@ export function DrillView({
     [fen, getContinuations, isOwnTurn, session, isPaused, wrongMovePreview],
   )
 
+  const queueOrTryMove = useCallback((candidate: { from: string; to: string; promotion?: string }) => {
+    if (opponentMovePending || opponentAnimationInFlight) {
+      queuedMoveRef.current = candidate
+      preserveSelectionRef.current = true
+      return false
+    }
+    return tryMove(candidate)
+  }, [opponentAnimationInFlight, opponentMovePending, tryMove])
+
+  useEffect(() => {
+    if (opponentMovePending || opponentAnimationInFlight || !isOwnTurn) return
+    const queued = queuedMoveRef.current
+    if (!queued) return
+    queuedMoveRef.current = null
+    tryMove(queued)
+  }, [isOwnTurn, opponentAnimationInFlight, opponentMovePending, tryMove])
+
   function handlePieceDrop({ sourceSquare, targetSquare }: PieceDropHandlerArgs): boolean {
     // Dragging starts a separate move interaction from tap-to-move. Always
     // discard an earlier selected square, including after a rejected drop.
@@ -414,35 +449,65 @@ export function DrillView({
     if (!targetSquare) return false
     // Wrong moves remain unapplied to the drill session, but tryMove lets the
     // controlled preview position land briefly before restoring `fen`.
-    return tryMove({ from: sourceSquare, to: targetSquare, promotion: 'q' })
+    return queueOrTryMove({ from: sourceSquare, to: targetSquare, promotion: 'q' })
   }
 
   function handleSquareClick({ square, piece }: SquareHandlerArgs) {
     if (!selectedSquare) {
-      if (boardInputEnabled && pieceMatchesColor(piece, color)) setSelectedSquare(square)
+      if (boardInteractionEnabled && pieceMatchesColor(piece, color)) {
+        if (opponentMovePending || opponentAnimationInFlight) preserveSelectionRef.current = true
+        setSelectedSquare(square)
+      }
       return
     }
     if (square === selectedSquare) {
       setSelectedSquare(null)
       return
     }
-    const moved = tryMove({ from: selectedSquare, to: square, promotion: 'q' })
-    setSelectedSquare(moved ? null : boardInputEnabled && pieceMatchesColor(piece, color) ? square : null)
+    const moved = queueOrTryMove({ from: selectedSquare, to: square, promotion: 'q' })
+    setSelectedSquare(moved ? null : boardInteractionEnabled && pieceMatchesColor(piece, color) ? square : null)
   }
+
+  const drillStartControls = <fieldset className="drill-start-mode">
+    <legend>Drill starting point</legend>
+    <label>
+      <input
+        type="radio"
+        name="drill-start-mode"
+        value="selected_position"
+        checked={startMode === 'selected_position' && startContext !== undefined}
+        onChange={onStartAtSelectedPosition}
+      />
+      Start at selected position
+    </label>
+    <label>
+      <input
+        type="radio"
+        name="drill-start-mode"
+        value="beginning"
+        checked={startMode === 'beginning' || startContext === undefined}
+        onChange={onStartFromBeginning}
+      />
+      Start from move 1
+    </label>
+  </fieldset>
 
   if (state.lines.length === 0) {
     return (
-      <div className="panel drill-empty">
-        <p className="panel-status">
-          {startContext
-            ? `No saved ${color} lines continue through this selected position.`
-            : `No saved ${color} repertoire yet. Save some moves in the explorer first, then come back to drill them.`}
-        </p>
-        {startContext && (
-          <button type="button" className="drill-reset-start" onClick={onResetStartPosition}>
-            Drill from initial position
-          </button>
-        )}
+      <div className="drill-workspace">
+        {drillStartControls}
+        <div className="panel drill-empty">
+          <p className="panel-status">
+            {startContext
+              ? `No saved ${color} lines continue through this selected position.`
+              : `No saved ${color} repertoire yet. Save some moves in the explorer first, then come back to drill them.`}
+          </p>
+          {startContext && (
+            <button type="button" className="drill-reset-start" onClick={onResetStartPosition}>
+              Drill from initial position
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -450,27 +515,28 @@ export function DrillView({
   const progressLabel = session.progress.isRetryPass ? 'Retrying failed drill' : 'Drill'
 
   return (
-    <div className="drill-layout">
-      <div className="board-column">
-        <div className="board-heading">
-          <div className="drill-progress">
-            {startContext && (
-              <strong className="drill-start-position-name">
-                {startContext.openingName ?? 'Selected position'}
-                {startContext.positionMoveLabel ? `, ${startContext.positionMoveLabel}` : ''}
-              </strong>
-            )}
-            <span>
-              {progressLabel} {session.progress.currentDrillNumber} of {session.progress.totalLines}
-            </span>
-            <span className="drill-progress-results">
-              {session.progress.perfectCount} perfect · {session.progress.failedCount} failed
-            </span>
-          </div>
-          <BoardColorToggle boardColor={color} onToggle={onToggleColor} />
+    <div className="drill-workspace">
+      <div className="board-heading drill-workspace-heading">
+        <div className="drill-progress">
+          {startContext && (
+            <strong className="drill-start-position-name">
+              {startContext.openingName ?? 'Selected position'}
+              {startContext.positionMoveLabel ? `, ${startContext.positionMoveLabel}` : ''}
+            </strong>
+          )}
+          <span>
+            {progressLabel} {session.progress.currentDrillNumber} of {session.progress.totalLines}
+          </span>
+          <span className="drill-progress-results">
+            {session.progress.perfectCount} perfect · {session.progress.failedCount} failed
+          </span>
         </div>
+        {drillStartControls}
+      </div>
+      <div className="drill-layout">
+      <div className="board-column">
         <div className="board-with-eval">
-          <div className="board-wrapper" data-active-piece-color={boardInputEnabled ? color : 'none'}>
+          <div className="board-wrapper" data-active-piece-color={boardInteractionEnabled ? color : 'none'}>
             {active && (
               <div data-testid="drill-chessboard">
                 <Chessboard
@@ -479,7 +545,7 @@ export function DrillView({
                     position: boardFen,
                     boardOrientation: color,
                     canDragPiece: ({ piece }) => (
-                      boardInputEnabled
+                      boardInteractionEnabled
                       && pieceMatchesColor(piece, color)
                     ),
                     onPieceDrag: ({ square }) => {
@@ -589,7 +655,7 @@ export function DrillView({
               similarPosition={session.similarPosition}
               color={color}
               startMode={startMode}
-              opponentMovePending={pendingAutoPlayStep(state) !== null}
+              opponentMovePending={opponentMovePending}
               readyForNextMove={state.lastAppliedSteps.at(-1)?.mover === 'opponent'}
               lichessData={wrongMoveExplorer.data}
               lichessLoading={wrongMoveExplorer.loading}
@@ -599,6 +665,7 @@ export function DrillView({
           </div>
         )}
       </div>}
+      </div>
     </div>
   )
 }

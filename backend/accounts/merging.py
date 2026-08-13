@@ -4,6 +4,7 @@ from django.db import transaction
 
 from drills.models import DrillSession
 from repertoire.models import OpeningTemplate, Repertoire, RepertoireProfile
+from repertoire.services import consolidate_user_profiles
 
 from .models import ChessComAccount, EmailIdentity, GoogleAccount, LichessAccount, User
 
@@ -74,5 +75,6 @@ def merge_legacy_lichess_user(*, legacy_user: User, target_user: User) -> Liches
 
     lichess_account.user = target_user
     lichess_account.save(update_fields=["user", "updated_at"])
+    consolidate_user_profiles(target_user)
     legacy_user.delete()
     return lichess_account

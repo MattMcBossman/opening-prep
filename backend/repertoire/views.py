@@ -128,6 +128,7 @@ class RepertoireProfileListCreateView(generics.ListCreateAPIView):
     serializer_class = RepertoireProfileSerializer
 
     def get_queryset(self):
+        services.consolidate_user_profiles(self.request.user)
         return RepertoireProfile.objects.filter(owner=self.request.user).prefetch_related(
             "module_links__module__lines__steps__move", "template_links__release__template"
         )

@@ -41,6 +41,35 @@ test('mobile Explorer sections show one workspace at a time and preserve selecti
   await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('mobile board owns touch drags and places the eval bar on the left', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+
+  const board = page.locator('.board-wrapper')
+  const evalBar = page.locator('.eval-bar')
+  await expect(board).toHaveCSS('touch-action', 'none')
+  const [boardBox, evalBox] = await Promise.all([board.boundingBox(), evalBar.boundingBox()])
+  expect(boardBox).not.toBeNull()
+  expect(evalBox).not.toBeNull()
+  expect(evalBox!.x).toBeLessThan(boardBox!.x)
+})
+
+test('a long opening name does not move the mobile board', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/')
+
+  const board = page.locator('.board-wrapper')
+  const before = await board.boundingBox()
+  await page.locator('.opening-name').evaluate((element) => {
+    element.innerHTML = '<span class="opening-name-text">Sicilian Defense, Najdorf Variation, Poisoned Pawn Variation, Main Line</span>'
+  })
+  const after = await board.boundingBox()
+
+  expect(before).not.toBeNull()
+  expect(after).not.toBeNull()
+  expect(after!.y).toBe(before!.y)
+})
+
 test('mobile hamburger menu combines repertoire and app settings', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/')
@@ -89,18 +118,19 @@ test('mobile hamburger menu combines repertoire and app settings', async ({ page
   await expect(page.locator('#header-settings')).toBeHidden()
 })
 
-test('drills keep the repertoire toggle inside the mobile menu', async ({ page }) => {
+test('drills keep the module toggle only in the mobile header menu', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 })
   await page.goto('/')
   await page.getByRole('tab', { name: 'Drills' }).click()
 
   await expect(page.locator('.drill-layout .board-heading .board-color-toggle')).toBeHidden()
+  await expect(page.locator('.drill-workspace').getByRole('group', { name: 'Drill starting point' })).toBeVisible()
   await page.getByRole('button', { name: 'Open menu' }).click()
-  const repertoireToggle = page.locator('#header-settings').getByRole('switch', { name: /White repertoire/ })
+  const repertoireToggle = page.locator('#header-settings').getByRole('switch', { name: /White module/ })
   await expect(repertoireToggle).toBeVisible()
-  const repertoireLabel = repertoireToggle.locator('.board-color-toggle-label')
-  await expect(repertoireLabel).toHaveText('White repertoire')
-  expect(await repertoireLabel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const moduleValue = repertoireToggle.locator('.board-color-toggle-value')
+  await expect(moduleValue).toHaveText('White')
+  expect(await moduleValue.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
