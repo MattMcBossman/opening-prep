@@ -18,6 +18,7 @@ import { useRepertoire } from './hooks/useRepertoire'
 import { fetchExplorerStats } from './lib/lichessExplorer'
 import type { LichessDatabaseFilters } from './lib/lichessExplorer'
 import { useSound } from './hooks/useSound'
+import { useMainlineGuide } from './hooks/useMainlineGuide'
 import { installAudioUnlock } from './audio/soundPlayer'
 import { MoveList } from './components/MoveList'
 import { ExplorerStatsTable } from './components/ExplorerStatsTable'
@@ -38,6 +39,7 @@ import { ExplorerFiltersPanel } from './components/ExplorerFiltersPanel'
 import { CoverageDashboard } from './components/CoverageDashboard'
 import { BoardColorToggle } from './components/BoardColorToggle'
 import { ModeToggle } from './components/ModeToggle'
+import { MainlineGuide } from './components/MainlineGuide'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
 import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
@@ -156,6 +158,7 @@ function App() {
   const [moduleWorkspaceNotice, setModuleWorkspaceNotice] = useState<string | null>(null)
   const [readOnlyStarNotice, setReadOnlyStarNotice] = useState<{ message: string; x: number; y: number } | null>(null)
   const { soundEnabled, toggleSound, playMoveSound, playDrillCompleteSound, playWrongMoveSound } = useSound()
+  const mainlineGuide = useMainlineGuide()
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [hoveredSquare, setHoveredSquare] = useState<string | null>(null)
   const [mode, setMode] = useState<AppMode>(initialView.mode ?? 'explorer')
@@ -717,13 +720,13 @@ function App() {
   return (
     <div className="app-layout">
       <header className="app-header">
-        <div className="app-brand">
+        <button type="button" className="app-brand app-brand-button" onClick={mainlineGuide.show} aria-label="Open the Mainline guide">
           <svg className="app-logo" viewBox="0 0 64 64" aria-hidden="true">
             <path className="app-logo-rook" d="M8 9h12v9h7V9h10v9h7V9h12v17l-6 6v15l5 5v4H9v-4l5-5V32l-6-6V9Z" />
             <path className="app-logo-line" d="M29 21h6v15.5l7-6h3v3.5l-10 8v9h-6v-9l-10-8v-3.5h3l7 6V21Z" />
           </svg>
           <h1>Mainline</h1>
-        </div>
+        </button>
         <p>Opening explorer &amp; repertoire builder</p>
         <ModeToggle mode={mode} onChange={handleModeChange} />
         <button
@@ -783,6 +786,7 @@ function App() {
           />
         </div>
       </header>
+      <MainlineGuide open={mainlineGuide.open} onClose={mainlineGuide.dismiss} />
       {auth.authError && (
         <p className="panel-status error auth-error-banner">
           {auth.authError}{' '}
@@ -970,20 +974,21 @@ function App() {
               </div>
               <EvalBar evaluation={evaluation} boardColor={boardColor} />
             </div>
-            <div className="board-controls">
-              <button type="button" onClick={goBack} disabled={pointer === 0} title="Back (left arrow key)">
-                ← Back
+            <div className="board-controls explorer-board-controls">
+              <button type="button" onClick={goBack} disabled={pointer === 0} title="Back (left arrow key)" aria-label="Back">
+                <span className="desktop-control-label">← Back</span><span className="mobile-control-label" aria-hidden="true">←</span>
               </button>
               <button
                 type="button"
                 onClick={goForward}
                 disabled={pointer === moves.length}
                 title="Forward (right arrow key)"
+                aria-label="Forward"
               >
-                Forward →
+                <span className="desktop-control-label">Forward →</span><span className="mobile-control-label" aria-hidden="true">→</span>
               </button>
-              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN} title="Reset (R)">
-                Reset
+              <button type="button" onClick={reset} disabled={moves.length === 0 && fen === START_FEN} title="Reset (R)" aria-label="Reset">
+                <span className="desktop-control-label">Reset</span><span className="mobile-control-label" aria-hidden="true">↻</span>
               </button>
               <button
                 type="button"

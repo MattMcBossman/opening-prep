@@ -47,6 +47,10 @@ cached engine advantage, then opens each selected gap directly in Explorer.
 Equal or worse positions keep their full exposure while already-winning
 positions are discounted.
 
+First-time visitors also receive a short browser-local welcome guide covering
+exploration, module building, and drills. Selecting the Mainline logo reopens
+the guide at any time.
+
 ## Project layout
 
 - `frontend/` — React + TypeScript + Vite app. See [frontend/README.md](frontend/README.md) for commands and layout.
@@ -62,6 +66,19 @@ positions are discounted.
 - `AUTONOMOUS_TASKS.md` — isolated feature-branch tasks that need no product decision.
 
 ## Getting started
+
+Install the repository's Git hooks once after cloning:
+
+```bash
+./scripts/install-git-hooks
+```
+
+The pre-commit hook allows only merge commits on deployment branches. It protects
+`render-launch` and conventional future deployment branch names such as
+`render-*`, `deploy/*`, `deployment/*`, `production/*`, `staging/*`, and
+`release/*`. Make changes on a development or feature branch, then merge that
+branch with a merge commit (for local merges, use `git merge --no-ff`). Direct
+commits, cherry-picks, and reverts on a deployment branch are blocked.
 
 Backend (see [backend/README.md](backend/README.md) for full setup, including the one-time database role/key creation):
 
