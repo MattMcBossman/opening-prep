@@ -14,18 +14,23 @@ type Props = {
   onSelect: (index: number) => void
   boardColor: RepertoireColor
   isPlySaved: (index: number) => boolean
+  getPlySaveState?: (index: number) => 'unsaved' | 'saved' | 'pending-add' | 'pending-remove'
   onTogglePlySaved: (index: number, point: { x: number; y: number }) => void
   canEditModule?: boolean
   getContinuations: (fen: string) => RepertoireMove[]
   onPlayContinuationPath: (moves: RepertoireMove[]) => void
 }
 
-function StarButton({ saved, onToggle, canEdit }: { saved: boolean; onToggle: (point: { x: number; y: number }) => void; canEdit: boolean }) {
-  const title = canEdit ? (saved ? 'Remove from module' : 'Save to module') : 'Select Edit to change this module'
+function StarButton({ saved, state, onToggle, canEdit }: { saved: boolean; state: 'unsaved' | 'saved' | 'pending-add' | 'pending-remove'; onToggle: (point: { x: number; y: number }) => void; canEdit: boolean }) {
+  const title = canEdit
+    ? state === 'pending-add' ? 'Will be added when saved'
+      : state === 'pending-remove' ? 'Will be removed when saved'
+        : saved ? 'Remove from module' : 'Save to module'
+    : 'Select Edit to change this module'
   return (
     <button
       type="button"
-      className={saved ? 'move-star active' : 'move-star'}
+      className={`move-star ${state}`}
       title={title}
       aria-label={title}
       aria-disabled={!canEdit}
@@ -64,6 +69,7 @@ export function MoveList({
   onSelect,
   boardColor,
   isPlySaved,
+  getPlySaveState = (index) => isPlySaved(index) ? 'saved' : 'unsaved',
   onTogglePlySaved,
   canEditModule = true,
   getContinuations,
@@ -95,7 +101,7 @@ export function MoveList({
       </button>
     )
     const star = (cell?: PlayedCell) => cell
-      ? <StarButton saved={isPlySaved(cell.index)} canEdit={canEditModule} onToggle={(point) => onTogglePlySaved(cell.index, point)} />
+      ? <StarButton saved={isPlySaved(cell.index)} state={getPlySaveState(cell.index)} canEdit={canEditModule} onToggle={(point) => onTogglePlySaved(cell.index, point)} />
       : null
     return (
       <div className="move-row" key={`played-${index}`}>

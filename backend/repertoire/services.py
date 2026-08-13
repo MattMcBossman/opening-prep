@@ -16,6 +16,7 @@ from . import cascade
 from .models import (
     OpeningTemplateRelease,
     ProfileModule,
+    ProfileTemplateRelease,
     Repertoire,
     RepertoireLine,
     RepertoireLineStep,
@@ -294,9 +295,37 @@ def get_or_create_default(user, color: str) -> Repertoire:
     return repertoire
 
 
+@transaction.atomic
+def consolidate_user_profiles(user) -> RepertoireProfile:
+    """Collapse legacy compositions into the one internal Default profile."""
+    profiles = list(RepertoireProfile.objects.select_for_update().filter(owner=user).order_by("id"))
+    retained = next((profile for profile in profiles if profile.name == "Default"), None)
+    if retained is None:
+        retained = RepertoireProfile.objects.create(owner=user, name="Default")
+        profiles.append(retained)
+    module_ids = list(Repertoire.objects.filter(owner=user).order_by("id").values_list("id", flat=True))
+    release_ids = list(
+        ProfileTemplateRelease.objects.filter(profile__in=profiles)
+        .order_by("sort_order", "id")
+        .values_list("release_id", flat=True)
+        .distinct()
+    )
+    ProfileModule.objects.filter(profile=retained).delete()
+    ProfileTemplateRelease.objects.filter(profile=retained).delete()
+    ProfileModule.objects.bulk_create([
+        ProfileModule(profile=retained, module_id=module_id, sort_order=index)
+        for index, module_id in enumerate(module_ids)
+    ])
+    ProfileTemplateRelease.objects.bulk_create([
+        ProfileTemplateRelease(profile=retained, release_id=release_id, sort_order=index)
+        for index, release_id in enumerate(release_ids)
+    ])
+    RepertoireProfile.objects.filter(owner=user).exclude(pk=retained.pk).delete()
+    return retained
+
+
 def get_or_create_default_profile(user) -> RepertoireProfile:
-    profile, _ = RepertoireProfile.objects.get_or_create(owner=user, name="Default")
-    return profile
+    return consolidate_user_profiles(user)
 
 
 @transaction.atomic

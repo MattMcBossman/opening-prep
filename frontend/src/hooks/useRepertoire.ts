@@ -471,19 +471,24 @@ function useApiRepertoireStore(enabled: boolean) {
       }
       return { ...s, trees: { ...s.trees, [moduleId]: tree } }
     })
-    addRepertoireLine(moduleId, steps, label, source, annotations, conflictPolicy).then(
-      () => {
-        fetchRepertoireTree(moduleId).then(
-          (tree) => setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } })),
-          () => {},
-        )
+    return addRepertoireLine(moduleId, steps, label, source, annotations, conflictPolicy).then(
+      async () => {
+        try {
+          const tree = await fetchRepertoireTree(moduleId)
+          setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } }))
+        } catch {
+          // The mutation succeeded; a later refresh can reconcile the tree.
+        }
       },
-      (err: unknown) => {
+      async (err: unknown) => {
         setState((s) => ({ ...s, error: errorMessage(err), errorKind: 'change' }))
-        fetchRepertoireTree(moduleId).then(
-          (tree) => setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } })),
-          () => {},
-        )
+        try {
+          const tree = await fetchRepertoireTree(moduleId)
+          setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } }))
+        } catch {
+          // Preserve the original mutation error.
+        }
+        throw err
       },
     )
   }, [])
@@ -497,14 +502,19 @@ function useApiRepertoireStore(enabled: boolean) {
       const tree = removeMoveFromTree(current, color, key, uci)
       return tree === current ? s : { ...s, trees: { ...s.trees, [moduleId]: tree } }
     })
-    removeRepertoireMove(moduleId, key, uci).then(
-      (tree) => setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } })),
-      (err: unknown) => {
+    return removeRepertoireMove(moduleId, key, uci).then(
+      (tree) => {
+        setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } }))
+      },
+      async (err: unknown) => {
         setState((s) => ({ ...s, error: errorMessage(err), errorKind: 'change' }))
-        fetchRepertoireTree(moduleId).then(
-          (tree) => setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } })),
-          () => {},
-        )
+        try {
+          const tree = await fetchRepertoireTree(moduleId)
+          setState((s) => ({ ...s, trees: { ...s.trees, [moduleId]: tree } }))
+        } catch {
+          // Preserve the original mutation error.
+        }
+        throw err
       },
     )
   }, [])
@@ -865,8 +875,7 @@ export function useRepertoire(user: AuthUser | null) {
   const addLine = useCallback(
     (color: RepertoireColor, steps: MoveEdge[], source: ApiRepertoireLine['source'] = 'manual', label = '', annotations: ApiRepertoireLine['annotations'] = [], conflictPolicy: 'reject' | 'replace' = 'reject') => {
       if (isAuthenticated) {
-        api.addLine(color, steps, source, label, annotations, conflictPolicy)
-        return
+        return api.addLine(color, steps, source, label, annotations, conflictPolicy)
       }
       const tree = local.getEditingTree(color)
       const conflicts = findResponseConflicts(tree, color, steps)

@@ -229,7 +229,8 @@ def test_linking_a_legacy_lichess_identity_requires_confirmation(db):
     assert not User.objects.filter(pk=owner.pk).exists()
     assert Repertoire.objects.get(pk=legacy_module.pk).owner == signed_in_user
     assert Repertoire.objects.get(pk=legacy_module.pk).name == "Vienna (merged)"
-    assert RepertoireProfile.objects.get(pk=legacy_profile.pk).name == "Default (merged)"
+    assert not RepertoireProfile.objects.filter(pk=legacy_profile.pk).exists()
+    assert list(RepertoireProfile.objects.filter(owner=signed_in_user).values_list("name", flat=True)) == ["Default"]
     assert DrillSession.objects.get(pk=legacy_drill.pk).user == signed_in_user
 
 
