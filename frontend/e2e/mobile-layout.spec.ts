@@ -41,6 +41,30 @@ test('mobile Explorer sections show one workspace at a time and preserve selecti
   await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('walkthrough activates and scrolls mobile sections into view', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Start walkthrough' }).click()
+
+  const next = page.getByRole('button', { name: 'Next' })
+  for (let index = 0; index < 4; index += 1) await next.click()
+
+  const coverageHeading = page.locator('#mobile-prep-panel .coverage-dashboard > h3')
+  await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(async () => coverageHeading.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.top >= 0 && rect.bottom <= window.innerHeight
+  })).toBe(true)
+
+  await next.click()
+  const recommendationHeading = page.locator('#mobile-prep-panel .opening-generator-heading')
+  await expect.poll(async () => recommendationHeading.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.top >= 0 && rect.bottom <= window.innerHeight
+  })).toBe(true)
+  await expect(page.locator('.walkthrough-card')).toContainText('Experimental tree recommendations')
+})
+
 test('mobile board owns touch drags and places the eval bar on the left', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')

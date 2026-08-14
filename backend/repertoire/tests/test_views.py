@@ -73,7 +73,7 @@ class TestRepertoireListCreate:
 
 @pytest.mark.django_db
 class TestProfiles:
-    def test_create_and_list_profile(self, client, user):
+    def test_create_profile_is_consolidated_on_list(self, client, user):
         response = client.post(
             "/api/v1/repertoires/profiles/",
             {"name": "Tournament", "description": "Main classical preparation"},
@@ -86,7 +86,8 @@ class TestProfiles:
         assert RepertoireProfile.objects.get(id=response.data["id"]).owner == user
 
         listed = client.get("/api/v1/repertoires/profiles/")
-        assert [profile["name"] for profile in listed.data] == ["Tournament"]
+        assert [profile["name"] for profile in listed.data] == ["Default"]
+        assert RepertoireProfile.objects.filter(owner=user, name="Tournament").exists() is False
 
     def test_add_disable_as_detach_and_remove_module_without_deleting_it(self, client, user):
         profile = RepertoireProfile.objects.create(owner=user, name="Blitz")

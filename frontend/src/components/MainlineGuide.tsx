@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-
-type ExplorerSection = 'moves' | 'stats' | 'prep'
+import { WALKTHROUGH_STEPS, walkthroughSpotlightBounds, type ExplorerSection } from './mainlineGuideData'
 
 type Props = {
   open: boolean
@@ -9,74 +8,7 @@ type Props = {
   onWalkthroughModeChange: (mode: 'explorer' | 'drill') => void
 }
 
-type WalkthroughStep = {
-  target: string
-  eyebrow: string
-  title: string
-  description: string
-  section?: ExplorerSection
-  mode?: 'explorer' | 'drill'
-}
-
 const FOCUSABLE_SELECTOR = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-
-const WALKTHROUGH_STEPS: WalkthroughStep[] = [
-  {
-    target: '[data-guide="modes"]',
-    eyebrow: 'Navigate',
-    title: 'Explore or practice',
-    description: 'Use these tabs to browse openings and build lines in Explorer, or switch to Drills to practice your saved repertoire.',
-    mode: 'explorer',
-  },
-  {
-    target: '.board-with-eval',
-    eyebrow: 'Explore',
-    title: 'Play moves on the board',
-    description: 'Drag a piece or tap its starting and destination squares. The opening name, evaluation, moves, and statistics update with the position.',
-  },
-  {
-    target: '#mobile-moves-panel > h2',
-    eyebrow: 'Build',
-    title: 'Review and save moves',
-    description: 'This is the line you have played. Select an earlier move to go back, and use stars on your own moves while editing a module to save your repertoire.',
-    section: 'moves',
-  },
-  {
-    target: '#mobile-stats-panel .explorer-toolbar',
-    eyebrow: 'Research',
-    title: 'See what players choose',
-    description: 'Opening statistics show popular continuations and results. Select a move in the table to play it on the board.',
-    section: 'stats',
-  },
-  {
-    target: '#mobile-prep-panel .coverage-dashboard > h3',
-    eyebrow: 'Prepare',
-    title: 'Find gaps in your repertoire',
-    description: 'Preparation tools summarize coverage and help you spot common opponent replies that still need an answer.',
-    section: 'prep',
-  },
-  {
-    target: '[data-guide="modes"]',
-    eyebrow: 'Practice',
-    title: 'Switch to Drills',
-    description: 'Drills hide opening hints and ask you to recall the moves saved in your repertoire. Use the Drills tab whenever you want to practice.',
-    mode: 'drill',
-  },
-  {
-    target: '.drill-progress, .drill-empty',
-    eyebrow: 'Drill',
-    title: 'Practice one line at a time',
-    description: 'Choose a starting point, then play your prepared moves from memory. Mainline tracks progress, explains wrong moves, and lets you retry failed lines. If this area is empty, save some Explorer moves first.',
-    mode: 'drill',
-  },
-  {
-    target: '[data-guide="brand"]',
-    eyebrow: 'You’re ready',
-    title: 'Come back anytime',
-    description: 'Select the Mainline logo whenever you want to reopen this welcome and take the walkthrough again.',
-    mode: 'explorer',
-  },
-]
 
 export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWalkthroughModeChange }: Props) {
   const dialogRef = useRef<HTMLElement>(null)
@@ -128,25 +60,34 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWal
 
   useEffect(() => {
     if (!open || !step) return
+    setTargetRect(null)
     if (step.mode) onWalkthroughModeChange(step.mode)
     if (step.section) onWalkthroughSectionChange(step.section)
 
     let frame = 0
+    let settleTimer = 0
+    let attempts = 0
     const updateTargetRect = () => {
       const target = document.querySelector<HTMLElement>(step.target)
       if (!target) return
       frame = window.requestAnimationFrame(() => setTargetRect(target.getBoundingClientRect()))
     }
-    const timer = window.setTimeout(() => {
+    const revealTarget = () => {
       const target = document.querySelector<HTMLElement>(step.target)
-      target?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
-      window.scrollBy({ top: -72, behavior: 'smooth' })
+      if (!target) {
+        attempts += 1
+        if (attempts < 30) frame = window.requestAnimationFrame(revealTarget)
+        return
+      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
       updateTargetRect()
-    }, 80)
+      settleTimer = window.setTimeout(updateTargetRect, 400)
+    }
+    frame = window.requestAnimationFrame(revealTarget)
     window.addEventListener('resize', updateTargetRect)
     window.addEventListener('scroll', updateTargetRect, true)
     return () => {
-      window.clearTimeout(timer)
+      window.clearTimeout(settleTimer)
       window.cancelAnimationFrame(frame)
       window.removeEventListener('resize', updateTargetRect)
       window.removeEventListener('scroll', updateTargetRect, true)
@@ -167,12 +108,14 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWal
   if (step) {
     const currentStepIndex = stepIndex ?? 0
     const isLast = currentStepIndex === WALKTHROUGH_STEPS.length - 1
-    const spotlight = targetRect ? {
-      left: Math.max(6, targetRect.left - 6),
-      top: Math.max(6, targetRect.top - 6),
-      right: Math.min(window.innerWidth - 6, targetRect.right + 6),
-      bottom: Math.min(window.innerHeight - 6, targetRect.bottom + 6),
-    } : null
+    const spotlight = targetRect
+      ? walkthroughSpotlightBounds(
+        targetRect,
+        window.innerWidth,
+        window.innerHeight,
+        window.matchMedia('(max-width: 700px)').matches,
+      )
+      : null
     const placeCardAtTop = spotlight !== null && spotlight.top > window.innerHeight / 2
     return (
       <div className="walkthrough-layer" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title">

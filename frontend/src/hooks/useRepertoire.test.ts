@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseLocalRepertoire, serializeLocalRepertoireV2 } from './useRepertoire'
+import { parseLocalRepertoire, selectAlphaViennaTemplate, serializeLocalRepertoireV2 } from './useRepertoire'
+import type { OpeningTemplateSummary } from '../lib/repertoireApi'
 
 const whiteTree = {
   'root w KQkq -': [{ san: 'e4', uci: 'e2e4', resultingFen: 'after b KQkq e3' }],
@@ -22,5 +23,26 @@ describe('anonymous repertoire storage migration', () => {
   it('falls back safely for malformed storage', () => {
     expect(parseLocalRepertoire(null)).toEqual({ white: {}, black: {} })
     expect(parseLocalRepertoire({ version: 2, profiles: [] })).toEqual({ white: {}, black: {} })
+  })
+})
+
+describe('alpha Vienna default', () => {
+  const template = (slug: string): OpeningTemplateSummary => ({
+    slug,
+    name: slug,
+    description: '',
+    color: 'white',
+    kind: 'community',
+    publisherName: 'Kurtis',
+    latestRelease: { id: 1, version: 1, publishedAt: '', commonStart: '', lineCount: 1 },
+  })
+
+  it('prefers the authored Vienna over the development seed fallback', () => {
+    expect(selectAlphaViennaTemplate([template('vienna-game'), template('vienna')])?.slug).toBe('vienna')
+  })
+
+  it('uses the starter seed only when the authored release is unavailable', () => {
+    expect(selectAlphaViennaTemplate([template('stonewall-attack'), template('vienna-game')])?.slug).toBe('vienna-game')
+    expect(selectAlphaViennaTemplate([template('stonewall-attack')])).toBeNull()
   })
 })
