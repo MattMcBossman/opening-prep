@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">Mainline logo</title>
+  <title id="title">Previous Mainline logo</title>
   <path fill="#20242b" d="M8 9h12v9h7V9h10v9h7V9h12v17l-6 6v15l5 5v4H9v-4l5-5V32l-6-6V9Z"/>
-  <path fill="#d36b3f" d="M29 21h6v35h-6V21Zm-9.5 6h4v7l5.5 5v5l-9.5-8v-9Zm25 4h-4v7L35 43v5l9.5-8v-9Z"/>
+  <path fill="#d36b3f" d="M29 21h6v15.5l7-6h3v3.5l-10 8v9h-6v-9l-10-8v-3.5h3l7 6V21Z"/>
 </svg>

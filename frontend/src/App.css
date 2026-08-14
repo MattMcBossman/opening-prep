@@ -217,6 +217,10 @@
   display: none;
 }
 
+.mobile-settings-backdrop {
+  display: none;
+}
+
 .drill-start-mode {
   display: flex;
   align-items: center;
@@ -2214,6 +2218,17 @@
 
   .header-controls {
     grid-column: 1 / -1;
+  }
+
+  .mobile-settings-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 109;
+    padding: 0;
+    border: 0;
+    background: rgb(0 0 0 / 34%);
+    touch-action: none;
   }
 
   .header-controls {

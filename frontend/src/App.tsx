@@ -171,6 +171,17 @@ function App() {
   const [drillMounted, setDrillMounted] = useState(initialView.mode === 'drill' || Boolean(initialView.drillStartContext))
   const [moduleDrill, setModuleDrill] = useState<{ module: RepertoireSummary; lines: DrillLine[] } | null>(null)
 
+  useEffect(() => {
+    if (!mobileSettingsOpen) return
+    const previousBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    setSelectedSquare(null)
+    setHoveredSquare(null)
+    return () => {
+      document.body.style.overflow = previousBodyOverflow
+    }
+  }, [mobileSettingsOpen])
+
   const selectedModuleId = repertoire.editingModuleIds[boardColor] ?? null
   const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
   const persistedModuleTree = viewedRelease?.tree ?? repertoire.getEditingTree(boardColor)
@@ -723,7 +734,7 @@ function App() {
         <button type="button" className="app-brand app-brand-button" onClick={mainlineGuide.show} aria-label="Open the Mainline guide">
           <svg className="app-logo" viewBox="0 0 64 64" aria-hidden="true">
             <path className="app-logo-rook" d="M8 9h12v9h7V9h10v9h7V9h12v17l-6 6v15l5 5v4H9v-4l5-5V32l-6-6V9Z" />
-            <path className="app-logo-line" d="M29 21h6v15.5l7-6h3v3.5l-10 8v9h-6v-9l-10-8v-3.5h3l7 6V21Z" />
+            <path className="app-logo-line" d="M29 21h6v35h-6V21Zm-9.5 6h4v7l5.5 5v5l-9.5-8v-9Zm25 4h-4v7L35 43v5l9.5-8v-9Z" />
           </svg>
           <h1>Mainline</h1>
         </button>
@@ -739,6 +750,14 @@ function App() {
         >
           <span aria-hidden="true">{mobileSettingsOpen ? '×' : '☰'}</span>
         </button>
+        {mobileSettingsOpen && (
+          <button
+            type="button"
+            className="mobile-settings-backdrop"
+            aria-label="Close menu"
+            onClick={() => setMobileSettingsOpen(false)}
+          />
+        )}
         <div id="header-settings" className={`header-controls ${mobileSettingsOpen ? 'mobile-open' : ''}`}>
           <div className="header-module-controls">
             <BoardColorToggle boardColor={boardColor} onToggle={handleToggleBoardColor} />
