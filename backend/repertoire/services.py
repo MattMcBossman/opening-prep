@@ -14,6 +14,7 @@ from common.fen import START_FEN, normalize_fen
 
 from . import cascade
 from .models import (
+    OpeningTemplate,
     OpeningTemplateRelease,
     ProfileModule,
     ProfileTemplateRelease,
@@ -325,7 +326,22 @@ def consolidate_user_profiles(user) -> RepertoireProfile:
 
 
 def get_or_create_default_profile(user) -> RepertoireProfile:
-    return consolidate_user_profiles(user)
+    profile = consolidate_user_profiles(user)
+    # The alpha ships with Kurtis's published Vienna attached read-only. Prefer
+    # the full authored release; the small starter seed remains a development
+    # fallback for fresh databases.
+    template = (
+        OpeningTemplate.objects.filter(slug="vienna", is_published=True).first()
+        or OpeningTemplate.objects.filter(slug="vienna-game", is_published=True).first()
+    )
+    release = template.releases.order_by("-version").first() if template else None
+    if release:
+        ProfileTemplateRelease.objects.get_or_create(
+            profile=profile,
+            release=release,
+            defaults={"sort_order": profile.module_links.count() + profile.template_links.count()},
+        )
+    return profile
 
 
 @transaction.atomic

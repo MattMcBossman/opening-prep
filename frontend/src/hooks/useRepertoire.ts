@@ -17,6 +17,7 @@ import {
   fetchOpeningTemplateRelease,
   fetchRepertoireTree,
   importRepertoire,
+  listOpeningTemplates,
   listRepertoireProfiles,
   listRepertoireLines,
   listRepertoires,
@@ -32,6 +33,7 @@ import type {
   ImportSummary,
   MoveEdge,
   OpeningTemplateRelease,
+  OpeningTemplateSummary,
   RepertoireLine as ApiRepertoireLine,
   RepertoireProfileSummary,
   RepertoireSummary,
@@ -47,6 +49,33 @@ const IMPORT_STATUS_KEY_PREFIX = 'opening-prep:repertoire-import-status:'
 
 function emptyRepertoire(): Repertoire {
   return { white: {}, black: {} }
+}
+
+export function selectAlphaViennaTemplate(templates: OpeningTemplateSummary[]) {
+  return templates.find((item) => item.slug === 'vienna')
+    ?? templates.find((item) => item.slug === 'vienna-game')
+    ?? null
+}
+
+function useAlphaViennaRelease(enabled: boolean) {
+  const [release, setRelease] = useState<OpeningTemplateRelease | null>(null)
+  useEffect(() => {
+    if (!enabled) {
+      setRelease(null)
+      return
+    }
+    const controller = new AbortController()
+    listOpeningTemplates(controller.signal)
+      .then((templates) => {
+        const template = selectAlphaViennaTemplate(templates)
+        return template?.latestRelease
+          ? fetchOpeningTemplateRelease(template.slug, template.latestRelease.version, controller.signal)
+          : null
+      })
+      .then((snapshot) => { if (!controller.signal.aborted) setRelease(snapshot) }, () => {})
+    return () => controller.abort()
+  }, [enabled])
+  return release
 }
 
 type LocalRepertoireV2 = {
@@ -841,6 +870,7 @@ export function useRepertoire(user: AuthUser | null) {
   const isAuthenticated = user !== null
   const local = useLocalRepertoireStore()
   const api = useApiRepertoireStore(isAuthenticated)
+  const alphaViennaRelease = useAlphaViennaRelease(!isAuthenticated)
   const importPrompt = useImportPrompt(user, local.repertoire, api.status === 'ready', api.refresh)
 
   const active = isAuthenticated ? api : local
@@ -851,16 +881,24 @@ export function useRepertoire(user: AuthUser | null) {
   // their active profile; anonymous users retain one local tree per color.
   const activeRepertoire: Repertoire = isAuthenticated ? api.tree : local.repertoire
   const visibleRepertoire = useMemo<Repertoire>(() => {
-    if (isAuthenticated || !api.previewRelease) return activeRepertoire
-    const preview = api.previewRelease
-    return {
-      ...activeRepertoire,
-      [preview.color]: mergeRepertoireTrees([
-        { moduleId: 0, tree: activeRepertoire[preview.color] },
-        { moduleId: -1_000_000_000 - preview.id, tree: preview.tree },
-      ]),
+    if (isAuthenticated) return activeRepertoire
+    const releases = [alphaViennaRelease, api.previewRelease].filter(
+      (release): release is OpeningTemplateRelease => release !== null,
+    )
+    if (releases.length === 0) return activeRepertoire
+    const visible = { ...activeRepertoire }
+    for (const color of ['white', 'black'] as const) {
+      const overlays = releases.filter((release) => release.color === color)
+      if (overlays.length === 0) continue
+      visible[color] = mergeRepertoireTrees([
+        { moduleId: 0, tree: activeRepertoire[color] },
+        ...overlays.map((release) => ({ moduleId: -1_000_000_000 - release.id, tree: release.tree })),
+      ])
     }
-  }, [activeRepertoire, api.previewRelease, isAuthenticated])
+    return {
+      ...visible,
+    }
+  }, [activeRepertoire, alphaViennaRelease, api.previewRelease, isAuthenticated])
 
   const getTree = useCallback(
     (color: RepertoireColor): RepertoireTree => visibleRepertoire[color],
@@ -900,6 +938,28 @@ export function useRepertoire(user: AuthUser | null) {
     }
   }
 
+  const localDrillLines = useMemo<Partial<Record<RepertoireColor, DrillLine[]>>>(() => {
+    if (!alphaViennaRelease) return {}
+    return {
+      [alphaViennaRelease.color]: alphaViennaRelease.lines.map((line) => ({
+        id: line.steps.map((step) => step.uci).join(' '),
+        steps: line.steps.map((step) => ({
+          fen: step.originFen,
+          san: step.san,
+          uci: step.uci,
+          resultingFen: step.resultingFen,
+          mover: sideToMove(step.originFen) === alphaViennaRelease.color ? 'own' : 'opponent',
+        })),
+        sources: [{
+          kind: 'template_release' as const,
+          id: alphaViennaRelease.id,
+          lineId: line.id,
+          name: alphaViennaRelease.name,
+        }],
+      })),
+    }
+  }, [alphaViennaRelease])
+
   return {
     getContinuations,
     getEditingTree: isAuthenticated ? api.getEditingTree : local.getEditingTree,
@@ -908,12 +968,12 @@ export function useRepertoire(user: AuthUser | null) {
     isMoveInActiveProfile: isAuthenticated
       ? api.isMoveInActiveProfile
       : (color: RepertoireColor, fen: string, uci: string) =>
-          (local.repertoire[color][normalizeFen(fen)] ?? []).some((move) => move.uci === uci),
+          (visibleRepertoire[color][normalizeFen(fen)] ?? []).some((move) => move.uci === uci),
     addMove: active.addMove,
     addLine,
     removeMove: active.removeMove,
     getTree,
-    drillLines: isAuthenticated ? api.drillLines : {},
+    drillLines: isAuthenticated ? api.drillLines : localDrillLines,
     editingLinePaths: isAuthenticated ? api.editingLinePaths : {},
     editingLines: isAuthenticated ? api.editingLines : {},
     isSignedIn: isAuthenticated,
@@ -922,8 +982,30 @@ export function useRepertoire(user: AuthUser | null) {
     syncErrorKind: isAuthenticated ? api.errorKind : null,
     clearSyncError: api.clearError,
     repertoireIds: recordingModuleIds,
-    profiles: isAuthenticated ? api.profiles : local.profiles,
-    activeProfile: isAuthenticated ? api.activeProfile : local.activeProfile,
+    profiles: isAuthenticated ? api.profiles : local.profiles.map((profile) => ({
+      ...profile,
+      templateReleases: alphaViennaRelease ? [{
+        id: alphaViennaRelease.id,
+        templateSlug: alphaViennaRelease.templateSlug,
+        name: alphaViennaRelease.name,
+        color: alphaViennaRelease.color,
+        version: alphaViennaRelease.version,
+        sortOrder: profile.modules.length,
+        enabled: true,
+      }] : [],
+    })),
+    activeProfile: isAuthenticated ? api.activeProfile : (local.activeProfile ? {
+      ...local.activeProfile,
+      templateReleases: alphaViennaRelease ? [{
+        id: alphaViennaRelease.id,
+        templateSlug: alphaViennaRelease.templateSlug,
+        name: alphaViennaRelease.name,
+        color: alphaViennaRelease.color,
+        version: alphaViennaRelease.version,
+        sortOrder: local.activeProfile.modules.length,
+        enabled: true,
+      }] : [],
+    } : null),
     activeProfileId: isAuthenticated ? api.activeProfileId : local.activeProfileId,
     editingModuleIds: isAuthenticated ? api.editingModuleIds : local.editingModuleIds,
     setActiveProfile: isAuthenticated ? api.setActiveProfile : local.setActiveProfile,

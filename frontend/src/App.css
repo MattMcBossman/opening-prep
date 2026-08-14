@@ -217,6 +217,7 @@
 .walkthrough-spotlight {
   position: fixed;
   z-index: 1;
+  box-sizing: border-box;
   border: 3px solid var(--accent);
   border-radius: 12px;
   box-shadow: 0 0 0 9999px rgb(0 0 0 / 54%), 0 0 0 5px rgb(211 107 63 / 24%);
