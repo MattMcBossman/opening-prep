@@ -170,7 +170,6 @@
 }
 
 .mainline-guide-start {
-  width: 100%;
   min-height: 44px;
   border: 1px solid var(--accent-border);
   border-radius: 7px;
@@ -179,6 +178,90 @@
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+.mainline-guide-actions,
+.walkthrough-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.mainline-guide-actions > button {
+  flex: 1;
+}
+
+.mainline-guide-secondary {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mainline-guide-start {
+  padding: 0 18px;
+}
+
+.walkthrough-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.walkthrough-spotlight {
+  position: fixed;
+  z-index: 1;
+  border: 3px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 66%), 0 0 0 5px rgb(211 107 63 / 24%);
+  transition: inset 180ms ease, width 180ms ease, height 180ms ease;
+}
+
+.walkthrough-card {
+  position: fixed;
+  z-index: 2;
+  right: 20px;
+  bottom: 20px;
+  width: min(420px, calc(100vw - 40px));
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 50px rgb(0 0 0 / 38%);
+  pointer-events: auto;
+}
+
+.walkthrough-card h2 {
+  margin: 4px 34px 8px 0;
+  color: var(--text-h);
+  font-size: 21px;
+  text-transform: none;
+}
+
+.walkthrough-card p {
+  margin: 0 0 18px;
+}
+
+.walkthrough-progress,
+.walkthrough-eyebrow {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.walkthrough-eyebrow {
+  margin-top: 12px;
+  color: var(--accent);
 }
 
 .app-logo {
@@ -2195,6 +2278,17 @@
     max-height: calc(100svh - 16px);
     padding: 22px 18px;
     border-radius: 14px;
+  }
+
+  .mainline-guide-actions {
+    flex-direction: column-reverse;
+  }
+
+  .walkthrough-card {
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+    padding: 18px;
   }
 
   .app-header h1 {

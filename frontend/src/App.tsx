@@ -731,7 +731,7 @@ function App() {
   return (
     <div className="app-layout">
       <header className="app-header">
-        <button type="button" className="app-brand app-brand-button" onClick={mainlineGuide.show} aria-label="Open the Mainline guide">
+        <button type="button" className="app-brand app-brand-button" onClick={mainlineGuide.show} aria-label="Open the Mainline guide" data-guide="brand">
           <svg className="app-logo" viewBox="0 0 64 64" aria-hidden="true">
             <path className="app-logo-rook" d="M8 9h12v9h7V9h10v9h7V9h12v17l-6 6v15l5 5v4H9v-4l5-5V32l-6-6V9Z" />
             <path className="app-logo-line" d="M29 21h6v35h-6V21Zm-9.5 6h4v7l5.5 5v5l-9.5-8v-9Zm25 4h-4v7L35 43v5l9.5-8v-9Z" />
@@ -739,7 +739,7 @@ function App() {
           <h1>Mainline</h1>
         </button>
         <p>Opening explorer &amp; repertoire builder</p>
-        <ModeToggle mode={mode} onChange={handleModeChange} />
+        <ModeToggle mode={mode} onChange={handleModeChange} guideTarget="modes" />
         <button
           type="button"
           className="mobile-settings-button"
@@ -830,7 +830,7 @@ function App() {
           />
         </div>
       </header>
-      <MainlineGuide open={mainlineGuide.open} onClose={mainlineGuide.dismiss} />
+      <MainlineGuide open={mainlineGuide.open} onClose={mainlineGuide.dismiss} onWalkthroughSectionChange={setMobileExplorerSection} />
       {auth.authError && (
         <p className="panel-status error auth-error-banner">
           {auth.authError}{' '}
@@ -960,6 +960,7 @@ function App() {
           </nav>
           <section
             id="mobile-moves-panel"
+            data-guide="moves"
             className={`panel moves-panel mobile-section-panel ${mobileExplorerSection === 'moves' ? 'mobile-active' : ''}`}
             role="tabpanel"
           >
@@ -979,7 +980,7 @@ function App() {
             />
           </section>
 
-          <div className="board-column">
+          <div className="board-column" data-guide="board">
             <div className="board-heading">
               <OpeningName
                 name={resolvedOpening?.opening.name ?? null}
@@ -1052,6 +1053,7 @@ function App() {
           <div className={`side-column ${mobileExplorerSection !== 'stats' ? 'mobile-section-container-hidden' : ''}`}>
             <section
               id="mobile-stats-panel"
+              data-guide="stats"
               className={`panel explorer-panel mobile-section-panel ${mobileExplorerSection === 'stats' ? 'mobile-active' : ''}`}
               role="tabpanel"
             >
@@ -1087,6 +1089,7 @@ function App() {
           </div>
           <div
             id="mobile-prep-panel"
+            data-guide="prep"
             className={`explorer-prep-tools ${mobileExplorerSection !== 'prep' ? 'mobile-section-container-hidden' : ''}`}
             role="tabpanel"
           >

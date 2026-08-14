@@ -1,17 +1,78 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+type ExplorerSection = 'moves' | 'stats' | 'prep'
 
 type Props = {
   open: boolean
   onClose: () => void
+  onWalkthroughSectionChange: (section: ExplorerSection) => void
+}
+
+type WalkthroughStep = {
+  target: string
+  eyebrow: string
+  title: string
+  description: string
+  section?: ExplorerSection
 }
 
 const FOCUSABLE_SELECTOR = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 
-export function MainlineGuide({ open, onClose }: Props) {
+const WALKTHROUGH_STEPS: WalkthroughStep[] = [
+  {
+    target: '[data-guide="modes"]',
+    eyebrow: 'Navigate',
+    title: 'Explore or practice',
+    description: 'Use these tabs to browse openings and build lines in Explorer, or switch to Drills to practice your saved repertoire.',
+  },
+  {
+    target: '[data-guide="board"]',
+    eyebrow: 'Explore',
+    title: 'Play moves on the board',
+    description: 'Drag a piece or tap its starting and destination squares. The opening name, evaluation, moves, and statistics update with the position.',
+  },
+  {
+    target: '[data-guide="moves"]',
+    eyebrow: 'Build',
+    title: 'Review and save moves',
+    description: 'This is the line you have played. Select an earlier move to go back, and use stars on your own moves while editing a module to save your repertoire.',
+    section: 'moves',
+  },
+  {
+    target: '[data-guide="stats"]',
+    eyebrow: 'Research',
+    title: 'See what players choose',
+    description: 'Opening statistics show popular continuations and results. Select a move in the table to play it on the board.',
+    section: 'stats',
+  },
+  {
+    target: '[data-guide="prep"]',
+    eyebrow: 'Prepare',
+    title: 'Find gaps in your repertoire',
+    description: 'Preparation tools summarize coverage and help you spot common opponent replies that still need an answer.',
+    section: 'prep',
+  },
+  {
+    target: '[data-guide="brand"]',
+    eyebrow: 'You’re ready',
+    title: 'Come back anytime',
+    description: 'Select the Mainline logo whenever you want to reopen this welcome and take the walkthrough again.',
+  },
+]
+
+export function MainlineGuide({ open, onClose, onWalkthroughSectionChange }: Props) {
   const dialogRef = useRef<HTMLElement>(null)
+  const [stepIndex, setStepIndex] = useState<number | null>(null)
+  const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
+  const isWalkthrough = stepIndex !== null
+  const step = isWalkthrough ? WALKTHROUGH_STEPS[stepIndex] : null
 
   useEffect(() => {
-    if (!open) return
+    if (!open) setStepIndex(null)
+  }, [open])
+
+  useEffect(() => {
+    if (!open || isWalkthrough) return
 
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousBodyOverflow = document.body.style.overflow
@@ -26,7 +87,6 @@ export function MainlineGuide({ open, onClose }: Props) {
         return
       }
       if (event.key !== 'Tab' || !dialog) return
-
       const focusable = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
       if (focusable.length === 0) return
       const first = focusable[0]
@@ -46,9 +106,76 @@ export function MainlineGuide({ open, onClose }: Props) {
       document.body.style.overflow = previousBodyOverflow
       previousFocus?.focus()
     }
-  }, [onClose, open])
+  }, [isWalkthrough, onClose, open])
+
+  useEffect(() => {
+    if (!open || !step) return
+    if (step.section) onWalkthroughSectionChange(step.section)
+
+    let frame = 0
+    const updateTargetRect = () => {
+      const target = document.querySelector<HTMLElement>(step.target)
+      if (!target) return
+      frame = window.requestAnimationFrame(() => setTargetRect(target.getBoundingClientRect()))
+    }
+    const timer = window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(step.target)
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+      updateTargetRect()
+    }, 80)
+    window.addEventListener('resize', updateTargetRect)
+    window.addEventListener('scroll', updateTargetRect, true)
+    return () => {
+      window.clearTimeout(timer)
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updateTargetRect)
+      window.removeEventListener('scroll', updateTargetRect, true)
+    }
+  }, [onWalkthroughSectionChange, open, step])
+
+  useEffect(() => {
+    if (!open || !isWalkthrough) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isWalkthrough, onClose, open])
 
   if (!open) return null
+
+  if (step) {
+    const currentStepIndex = stepIndex ?? 0
+    const isLast = currentStepIndex === WALKTHROUGH_STEPS.length - 1
+    return (
+      <div className="walkthrough-layer" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title">
+        {targetRect && (
+          <div
+            className="walkthrough-spotlight"
+            style={{
+              left: Math.max(6, targetRect.left - 6),
+              top: Math.max(6, targetRect.top - 6),
+              width: Math.min(window.innerWidth - 12, targetRect.width + 12),
+              height: Math.min(window.innerHeight - 12, targetRect.height + 12),
+            }}
+          />
+        )}
+        <section className="walkthrough-card">
+          <button type="button" className="mainline-guide-close" onClick={onClose} aria-label="Close walkthrough">×</button>
+          <span className="walkthrough-progress">{currentStepIndex + 1} of {WALKTHROUGH_STEPS.length}</span>
+          <span className="walkthrough-eyebrow">{step.eyebrow}</span>
+          <h2 id="walkthrough-title">{step.title}</h2>
+          <p>{step.description}</p>
+          <div className="walkthrough-actions">
+            {currentStepIndex > 0 && <button type="button" className="mainline-guide-secondary" onClick={() => setStepIndex(currentStepIndex - 1)}>Back</button>}
+            <button type="button" className="mainline-guide-start" onClick={() => isLast ? onClose() : setStepIndex(currentStepIndex + 1)}>
+              {isLast ? 'Finish' : 'Next'}
+            </button>
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="mainline-guide-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
@@ -69,8 +196,11 @@ export function MainlineGuide({ open, onClose }: Props) {
           <li><strong>Build</strong><span>Save the opening lines you want to prepare for White and Black.</span></li>
           <li><strong>Drill</strong><span>Practice your repertoire from memory and get feedback when you stray from your prepared lines.</span></li>
         </ol>
-        <p className="mainline-guide-return">You can open this guide again anytime by selecting the Mainline logo.</p>
-        <button type="button" className="mainline-guide-start" onClick={onClose}>Get started</button>
+        <p className="mainline-guide-return">You can reopen this guide anytime by selecting the Mainline logo.</p>
+        <div className="mainline-guide-actions">
+          <button type="button" className="mainline-guide-secondary" onClick={onClose}>Jump right in</button>
+          <button type="button" className="mainline-guide-start" onClick={() => setStepIndex(0)}>Start walkthrough</button>
+        </div>
       </section>
     </div>
   )

@@ -3,11 +3,12 @@ export type AppMode = 'explorer' | 'drill'
 type Props = {
   mode: AppMode
   onChange: (mode: AppMode) => void
+  guideTarget?: string
 }
 
-export function ModeToggle({ mode, onChange }: Props) {
+export function ModeToggle({ mode, onChange, guideTarget }: Props) {
   return (
-    <div className="mode-toggle" role="tablist" aria-label="App mode">
+    <div className="mode-toggle" role="tablist" aria-label="App mode" data-guide={guideTarget}>
       <button
         type="button"
         role="tab"
