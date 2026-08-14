@@ -219,7 +219,7 @@
   z-index: 1;
   border: 3px solid var(--accent);
   border-radius: 12px;
-  box-shadow: 0 0 0 9999px rgb(0 0 0 / 66%), 0 0 0 5px rgb(211 107 63 / 24%);
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 54%), 0 0 0 5px rgb(211 107 63 / 24%);
   transition: inset 180ms ease, width 180ms ease, height 180ms ease;
 }
 
@@ -229,6 +229,7 @@
   right: 20px;
   bottom: 20px;
   width: min(420px, calc(100vw - 40px));
+  box-sizing: border-box;
   padding: 22px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -236,6 +237,11 @@
   color: var(--text);
   box-shadow: 0 16px 50px rgb(0 0 0 / 38%);
   pointer-events: auto;
+}
+
+.walkthrough-card-top {
+  top: 20px;
+  bottom: auto;
 }
 
 .walkthrough-card h2 {
@@ -2288,7 +2294,41 @@
     right: 8px;
     bottom: 8px;
     width: calc(100vw - 16px);
-    padding: 18px;
+    max-height: min(240px, calc(100svh - 24px));
+    overflow: auto;
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .walkthrough-card-top {
+    top: 8px;
+    bottom: auto;
+  }
+
+  .walkthrough-card h2 {
+    margin-block: 2px 5px;
+    font-size: 18px;
+  }
+
+  .walkthrough-card p {
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  .walkthrough-card .mainline-guide-close {
+    top: 5px;
+    right: 5px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .walkthrough-eyebrow {
+    margin-top: 5px;
+  }
+
+  .walkthrough-actions > button {
+    min-height: 38px;
   }
 
   .app-header h1 {

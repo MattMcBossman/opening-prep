@@ -26,27 +26,27 @@ const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     description: 'Use these tabs to browse openings and build lines in Explorer, or switch to Drills to practice your saved repertoire.',
   },
   {
-    target: '[data-guide="board"]',
+    target: '.board-with-eval',
     eyebrow: 'Explore',
     title: 'Play moves on the board',
     description: 'Drag a piece or tap its starting and destination squares. The opening name, evaluation, moves, and statistics update with the position.',
   },
   {
-    target: '[data-guide="moves"]',
+    target: '#mobile-moves-panel > h2',
     eyebrow: 'Build',
     title: 'Review and save moves',
     description: 'This is the line you have played. Select an earlier move to go back, and use stars on your own moves while editing a module to save your repertoire.',
     section: 'moves',
   },
   {
-    target: '[data-guide="stats"]',
+    target: '#mobile-stats-panel .explorer-toolbar',
     eyebrow: 'Research',
     title: 'See what players choose',
     description: 'Opening statistics show popular continuations and results. Select a move in the table to play it on the board.',
     section: 'stats',
   },
   {
-    target: '[data-guide="prep"]',
+    target: '#mobile-prep-panel .coverage-dashboard > h3',
     eyebrow: 'Prepare',
     title: 'Find gaps in your repertoire',
     description: 'Preparation tools summarize coverage and help you spot common opponent replies that still need an answer.',
@@ -120,7 +120,8 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange }: Pro
     }
     const timer = window.setTimeout(() => {
       const target = document.querySelector<HTMLElement>(step.target)
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+      window.scrollBy({ top: -72, behavior: 'smooth' })
       updateTargetRect()
     }, 80)
     window.addEventListener('resize', updateTargetRect)
@@ -147,20 +148,27 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange }: Pro
   if (step) {
     const currentStepIndex = stepIndex ?? 0
     const isLast = currentStepIndex === WALKTHROUGH_STEPS.length - 1
+    const spotlight = targetRect ? {
+      left: Math.max(6, targetRect.left - 6),
+      top: Math.max(6, targetRect.top - 6),
+      right: Math.min(window.innerWidth - 6, targetRect.right + 6),
+      bottom: Math.min(window.innerHeight - 6, targetRect.bottom + 6),
+    } : null
+    const placeCardAtTop = spotlight !== null && spotlight.top > window.innerHeight / 2
     return (
       <div className="walkthrough-layer" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title">
-        {targetRect && (
+        {spotlight && (
           <div
             className="walkthrough-spotlight"
             style={{
-              left: Math.max(6, targetRect.left - 6),
-              top: Math.max(6, targetRect.top - 6),
-              width: Math.min(window.innerWidth - 12, targetRect.width + 12),
-              height: Math.min(window.innerHeight - 12, targetRect.height + 12),
+              left: spotlight.left,
+              top: spotlight.top,
+              width: Math.max(0, spotlight.right - spotlight.left),
+              height: Math.max(0, spotlight.bottom - spotlight.top),
             }}
           />
         )}
-        <section className="walkthrough-card">
+        <section className={`walkthrough-card${placeCardAtTop ? ' walkthrough-card-top' : ''}`}>
           <button type="button" className="mainline-guide-close" onClick={onClose} aria-label="Close walkthrough">×</button>
           <span className="walkthrough-progress">{currentStepIndex + 1} of {WALKTHROUGH_STEPS.length}</span>
           <span className="walkthrough-eyebrow">{step.eyebrow}</span>
