@@ -6,6 +6,7 @@ type Props = {
   open: boolean
   onClose: () => void
   onWalkthroughSectionChange: (section: ExplorerSection) => void
+  onWalkthroughModeChange: (mode: 'explorer' | 'drill') => void
 }
 
 type WalkthroughStep = {
@@ -14,6 +15,7 @@ type WalkthroughStep = {
   title: string
   description: string
   section?: ExplorerSection
+  mode?: 'explorer' | 'drill'
 }
 
 const FOCUSABLE_SELECTOR = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
@@ -24,6 +26,7 @@ const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     eyebrow: 'Navigate',
     title: 'Explore or practice',
     description: 'Use these tabs to browse openings and build lines in Explorer, or switch to Drills to practice your saved repertoire.',
+    mode: 'explorer',
   },
   {
     target: '.board-with-eval',
@@ -53,14 +56,29 @@ const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     section: 'prep',
   },
   {
+    target: '[data-guide="modes"]',
+    eyebrow: 'Practice',
+    title: 'Switch to Drills',
+    description: 'Drills hide opening hints and ask you to recall the moves saved in your repertoire. Use the Drills tab whenever you want to practice.',
+    mode: 'drill',
+  },
+  {
+    target: '.drill-progress, .drill-empty',
+    eyebrow: 'Drill',
+    title: 'Practice one line at a time',
+    description: 'Choose a starting point, then play your prepared moves from memory. Mainline tracks progress, explains wrong moves, and lets you retry failed lines. If this area is empty, save some Explorer moves first.',
+    mode: 'drill',
+  },
+  {
     target: '[data-guide="brand"]',
     eyebrow: 'You’re ready',
     title: 'Come back anytime',
     description: 'Select the Mainline logo whenever you want to reopen this welcome and take the walkthrough again.',
+    mode: 'explorer',
   },
 ]
 
-export function MainlineGuide({ open, onClose, onWalkthroughSectionChange }: Props) {
+export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWalkthroughModeChange }: Props) {
   const dialogRef = useRef<HTMLElement>(null)
   const [stepIndex, setStepIndex] = useState<number | null>(null)
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
@@ -110,6 +128,7 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange }: Pro
 
   useEffect(() => {
     if (!open || !step) return
+    if (step.mode) onWalkthroughModeChange(step.mode)
     if (step.section) onWalkthroughSectionChange(step.section)
 
     let frame = 0
@@ -132,7 +151,7 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange }: Pro
       window.removeEventListener('resize', updateTargetRect)
       window.removeEventListener('scroll', updateTargetRect, true)
     }
-  }, [onWalkthroughSectionChange, open, step])
+  }, [onWalkthroughModeChange, onWalkthroughSectionChange, open, step])
 
   useEffect(() => {
     if (!open || !isWalkthrough) return

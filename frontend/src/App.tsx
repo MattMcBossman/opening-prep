@@ -830,7 +830,12 @@ function App() {
           />
         </div>
       </header>
-      <MainlineGuide open={mainlineGuide.open} onClose={mainlineGuide.dismiss} onWalkthroughSectionChange={setMobileExplorerSection} />
+      <MainlineGuide
+        open={mainlineGuide.open}
+        onClose={mainlineGuide.dismiss}
+        onWalkthroughModeChange={handleModeChange}
+        onWalkthroughSectionChange={setMobileExplorerSection}
+      />
       {auth.authError && (
         <p className="panel-status error auth-error-banner">
           {auth.authError}{' '}
