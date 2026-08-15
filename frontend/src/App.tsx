@@ -49,6 +49,7 @@ import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/reperto
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
 import { diffModuleDraft, moduleMoveDraftState } from './lib/moduleDraftDiff'
+import { TUTORIAL_LICHESS_STATS, TUTORIAL_USER, TUTORIAL_VIENNA_TREE } from './lib/tutorialDemo'
 import type { RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
 import type { RepertoireLine as ApiRepertoireLine, RepertoireSummary } from './lib/repertoireApi'
@@ -105,6 +106,8 @@ function App() {
   const token = ''
   const auth = useAuth()
   const isSignedIn = auth.user !== null
+  const [tutorialActive, setTutorialActive] = useState(false)
+  const [openLibraryRequest, setOpenLibraryRequest] = useState(0)
   const [explorerSource, setExplorerSource] = useState<ExplorerSource>(initialView.explorerSource ?? 'lichess')
   const effectiveExplorerSource = explorerSource
   // Each source owns its filters independently: switching tabs restores that
@@ -115,6 +118,7 @@ function App() {
     'my-games': {},
   })
   const explorerFilters = explorerFiltersBySource[effectiveExplorerSource]
+  const displayedExplorerSource: ExplorerSource = tutorialActive ? 'lichess' : effectiveExplorerSource
   const setExplorerFilters = useCallback((filters: LichessDatabaseFilters) => {
     setExplorerFiltersBySource((previous) => ({ ...previous, [effectiveExplorerSource]: filters }))
   }, [effectiveExplorerSource])
@@ -185,7 +189,9 @@ function App() {
   const selectedModuleId = repertoire.editingModuleIds[boardColor] ?? null
   const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
   const persistedModuleTree = viewedRelease?.tree ?? repertoire.getEditingTree(boardColor)
-  const moduleWorkspaceTree = moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
+  const moduleWorkspaceTree = tutorialActive
+    ? TUTORIAL_VIENNA_TREE
+    : moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
   const moduleDraftDiff = useMemo(
     () => diffModuleDraft(newModuleSelected ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
     [boardColor, moduleDraftTree, newModuleSelected, persistedModuleTree],
@@ -790,6 +796,7 @@ function App() {
             onEditModule={beginEditingModule}
             onSaveModule={() => setModuleSaveConfirmOpen(true)}
             onDiscardModuleChanges={discardModuleChanges}
+            openLibraryRequest={openLibraryRequest}
             />
           </div>
           {mode === 'drill' && (
@@ -820,13 +827,13 @@ function App() {
           <SoundToggle soundEnabled={soundEnabled} onToggle={toggleSound} />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
           <AuthControl
-            user={auth.user}
-            loading={auth.loading}
+            user={tutorialActive ? TUTORIAL_USER : auth.user}
+            loading={tutorialActive ? false : auth.loading}
             onGoogleLogin={auth.loginWithGoogle}
             onLinkLichess={auth.linkLichess}
             onLinkChessCom={auth.linkChessCom}
             onUnlinkChessCom={auth.unlinkChessCom}
-            onLogout={auth.logout}
+            onLogout={tutorialActive ? () => {} : auth.logout}
           />
         </div>
       </header>
@@ -835,6 +842,8 @@ function App() {
         onClose={mainlineGuide.dismiss}
         onWalkthroughModeChange={handleModeChange}
         onWalkthroughSectionChange={setMobileExplorerSection}
+        onWalkthroughActiveChange={setTutorialActive}
+        onOpenLibrary={() => setOpenLibraryRequest((request) => request + 1)}
       />
       {auth.authError && (
         <p className="panel-status error auth-error-banner">
@@ -971,11 +980,11 @@ function App() {
           >
             <h2>Moves</h2>
             <MoveList
-              moves={moves}
-              pointer={pointer}
-              currentFen={fen}
+              moves={tutorialActive ? [] : moves}
+              pointer={tutorialActive ? 0 : pointer}
+              currentFen={tutorialActive ? START_FEN : fen}
               onSelect={goTo}
-              boardColor={boardColor}
+              boardColor={tutorialActive ? 'white' : boardColor}
               isPlySaved={isPlySaved}
               getPlySaveState={getPlySaveState}
               onTogglePlySaved={onTogglePlySaved}
@@ -1062,26 +1071,28 @@ function App() {
               className={`panel explorer-panel mobile-section-panel ${mobileExplorerSection === 'stats' ? 'mobile-active' : ''}`}
               role="tabpanel"
             >
-              <h2>{effectiveExplorerSource === 'my-games' ? 'My games explorer' : 'Lichess explorer'}</h2>
+              <h2>{displayedExplorerSource === 'my-games' ? 'My games explorer' : 'Lichess explorer'}</h2>
               <div className="explorer-toolbar">
-                <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />
+                <ExplorerSourceToggle source={displayedExplorerSource} onChange={setExplorerSource} />
                 <ExplorerFiltersPanel
-                  source={effectiveExplorerSource}
+                  source={displayedExplorerSource}
                   filters={explorerFilters}
                   onChange={setExplorerFilters}
                 />
               </div>
               <ExplorerStatsTable
-                data={explorer.data}
-                loading={explorer.loading}
-                error={explorer.error}
+                data={tutorialActive ? TUTORIAL_LICHESS_STATS : explorer.data}
+                loading={tutorialActive ? false : explorer.loading}
+                error={tutorialActive ? null : explorer.error}
                 onMoveClick={(san) => playMove(san)}
-                isMoveSaved={isExplorerMoveSaved}
-                isMyMove={isExplorerMyMove}
+                isMoveSaved={tutorialActive
+                  ? (uci) => (TUTORIAL_VIENNA_TREE[normalizeFen(START_FEN)] ?? []).some((move) => move.uci === uci)
+                  : isExplorerMoveSaved}
+                isMyMove={tutorialActive ? true : isExplorerMyMove}
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
                 onRetry={explorer.retry}
-                showFullGameCounts={effectiveExplorerSource === 'my-games'}
+                showFullGameCounts={displayedExplorerSource === 'my-games'}
                 accountActionHref={(isSignedIn ? lichessLoginUrl : googleLoginUrl)(window.location.pathname + window.location.search + window.location.hash)}
               />
               {positionCoverage && positionCoverage.totalGames > 0 && (

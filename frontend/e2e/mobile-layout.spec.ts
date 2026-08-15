@@ -47,7 +47,16 @@ test('walkthrough activates and scrolls mobile sections into view', async ({ pag
   await page.getByRole('button', { name: 'Start walkthrough' }).click()
 
   const next = page.getByRole('button', { name: 'Next' })
-  for (let index = 0; index < 4; index += 1) await next.click()
+  await next.click()
+  await next.click()
+  await expect(page.getByText('Saved continuations')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'e4', exact: true })).toBeVisible()
+
+  await next.click()
+  await expect(page.locator('#mobile-stats-panel')).toContainText('Found 8.74M games')
+  await expect(page.locator('#mobile-stats-panel .explorer-row-saved')).toContainText('e4')
+
+  await next.click()
 
   const coverageHeading = page.locator('#mobile-prep-panel .coverage-dashboard > h3')
   await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
@@ -63,6 +72,12 @@ test('walkthrough activates and scrolls mobile sections into view', async ({ pag
     return rect.top >= 0 && rect.bottom <= window.innerHeight
   })).toBe(true)
   await expect(page.locator('.walkthrough-card')).toContainText('Experimental tree recommendations')
+
+  for (let index = 0; index < 4; index += 1) await next.click()
+  await page.getByRole('button', { name: 'Open opening library' }).click()
+  await expect(page.getByRole('dialog', { name: 'Opening modules' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Module library' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: 'Global opening library' })).toBeVisible()
 })
 
 test('mobile board owns touch drags and places the eval bar on the left', async ({ page }) => {

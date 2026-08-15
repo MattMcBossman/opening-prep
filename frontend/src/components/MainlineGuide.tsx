@@ -6,16 +6,22 @@ type Props = {
   onClose: () => void
   onWalkthroughSectionChange: (section: ExplorerSection) => void
   onWalkthroughModeChange: (mode: 'explorer' | 'drill') => void
+  onWalkthroughActiveChange: (active: boolean) => void
+  onOpenLibrary: () => void
 }
 
 const FOCUSABLE_SELECTOR = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 
-export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWalkthroughModeChange }: Props) {
+export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWalkthroughModeChange, onWalkthroughActiveChange, onOpenLibrary }: Props) {
   const dialogRef = useRef<HTMLElement>(null)
   const [stepIndex, setStepIndex] = useState<number | null>(null)
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
   const isWalkthrough = stepIndex !== null
   const step = isWalkthrough ? WALKTHROUGH_STEPS[stepIndex] : null
+
+  useEffect(() => {
+    onWalkthroughActiveChange(open && isWalkthrough)
+  }, [isWalkthrough, onWalkthroughActiveChange, open])
 
   useEffect(() => {
     if (!open) setStepIndex(null)
@@ -138,6 +144,7 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWal
           <p>{step.description}</p>
           <div className="walkthrough-actions">
             {currentStepIndex > 0 && <button type="button" className="mainline-guide-secondary" onClick={() => setStepIndex(currentStepIndex - 1)}>Back</button>}
+            {isLast && <button type="button" className="mainline-guide-start" onClick={() => { onClose(); onOpenLibrary() }}>Open opening library</button>}
             <button type="button" className="mainline-guide-start" onClick={() => isLast ? onClose() : setStepIndex(currentStepIndex + 1)}>
               {isLast ? 'Finish' : 'Next'}
             </button>

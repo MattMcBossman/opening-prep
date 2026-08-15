@@ -44,16 +44,27 @@ type Props = {
   onEditModule: () => void
   onSaveModule: () => void
   onDiscardModuleChanges: () => void
+  openLibraryRequest?: number
 }
 
 export function RepertoireProfileControls(props: Props) {
   const { profiles, activeProfileId, editingModuleId, color, disabled = false, onEditingModuleChange, previewRelease } = props
   const [managing, setManaging] = useState(false)
+  const [managerInitialView, setManagerInitialView] = useState<'modules' | 'library'>('modules')
+  const handledLibraryRequest = useRef(props.openLibraryRequest ?? 0)
   const manageButtonRef = useRef<HTMLButtonElement>(null)
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null
   const editableModules = props.modules.filter((module) => module.color === color)
   const isViewingRelease = previewRelease?.color === color
   const isEditing = props.workspaceMode === 'editing' && !isViewingRelease
+
+  useEffect(() => {
+    const request = props.openLibraryRequest ?? 0
+    if (request <= handledLibraryRequest.current) return
+    handledLibraryRequest.current = request
+    setManagerInitialView('library')
+    setManaging(true)
+  }, [props.openLibraryRequest])
 
   if (profiles.length === 0 && !disabled) return null
 
@@ -76,10 +87,10 @@ export function RepertoireProfileControls(props: Props) {
         : isEditing
           ? <><button type="button" className="profile-manage-button" disabled={disabled || !props.hasUnsavedChanges} onClick={props.onSaveModule}>Save</button><button type="button" className="profile-manage-button" disabled={disabled || (props.newModuleSelected && !props.hasUnsavedChanges)} onClick={props.onDiscardModuleChanges}>Discard</button></>
           : <button type="button" className="profile-manage-button" disabled={disabled || editingModuleId === null} onClick={props.onEditModule}>Edit</button>}</>}
-      <button ref={manageButtonRef} type="button" className="profile-manage-button" disabled={disabled} aria-expanded={managing} aria-haspopup="dialog" onClick={() => managing ? closeManager() : setManaging(true)}>Manage</button>
+      <button ref={manageButtonRef} type="button" className="profile-manage-button" disabled={disabled} aria-expanded={managing} aria-haspopup="dialog" onClick={() => { if (managing) closeManager(); else { setManagerInitialView('modules'); setManaging(true) } }}>Manage</button>
       {managing && createPortal(
         <div className="profile-manager-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManager() }}>
-          <ProfileManager {...props} activeProfile={activeProfile} onClose={closeManager} />
+          <ProfileManager {...props} initialManagerView={managerInitialView} activeProfile={activeProfile} onClose={closeManager} />
         </div>,
         document.body,
       )}
@@ -87,14 +98,14 @@ export function RepertoireProfileControls(props: Props) {
   )
 }
 
-function ProfileManager({ activeProfile, onClose, ...props }: Props & { activeProfile: RepertoireProfileSummary | null; onClose: () => void }) {
+function ProfileManager({ activeProfile, onClose, initialManagerView, ...props }: Props & { activeProfile: RepertoireProfileSummary | null; onClose: () => void; initialManagerView: 'modules' | 'library' }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const headingId = useId()
   const [moduleName, setModuleName] = useState('')
   const [moduleColor, setModuleColor] = useState<RepertoireColor>(props.color)
-  const [managerView, setManagerView] = useState<'modules' | 'library'>('modules')
+  const [managerView, setManagerView] = useState<'modules' | 'library'>(initialManagerView)
   const [moduleFilter, setModuleFilter] = useState<'all' | RepertoireColor>('all')
   const [moduleActionsId, setModuleActionsId] = useState<number | null>(null)
   const [moduleRename, setModuleRename] = useState<{ id: number; name: string } | null>(null)
