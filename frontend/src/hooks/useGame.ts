@@ -8,6 +8,7 @@ export type HistoryEntry = {
   uci: string
   fenAfter: string
 }
+export type GameSnapshot = { baseFen: string; moves: HistoryEntry[]; pointer: number }
 
 export type MoveInput = string | { from: string; to: string; promotion?: string }
 export type BoardTransition =
@@ -145,6 +146,14 @@ export function useGame() {
     }
   }, [])
 
+  const snapshot = useMemo<GameSnapshot>(() => ({ baseFen, moves, pointer }), [baseFen, moves, pointer])
+  const restoreSnapshot = useCallback((saved: GameSnapshot) => {
+    setBoardTransition({ kind: 'direct' })
+    setBaseFen(saved.baseFen)
+    setMoves(saved.moves)
+    setPointer(saved.pointer)
+  }, [])
+
   /** Atomically append a clicked saved subtree path from the current position. */
   const loadContinuationPath = useCallback((uciMoves: readonly string[]): boolean => {
     const game = new Chess(fen)
@@ -183,5 +192,7 @@ export function useGame() {
     loadLine,
     loadPosition,
     loadContinuationPath,
+    snapshot,
+    restoreSnapshot,
   }
 }

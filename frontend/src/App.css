@@ -292,6 +292,7 @@
 .app-header p {
   color: var(--text);
   font-size: 14px;
+  white-space: nowrap;
 }
 
 /* Right-aligned group of header switches (theme, sound). Holds the `margin-left: auto`

@@ -6,16 +6,18 @@ type Props = {
   onClose: () => void
   onWalkthroughSectionChange: (section: ExplorerSection) => void
   onWalkthroughModeChange: (mode: 'explorer' | 'drill') => void
+  onWalkthroughSourceChange: (source: 'lichess' | 'my-games') => void
+  onWalkthroughManagerChange: (view: 'modules' | null) => void
   onWalkthroughActiveChange: (active: boolean) => void
   onOpenLibrary: () => void
 }
 
 const FOCUSABLE_SELECTOR = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 
-export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWalkthroughModeChange, onWalkthroughActiveChange, onOpenLibrary }: Props) {
+export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWalkthroughModeChange, onWalkthroughSourceChange, onWalkthroughManagerChange, onWalkthroughActiveChange, onOpenLibrary }: Props) {
   const dialogRef = useRef<HTMLElement>(null)
   const [stepIndex, setStepIndex] = useState<number | null>(null)
-  const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
+  const [spotlightTarget, setSpotlightTarget] = useState<{ selector: string; rect: DOMRect } | null>(null)
   const isWalkthrough = stepIndex !== null
   const step = isWalkthrough ? WALKTHROUGH_STEPS[stepIndex] : null
 
@@ -66,39 +68,62 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWal
 
   useEffect(() => {
     if (!open || !step) return
-    setTargetRect(null)
     if (step.mode) onWalkthroughModeChange(step.mode)
     if (step.section) onWalkthroughSectionChange(step.section)
+    if (step.source) onWalkthroughSourceChange(step.source)
+    onWalkthroughManagerChange(step.manager ?? null)
 
     let frame = 0
     let settleTimer = 0
     let attempts = 0
-    const updateTargetRect = () => {
+    let revealed = false
+    const visibleTarget = () => {
       const target = document.querySelector<HTMLElement>(step.target)
+      if (!target) return null
+      const rect = target.getBoundingClientRect()
+      return rect.width > 0 && rect.height > 0 && target.getClientRects().length > 0 ? target : null
+    }
+    const updateTargetRect = () => {
+      const target = visibleTarget()
       if (!target) return
-      frame = window.requestAnimationFrame(() => setTargetRect(target.getBoundingClientRect()))
+      frame = window.requestAnimationFrame(() => setSpotlightTarget({ selector: step.target, rect: target.getBoundingClientRect() }))
+    }
+    const finishReveal = () => {
+      if (revealed) return
+      revealed = true
+      window.clearTimeout(settleTimer)
+      updateTargetRect()
+      window.addEventListener('scroll', updateTargetRect, true)
     }
     const revealTarget = () => {
-      const target = document.querySelector<HTMLElement>(step.target)
+      const target = visibleTarget()
       if (!target) {
         attempts += 1
-        if (attempts < 30) frame = window.requestAnimationFrame(revealTarget)
+        if (attempts < 60) frame = window.requestAnimationFrame(revealTarget)
         return
       }
-      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
-      updateTargetRect()
-      settleTimer = window.setTimeout(updateTargetRect, 400)
+      const mobile = window.matchMedia('(max-width: 700px)').matches
+      if (mobile) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+        window.addEventListener('scrollend', finishReveal, { once: true })
+        settleTimer = window.setTimeout(finishReveal, 450)
+      } else {
+        const rect = target.getBoundingClientRect()
+        const meaningfullyVisible = rect.bottom > 80 && rect.top < window.innerHeight - 80
+        if (!meaningfullyVisible) target.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' })
+        frame = window.requestAnimationFrame(finishReveal)
+      }
     }
     frame = window.requestAnimationFrame(revealTarget)
     window.addEventListener('resize', updateTargetRect)
-    window.addEventListener('scroll', updateTargetRect, true)
     return () => {
       window.clearTimeout(settleTimer)
       window.cancelAnimationFrame(frame)
+      window.removeEventListener('scrollend', finishReveal)
       window.removeEventListener('resize', updateTargetRect)
       window.removeEventListener('scroll', updateTargetRect, true)
     }
-  }, [onWalkthroughModeChange, onWalkthroughSectionChange, open, step])
+  }, [onWalkthroughManagerChange, onWalkthroughModeChange, onWalkthroughSectionChange, onWalkthroughSourceChange, open, step])
 
   useEffect(() => {
     if (!open || !isWalkthrough) return
@@ -114,15 +139,18 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWal
   if (step) {
     const currentStepIndex = stepIndex ?? 0
     const isLast = currentStepIndex === WALKTHROUGH_STEPS.length - 1
+    const mobile = window.matchMedia('(max-width: 700px)').matches
+    const targetRect = spotlightTarget?.selector === step.target ? spotlightTarget.rect : null
     const spotlight = targetRect
       ? walkthroughSpotlightBounds(
         targetRect,
         window.innerWidth,
         window.innerHeight,
-        window.matchMedia('(max-width: 700px)').matches,
+        mobile,
       )
       : null
-    const placeCardAtTop = spotlight !== null && spotlight.top > window.innerHeight / 2
+    const placeCardAtTop = (mobile && step.section !== undefined)
+      || (spotlight !== null && spotlight.top > window.innerHeight / 2)
     return (
       <div className="walkthrough-layer" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title">
         {spotlight && (
@@ -144,7 +172,7 @@ export function MainlineGuide({ open, onClose, onWalkthroughSectionChange, onWal
           <p>{step.description}</p>
           <div className="walkthrough-actions">
             {currentStepIndex > 0 && <button type="button" className="mainline-guide-secondary" onClick={() => setStepIndex(currentStepIndex - 1)}>Back</button>}
-            {isLast && <button type="button" className="mainline-guide-start" onClick={() => { onClose(); onOpenLibrary() }}>Open opening library</button>}
+            {isLast && <button type="button" className="mainline-guide-start" onClick={() => { onClose(); onOpenLibrary() }}>Browse openings</button>}
             <button type="button" className="mainline-guide-start" onClick={() => isLast ? onClose() : setStepIndex(currentStepIndex + 1)}>
               {isLast ? 'Finish' : 'Next'}
             </button>

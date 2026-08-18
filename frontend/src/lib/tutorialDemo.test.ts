@@ -1,24 +1,37 @@
 import { describe, expect, it } from 'vitest'
 import { Chess } from 'chess.js'
+import { tutorialPersonalGameStats, tutorialPositionStats, TUTORIAL_VIENNA_TREE } from './tutorialDemo'
 import { normalizeFen } from './chessUtils'
-import { TUTORIAL_LICHESS_STATS, TUTORIAL_USER, TUTORIAL_VIENNA_TREE } from './tutorialDemo'
 
-describe('tutorial demo data', () => {
-  it('shows a saved e4 Vienna tree with realistic opponent branches', () => {
+describe('walkthrough position data', () => {
+  it('follows a six-ply Vienna Gambit line with saved moves and changing stats', () => {
     const board = new Chess()
-    const root = normalizeFen(board.fen())
-    expect(TUTORIAL_VIENNA_TREE[root].map((move) => move.uci)).toEqual(['e2e4'])
-    board.move('e4'); board.move('e5'); board.move('Nc3')
-    expect(TUTORIAL_VIENNA_TREE[normalizeFen(board.fen())].map((move) => move.uci)).toEqual([
-      'g8f6', 'f8c5', 'b8c6',
-    ])
+    const line = ['e2e4', 'e7e5', 'b1c3', 'g8f6', 'f2f4', 'd7d5']
+
+    for (const uci of line) {
+      const fen = normalizeFen(board.fen())
+      const savedMoves = TUTORIAL_VIENNA_TREE[fen] ?? []
+      const stats = tutorialPositionStats(fen)
+      expect(TUTORIAL_VIENNA_TREE[fen]?.some((move) => move.uci === uci)).toBe(true)
+      expect(stats.moves.some((move) => move.uci === uci)).toBe(true)
+      expect(stats.moves.length).toBeGreaterThan(savedMoves.length)
+      expect(stats.moves.some((move) => !savedMoves.some((saved) => saved.uci === move.uci))).toBe(true)
+      board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4) })
+    }
+
+    expect(tutorialPositionStats(board.fen()).opening?.name).toBe('Vienna Game')
   })
 
-  it('provides a consistent public-Lichess sample', () => {
-    expect(TUTORIAL_USER.lichessUsername).toBeTruthy()
-    expect(TUTORIAL_LICHESS_STATS.moves[0]).toMatchObject({ san: 'e4', uci: 'e2e4' })
-    expect(TUTORIAL_LICHESS_STATS.moves.reduce((sum, move) => sum + move.totalGames, 0)).toBe(
-      TUTORIAL_LICHESS_STATS.totalGames,
-    )
+  it('provides a small fictional personal-game sample distinct from public totals', () => {
+    const board = new Chess()
+    for (const uci of ['e2e4', 'e7e5', 'b1c3']) board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4) })
+
+    const personal = tutorialPersonalGameStats(board.fen())
+    const publicStats = tutorialPositionStats(board.fen())
+
+    expect(personal.totalGames).toBeGreaterThan(0)
+    expect(personal.totalGames).toBeLessThan(100)
+    expect(personal.totalGames).not.toBe(publicStats.totalGames)
+    expect(personal.moves.every((move) => move.totalGames < 25)).toBe(true)
   })
 })

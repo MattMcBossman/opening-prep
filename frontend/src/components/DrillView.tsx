@@ -494,7 +494,7 @@ export function DrillView({
 
   if (state.lines.length === 0) {
     return (
-      <div className="drill-workspace">
+      <div className="drill-workspace" data-guide="drill-workspace">
         {drillStartControls}
         <div className="panel drill-empty">
           <p className="panel-status">
@@ -515,7 +515,7 @@ export function DrillView({
   const progressLabel = session.progress.isRetryPass ? 'Retrying failed drill' : 'Drill'
 
   return (
-    <div className="drill-workspace">
+    <div className="drill-workspace" data-guide="drill-workspace">
       <div className="board-heading drill-workspace-heading">
         <div className="drill-progress">
           {startContext && (
