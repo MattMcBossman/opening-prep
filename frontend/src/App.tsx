@@ -990,9 +990,7 @@ function App() {
             repertoireIds={moduleDrill ? [moduleDrill.module.id] : repertoire.activeProfile?.modules
               .filter((module) => module.enabled && module.color === boardColor)
               .map((module) => module.id)}
-            templateReleaseIds={repertoire.activeProfile?.templateReleases
-              ?.filter((release) => release.enabled && release.color === boardColor)
-              .map((release) => release.id)}
+            templateReleaseIds={[]}
             drillLines={moduleDrill?.module.color === boardColor ? moduleDrill.lines : repertoire.drillLines[boardColor]}
             startContext={drillStartContext}
             startMode={drillStartMode}

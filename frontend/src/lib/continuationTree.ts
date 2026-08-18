@@ -38,6 +38,7 @@ export function buildContinuationTree(
   rootPly: number,
   getContinuations: (fen: string) => RepertoireMove[],
   shouldExpand: (key: string, depth: number) => boolean = () => true,
+  forcedChainPlies = 2,
 ): ContinuationTreeNode[] {
   const seen = new Map<string, string>([[safeFenKey(rootFen), 'current position']])
 
@@ -65,8 +66,8 @@ export function buildContinuationTree(
 
       if (!transposesTo && !cycle) {
         seen.set(finalKey, chain.map((item) => item.move.san).join(' '))
-        const forced = getContinuations(finalFen)
-        if (forced.length === 1 && nextPly - rootPly < MAX_TREE_PLIES) {
+        let forced = getContinuations(finalFen)
+        while (forced.length === 1 && chain.length < forcedChainPlies && nextPly - rootPly < MAX_TREE_PLIES) {
           const reply = forced[0]
           chain.push({ originFen: finalFen, move: reply, ply: nextPly })
           path.push(reply.uci)
@@ -76,6 +77,8 @@ export function buildContinuationTree(
           cycle = ancestors.has(finalKey)
           nextPly += 1
           if (!transposesTo && !cycle) seen.set(finalKey, chain.map((item) => item.move.san).join(' '))
+          if (transposesTo || cycle) break
+          forced = getContinuations(finalFen)
         }
       }
 

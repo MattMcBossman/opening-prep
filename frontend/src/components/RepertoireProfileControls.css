@@ -143,6 +143,54 @@
   background: color-mix(in srgb, var(--surface-2) 45%, var(--surface));
 }
 
+.library-tree-preview {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.library-close-preview {
+  margin-left: auto;
+}
+
+.library-tree-preview .move-list {
+  max-height: min(48vh, 430px);
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: auto;
+}
+
+.library-tree-preview .continuation-disclosure {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-width: 20px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  line-height: 1;
+}
+
+.library-tree-preview .continuation-disclosure:hover:not(:disabled),
+.library-tree-preview .continuation-disclosure:active:not(:disabled) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.continuation-move-preview {
+  cursor: default;
+}
+
 .manager-card-meta {
   display: flex !important;
   flex-wrap: wrap;

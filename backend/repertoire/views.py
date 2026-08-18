@@ -16,7 +16,6 @@ from .models import (
     OpeningTemplate,
     OpeningTemplateRelease,
     ProfileModule,
-    ProfileTemplateRelease,
     Repertoire,
     RepertoireProfile,
 )
@@ -30,7 +29,6 @@ from .serializers import (
     OpeningTemplateReleaseSerializer,
     OpeningTemplateSerializer,
     ProfileModuleMutationSerializer,
-    ProfileTemplateMutationSerializer,
     PublishTemplateSerializer,
     RemoveMoveSerializer,
     RepertoireLineSerializer,
@@ -130,7 +128,7 @@ class RepertoireProfileListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         services.consolidate_user_profiles(self.request.user)
         return RepertoireProfile.objects.filter(owner=self.request.user).prefetch_related(
-            "module_links__module__lines__steps__move", "template_links__release__template"
+            "module_links__module__lines__steps__move"
         )
 
     def perform_create(self, serializer):
@@ -148,7 +146,7 @@ class RepertoireProfileDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return RepertoireProfile.objects.filter(owner=self.request.user).prefetch_related(
-            "module_links__module__lines__steps__move", "template_links__release__template"
+            "module_links__module__lines__steps__move"
         )
 
 
@@ -191,36 +189,6 @@ class RepertoireProfileModulesView(APIView):
             module_id=serializer.validated_data["moduleId"],
             module__owner=request.user,
         ).delete()
-        return Response(RepertoireProfileSerializer(profile).data)
-
-
-class RepertoireProfileTemplateReleasesView(APIView):
-    @extend_schema(request=ProfileTemplateMutationSerializer, responses={200: RepertoireProfileSerializer})
-    def post(self, request, pk: int):
-        profile = get_object_or_404(RepertoireProfile, pk=pk, owner=request.user)
-        body = ProfileTemplateMutationSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        release = get_object_or_404(
-            OpeningTemplateRelease,
-            pk=body.validated_data["templateReleaseId"],
-            template__is_published=True,
-        )
-        ProfileTemplateRelease.objects.update_or_create(
-            profile=profile,
-            release=release,
-            defaults={
-                "sort_order": body.validated_data["sortOrder"],
-                "enabled": body.validated_data["enabled"],
-            },
-        )
-        return Response(RepertoireProfileSerializer(profile).data)
-
-    @extend_schema(request=ProfileTemplateMutationSerializer, responses={200: RepertoireProfileSerializer})
-    def delete(self, request, pk: int):
-        profile = get_object_or_404(RepertoireProfile, pk=pk, owner=request.user)
-        body = ProfileTemplateMutationSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        profile.template_links.filter(release_id=body.validated_data["templateReleaseId"]).delete()
         return Response(RepertoireProfileSerializer(profile).data)
 
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically mirror authoritative Mainline data from Render
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=15min
+Persistent=true
+Unit=mainline-render-sync.service
+
+[Install]
+WantedBy=timers.target

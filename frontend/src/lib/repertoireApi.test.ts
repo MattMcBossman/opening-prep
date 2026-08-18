@@ -16,9 +16,7 @@ import {
   listRepertoires,
   removeRepertoireMove,
   removeProfileModule,
-  pinTemplateRelease,
   setProfileModule,
-  unpinTemplateRelease,
   updateRepertoire,
   updateRepertoireProfile,
 } from './repertoireApi'
@@ -124,18 +122,14 @@ describe('global opening library', () => {
     ])
   })
 
-  it('pins, unpins, and copies a release', async () => {
+  it('copies a release into an editable module', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}))
     vi.stubGlobal('fetch', fetchMock)
-    await pinTemplateRelease(4, 12, 2)
-    await unpinTemplateRelease(4, 12)
     await copyOpeningTemplateRelease('vienna-game', 2, 4)
     await copyMissingOpeningTemplateLines('vienna-game', 2, 9)
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ templateReleaseId: 12, sortOrder: 2, enabled: true })
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ templateReleaseId: 12 })
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ profileId: 4 })
-    expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/opening-templates/vienna-game/releases/2/copy-missing/')
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ moduleId: 9 })
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ profileId: 4 })
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/opening-templates/vienna-game/releases/2/copy-missing/')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ moduleId: 9 })
   })
 })
 

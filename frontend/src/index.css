@@ -55,7 +55,9 @@
 
 #root {
   width: 100%;
-  max-width: 1440px;
+  /* The desktop explorer needs room for the 220px moves panel, 774px board
+     column, 420px stats panel, both gaps, and the page's outer padding. */
+  max-width: 1520px;
   margin: 0 auto;
   min-height: 100svh;
   display: flex;

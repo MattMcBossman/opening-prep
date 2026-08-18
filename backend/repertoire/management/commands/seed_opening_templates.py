@@ -4,35 +4,9 @@ from django.core.management.base import BaseCommand
 from common.fen import normalize_fen
 from repertoire.models import OpeningTemplate, OpeningTemplateRelease
 
-TEMPLATES = [
-    {
-        "slug": "vienna-game",
-        "name": "Vienna Game",
-        "description": "A flexible 1.e4 e5 repertoire built around an early Nc3.",
-        "color": "white",
-        "lines": [
-            ["e2e4", "e7e5", "b1c3", "g8f6", "f2f4"],
-            ["e2e4", "e7e5", "b1c3", "f8c5", "f1c4"],
-        ],
-    },
-    {
-        "slug": "sicilian-defense",
-        "name": "Sicilian Defense",
-        "description": "A compact Black starter repertoire against 1.e4.",
-        "color": "black",
-        "lines": [
-            ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6"],
-            ["e2e4", "c7c5", "b1c3", "b8c6"],
-        ],
-    },
-    {
-        "slug": "stonewall-attack",
-        "name": "Stonewall Attack",
-        "description": "A structure-oriented White setup with pawns on d4, e3, and f4.",
-        "color": "white",
-        "lines": [["d2d4", "d7d5", "e2e3", "g8f6", "f1d3", "e7e6", "f2f4"]],
-    },
-]
+# The authoritative catalog is edited in Render and mirrored to development.
+# Do not recreate obsolete toy releases during deploys.
+TEMPLATES = []
 
 
 def build_snapshot(slug: str, uci_lines: list[list[str]]) -> tuple[dict, list]:
@@ -66,7 +40,7 @@ def build_snapshot(slug: str, uci_lines: list[list[str]]) -> tuple[dict, list]:
 
 
 class Command(BaseCommand):
-    help = "Publish the idempotent starter global opening-template library."
+    help = "Legacy no-op; the authoritative library is maintained in Render."
 
     def handle(self, *args, **options):
         created_count = 0

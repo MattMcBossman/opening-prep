@@ -34,7 +34,7 @@ describe('alpha Vienna default', () => {
     color: 'white',
     kind: 'community',
     publisherName: 'Kurtis',
-    latestRelease: { id: 1, version: 1, publishedAt: '', commonStart: '', lineCount: 1 },
+    latestRelease: { id: 1, version: 1, publishedAt: '', commonStart: '', lineCount: 1, moveCount: 1 },
   })
 
   it('prefers the authored Vienna over the development seed fallback', () => {
