@@ -8,7 +8,6 @@ from .models import (
     OpeningTemplate,
     OpeningTemplateRelease,
     ProfileModule,
-    ProfileTemplateRelease,
     Repertoire,
     RepertoireLine,
     RepertoireLineStep,
@@ -92,38 +91,13 @@ class RepertoireProfileSerializer(serializers.ModelSerializer):
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
     modules = ProfileModuleSerializer(source="module_links", many=True, read_only=True)
-    templateReleases = serializers.SerializerMethodField()
-
-    @extend_schema_field({"type": "array", "items": {"type": "object"}})
-    def get_templateReleases(self, obj):
-        return ProfileTemplateReleaseSerializer(obj.template_links.all(), many=True).data
-
     class Meta:
         model = RepertoireProfile
-        fields = ["id", "name", "description", "modules", "templateReleases", "createdAt", "updatedAt"]
-
-
-class ProfileTemplateReleaseSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source="release.id", read_only=True)
-    templateSlug = serializers.CharField(source="release.template.slug", read_only=True)
-    name = serializers.CharField(source="release.template.name", read_only=True)
-    color = serializers.CharField(source="release.template.color", read_only=True)
-    version = serializers.IntegerField(source="release.version", read_only=True)
-    sortOrder = serializers.IntegerField(source="sort_order")
-
-    class Meta:
-        model = ProfileTemplateRelease
-        fields = ["id", "templateSlug", "name", "color", "version", "sortOrder", "enabled"]
+        fields = ["id", "name", "description", "modules", "createdAt", "updatedAt"]
 
 
 class ProfileModuleMutationSerializer(serializers.Serializer):
     moduleId = serializers.IntegerField(min_value=1)
-    sortOrder = serializers.IntegerField(required=False, min_value=0, default=0)
-    enabled = serializers.BooleanField(required=False, default=True)
-
-
-class ProfileTemplateMutationSerializer(serializers.Serializer):
-    templateReleaseId = serializers.IntegerField(min_value=1)
     sortOrder = serializers.IntegerField(required=False, min_value=0, default=0)
     enabled = serializers.BooleanField(required=False, default=True)
 
@@ -157,10 +131,14 @@ class OpeningTemplateReleaseSummarySerializer(serializers.ModelSerializer):
     publishedAt = serializers.DateTimeField(source="published_at", read_only=True)
     commonStart = serializers.CharField(source="common_start", read_only=True)
     lineCount = serializers.IntegerField(source="line_count", read_only=True)
+    moveCount = serializers.SerializerMethodField()
+
+    def get_moveCount(self, obj):
+        return sum(len(moves) for moves in obj.tree.values())
 
     class Meta:
         model = OpeningTemplateRelease
-        fields = ["id", "version", "publishedAt", "commonStart", "lineCount"]
+        fields = ["id", "version", "publishedAt", "commonStart", "lineCount", "moveCount"]
 
 
 class OpeningTemplateSerializer(serializers.ModelSerializer):

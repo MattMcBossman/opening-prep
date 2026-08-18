@@ -20,11 +20,6 @@ urlpatterns = [
         views.RepertoireProfileModulesView.as_view(),
         name="repertoire-profile-modules",
     ),
-    path(
-        "profiles/<int:pk>/template-releases/",
-        views.RepertoireProfileTemplateReleasesView.as_view(),
-        name="profile-template-releases",
-    ),
     path("", views.RepertoireListCreateView.as_view(), name="repertoire-list"),
     path("import/", views.RepertoireImportView.as_view(), name="repertoire-import"),
     path("<int:pk>/tree/", views.RepertoireTreeView.as_view(), name="repertoire-tree"),

@@ -7,7 +7,6 @@ from common.fen import normalize_fen
 from repertoire.models import (
     OpeningTemplate,
     OpeningTemplateRelease,
-    ProfileTemplateRelease,
     Repertoire,
     RepertoireLine,
     RepertoireProfile,
@@ -82,7 +81,7 @@ def test_authored_line_rejects_annotation_outside_path(client, owner):
     assert "annotations" in response.data
 
 
-def test_global_release_can_be_pinned_and_copied(client, owner):
+def test_global_release_can_be_copied_into_editable_module(client, owner):
     template = OpeningTemplate.objects.create(slug="vienna", name="Vienna", color="white", is_published=True)
     release = OpeningTemplateRelease.objects.create(
         template=template,
@@ -106,13 +105,6 @@ def test_global_release_can_be_pinned_and_copied(client, owner):
         ],
     )
     profile = RepertoireProfile.objects.create(owner=owner, name="Tournament")
-    pinned = client.post(
-        f"/api/v1/repertoires/profiles/{profile.id}/template-releases/",
-        {"templateReleaseId": release.id},
-        format="json",
-    )
-    assert pinned.status_code == 200
-    assert ProfileTemplateRelease.objects.filter(profile=profile, release=release).exists()
     copied = client.post(
         "/api/v1/opening-templates/vienna/releases/1/copy/",
         {"name": "My Vienna", "profileId": profile.id},
@@ -207,6 +199,7 @@ def test_published_template_and_release_are_public_without_authentication(db):
     detail = anonymous.get(f"/api/v1/opening-templates/{template.slug}/releases/{release.version}/")
 
     assert listing.status_code == 200
+    assert listing.data[0]["latestRelease"]["moveCount"] == 1
     assert [item["slug"] for item in listing.data] == ["public-vienna"]
     assert detail.status_code == 200
     assert detail.data["tree"][normalize_fen(START)][0]["uci"] == "e2e4"

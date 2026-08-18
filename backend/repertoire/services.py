@@ -305,43 +305,18 @@ def consolidate_user_profiles(user) -> RepertoireProfile:
         retained = RepertoireProfile.objects.create(owner=user, name="Default")
         profiles.append(retained)
     module_ids = list(Repertoire.objects.filter(owner=user).order_by("id").values_list("id", flat=True))
-    release_ids = list(
-        ProfileTemplateRelease.objects.filter(profile__in=profiles)
-        .order_by("sort_order", "id")
-        .values_list("release_id", flat=True)
-        .distinct()
-    )
     ProfileModule.objects.filter(profile=retained).delete()
-    ProfileTemplateRelease.objects.filter(profile=retained).delete()
+    ProfileTemplateRelease.objects.filter(profile__in=profiles).delete()
     ProfileModule.objects.bulk_create([
         ProfileModule(profile=retained, module_id=module_id, sort_order=index)
         for index, module_id in enumerate(module_ids)
-    ])
-    ProfileTemplateRelease.objects.bulk_create([
-        ProfileTemplateRelease(profile=retained, release_id=release_id, sort_order=index)
-        for index, release_id in enumerate(release_ids)
     ])
     RepertoireProfile.objects.filter(owner=user).exclude(pk=retained.pk).delete()
     return retained
 
 
 def get_or_create_default_profile(user) -> RepertoireProfile:
-    profile = consolidate_user_profiles(user)
-    # The alpha ships with Kurtis's published Vienna attached read-only. Prefer
-    # the full authored release; the small starter seed remains a development
-    # fallback for fresh databases.
-    template = (
-        OpeningTemplate.objects.filter(slug="vienna", is_published=True).first()
-        or OpeningTemplate.objects.filter(slug="vienna-game", is_published=True).first()
-    )
-    release = template.releases.order_by("-version").first() if template else None
-    if release:
-        ProfileTemplateRelease.objects.get_or_create(
-            profile=profile,
-            release=release,
-            defaults={"sort_order": profile.module_links.count() + profile.template_links.count()},
-        )
-    return profile
+    return consolidate_user_profiles(user)
 
 
 @transaction.atomic

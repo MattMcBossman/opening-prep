@@ -21,11 +21,9 @@ import {
   listRepertoireProfiles,
   listRepertoireLines,
   listRepertoires,
-  pinTemplateRelease,
   removeRepertoireMove,
   removeProfileModule,
   setProfileModule,
-  unpinTemplateRelease,
   updateRepertoire,
   updateRepertoireProfile,
 } from '../lib/repertoireApi'
@@ -333,8 +331,6 @@ type ApiStoreState = {
   modules: RepertoireSummary[]
   trees: Record<number, RepertoireTree>
   lines: Record<number, ApiRepertoireLine[]>
-  templateTrees: Record<number, RepertoireTree>
-  templateReleases: Record<number, OpeningTemplateRelease>
   activeProfileId: number | null
   editingModuleIds: Partial<Record<RepertoireColor, number>>
   error: string | null
@@ -347,8 +343,6 @@ const INITIAL_API_STATE: ApiStoreState = {
   modules: [],
   trees: {},
   lines: {},
-  templateTrees: {},
-  templateReleases: {},
   activeProfileId: null,
   editingModuleIds: {},
   error: null,
@@ -395,14 +389,6 @@ function useApiRepertoireStore(enabled: boolean) {
           ...module,
           lineCount: Number.isFinite(module.lineCount) ? module.lineCount : (lines[module.id]?.length ?? 0),
         }))
-        const pinnedReleases = profiles.flatMap((profile) => profile.templateReleases ?? [])
-        const fetchedReleases = await Promise.all(
-            Array.from(new Map(pinnedReleases.map((release) => [release.id, release])).values()).map(
-              (release) => fetchOpeningTemplateRelease(release.templateSlug, release.version),
-            ),
-        )
-        const templateReleases = Object.fromEntries(fetchedReleases.map((release) => [release.id, release]))
-        const templateTrees = Object.fromEntries(fetchedReleases.map((release) => [release.id, release.tree]))
         setState((previous) => {
           const activeProfile =
             profiles.find((profile) => profile.id === previous.activeProfileId) ??
@@ -425,8 +411,6 @@ function useApiRepertoireStore(enabled: boolean) {
             modules: hydratedModules,
             trees,
             lines,
-            templateTrees,
-            templateReleases,
             activeProfileId: activeProfile?.id ?? null,
             editingModuleIds,
             error: null,
@@ -562,18 +546,13 @@ function useApiRepertoireStore(enabled: boolean) {
         activeProfile?.modules
           .filter((module) => module.enabled && module.color === color)
           .map((module) => ({ moduleId: module.id, tree: state.trees[module.id] ?? {} })) ?? []
-      for (const release of activeProfile?.templateReleases?.filter((item) => item.enabled && item.color === color) ?? []) {
-        // Negative ids keep immutable global releases distinct from personal
-        // module ids while reusing the overlay provenance representation.
-        moduleTrees.push({ moduleId: -release.id, tree: state.templateTrees[release.id] ?? {} })
-      }
       if (previewRelease?.color === color) {
         moduleTrees.push({ moduleId: -1_000_000_000 - previewRelease.id, tree: previewRelease.tree })
       }
       byColor[color] = mergeRepertoireTrees(moduleTrees)
     }
     return byColor
-  }, [activeProfile, previewRelease, state.templateTrees, state.trees])
+  }, [activeProfile, previewRelease, state.trees])
 
   const drillLines = useMemo<Partial<Record<RepertoireColor, DrillLine[]>>>(() => {
     const result: Partial<Record<RepertoireColor, DrillLine[]>> = {}
@@ -594,26 +573,10 @@ function useApiRepertoireStore(enabled: boolean) {
           })
         }
       }
-      for (const pinned of activeProfile?.templateReleases?.filter((item) => item.enabled && item.color === color) ?? []) {
-        const release = state.templateReleases[pinned.id]
-        for (const line of release?.lines ?? []) {
-          composed.push({
-            id: line.steps.map((step) => step.uci).join(' '),
-            steps: line.steps.map((step) => ({
-              fen: step.originFen,
-              san: step.san,
-              uci: step.uci,
-              resultingFen: step.resultingFen,
-              mover: sideToMove(step.originFen) === color ? 'own' : 'opponent',
-            })),
-            sources: [{ kind: 'template_release', id: pinned.id, lineId: line.id, name: pinned.name }],
-          })
-        }
-      }
       result[color] = composed
     }
     return result
-  }, [activeProfile, state.lines, state.templateReleases])
+  }, [activeProfile, state.lines])
   const editingLinePaths = useMemo<Partial<Record<RepertoireColor, string[]>>>(() => {
     const result: Partial<Record<RepertoireColor, string[]>> = {}
     for (const color of ['white', 'black'] as const) {
@@ -757,10 +720,6 @@ function useApiRepertoireStore(enabled: boolean) {
       runAndReload(() => setProfileModule(profileId, moduleId, sortOrder, enabled)),
     removeModuleMembership: (profileId: number, moduleId: number) =>
       runAndReload(() => removeProfileModule(profileId, moduleId)),
-    pinTemplate: (profileId: number, releaseId: number, sortOrder = 0) =>
-      runAndReload(() => pinTemplateRelease(profileId, releaseId, sortOrder)),
-    unpinTemplate: (profileId: number, releaseId: number) =>
-      runAndReload(() => unpinTemplateRelease(profileId, releaseId)),
     copyTemplate: (slug: string, version: number, profileId?: number) =>
       runAndReload(() => copyOpeningTemplateRelease(slug, version, profileId)),
     copyMissingTemplateLines: (slug: string, version: number, moduleId: number) =>
@@ -1008,8 +967,6 @@ export function useRepertoire(user: AuthUser | null) {
     deleteModule: isAuthenticated ? api.deleteModule : local.deleteModule,
     setModuleMembership: isAuthenticated ? api.setModuleMembership : local.setModuleMembership,
     removeModuleMembership: isAuthenticated ? api.removeModuleMembership : local.removeModuleMembership,
-    pinTemplate: api.pinTemplate,
-    unpinTemplate: api.unpinTemplate,
     copyTemplate: api.copyTemplate,
     copyMissingTemplateLines: api.copyMissingTemplateLines,
     previewRelease: api.previewRelease,

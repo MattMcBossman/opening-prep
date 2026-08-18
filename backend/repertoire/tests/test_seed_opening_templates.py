@@ -6,35 +6,25 @@ from repertoire.models import OpeningTemplate, OpeningTemplateRelease, ProfileTe
 from repertoire.services import get_or_create_default_profile
 
 
-def test_seed_opening_templates_is_legal_complete_and_idempotent(db):
+def test_seed_opening_templates_does_not_recreate_obsolete_starter_modules(db):
     call_command("seed_opening_templates", verbosity=0)
     call_command("seed_opening_templates", verbosity=0)
 
-    assert list(OpeningTemplate.objects.values_list("slug", flat=True)) == [
-        "sicilian-defense",
-        "stonewall-attack",
-        "vienna-game",
-    ]
-    assert OpeningTemplateRelease.objects.count() == 3
-    for release in OpeningTemplateRelease.objects.all():
-        assert release.tree
-        assert release.lines
-        release.full_clean()
+    assert not OpeningTemplate.objects.exists()
+    assert not OpeningTemplateRelease.objects.exists()
 
 
-def test_seeded_vienna_is_attached_to_a_users_default_profile(db):
+def test_default_profile_has_no_persistent_library_attachment(db):
     call_command("seed_opening_templates", verbosity=0)
     user = get_user_model().objects.create_user(username="kurtis")
 
     profile = get_or_create_default_profile(user)
     get_or_create_default_profile(user)
 
-    pin = ProfileTemplateRelease.objects.get(profile=profile)
-    assert pin.release.template.slug == "vienna-game"
-    assert pin.enabled is True
+    assert not ProfileTemplateRelease.objects.filter(profile=profile).exists()
 
 
-def test_authored_vienna_is_preferred_over_seed_fallback(db):
+def test_authored_vienna_is_not_persistently_attached(db):
     call_command("seed_opening_templates", verbosity=0)
     tree, lines = build_snapshot("vienna", [["e2e4", "e7e5", "b1c3"]])
     template = OpeningTemplate.objects.create(
@@ -47,4 +37,4 @@ def test_authored_vienna_is_preferred_over_seed_fallback(db):
 
     profile = get_or_create_default_profile(user)
 
-    assert list(profile.template_links.values_list("release_id", flat=True)) == [authored.id]
+    assert not profile.template_links.exists()

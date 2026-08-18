@@ -54,7 +54,7 @@ export type OpeningTemplateSummary = {
   color: RepertoireColor
   kind: "official" | "community"
   publisherName: string
-  latestRelease: { id: number; version: number; publishedAt: string; commonStart: string; lineCount: number } | null
+  latestRelease: { id: number; version: number; publishedAt: string; commonStart: string; lineCount: number; moveCount: number } | null
 }
 
 export type OpeningTemplateRelease = {
@@ -166,25 +166,6 @@ export function fetchOpeningTemplateRelease(
   signal?: AbortSignal,
 ): Promise<OpeningTemplateRelease> {
   return apiRequest(`/opening-templates/${encodeURIComponent(slug)}/releases/${version}/`, { signal })
-}
-
-export function pinTemplateRelease(
-  profileId: number,
-  releaseId: number,
-  sortOrder = 0,
-  enabled = true,
-): Promise<RepertoireProfileSummary> {
-  return apiRequest(`/repertoires/profiles/${profileId}/template-releases/`, {
-    method: 'POST',
-    body: { templateReleaseId: releaseId, sortOrder, enabled },
-  })
-}
-
-export function unpinTemplateRelease(profileId: number, releaseId: number): Promise<RepertoireProfileSummary> {
-  return apiRequest(`/repertoires/profiles/${profileId}/template-releases/`, {
-    method: 'DELETE',
-    body: { templateReleaseId: releaseId },
-  })
 }
 
 export function copyOpeningTemplateRelease(

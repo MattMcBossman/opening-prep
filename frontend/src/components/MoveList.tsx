@@ -20,6 +20,13 @@ type Props = {
   expandAllContinuations?: boolean
   getContinuations: (fen: string) => RepertoireMove[]
   onPlayContinuationPath: (moves: RepertoireMove[]) => void
+  continuationMovesInteractive?: boolean
+  continuationHeading?: string
+  autoScroll?: boolean
+  responsiveContinuationExpansion?: boolean
+  showSaveControls?: boolean
+  continuationChainPlies?: number
+  responsiveContinuationChain?: boolean
 }
 
 function StarButton({ saved, state, onToggle, canEdit }: { saved: boolean; state: 'unsaved' | 'saved' | 'pending-add' | 'pending-remove'; onToggle: (point: { x: number; y: number }) => void; canEdit: boolean }) {
@@ -76,17 +83,36 @@ export function MoveList({
   expandAllContinuations = false,
   getContinuations,
   onPlayContinuationPath,
+  continuationMovesInteractive = true,
+  continuationHeading = 'Saved continuations',
+  autoScroll = true,
+  responsiveContinuationExpansion = false,
+  showSaveControls = true,
+  continuationChainPlies = 2,
+  responsiveContinuationChain = false,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null)
   const [expansionOverrides, setExpansionOverrides] = useState<Record<string, boolean>>({})
+  const [continuationWidth, setContinuationWidth] = useState(0)
   const playedRows = buildPlayedRows(moves, pointer)
+  const effectiveChainPlies = responsiveContinuationChain
+    ? continuationWidth >= 620 ? 8 : continuationWidth >= 420 ? 6 : 4
+    : continuationChainPlies
   const tree = useMemo(
-    () => buildContinuationTree(currentFen, pointer, getContinuations),
-    [currentFen, pointer, getContinuations],
+    () => buildContinuationTree(currentFen, pointer, getContinuations, () => true, effectiveChainPlies),
+    [currentFen, effectiveChainPlies, pointer, getContinuations],
   )
   const treeKey = tree.map((node) => node.key).join('|')
 
   useEffect(() => {
+    if ((!responsiveContinuationExpansion && !responsiveContinuationChain) || !listRef.current || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setContinuationWidth(entry.contentRect.width))
+    observer.observe(listRef.current)
+    return () => observer.disconnect()
+  }, [responsiveContinuationChain, responsiveContinuationExpansion])
+
+  useEffect(() => {
+    if (!autoScroll) return
     const frame = requestAnimationFrame(() => {
       const list = listRef.current
       if (!list) return
@@ -94,7 +120,7 @@ export function MoveList({
       list.scrollTo({ top: list.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
     })
     return () => cancelAnimationFrame(frame)
-  }, [pointer, treeKey])
+  }, [autoScroll, pointer, treeKey])
 
   function renderPlayedRow(row: PlayedRow, index: number) {
     const renderCell = (cell?: PlayedCell) => !cell ? <span /> : (
@@ -102,7 +128,7 @@ export function MoveList({
         {cell.entry.san}
       </button>
     )
-    const star = (cell?: PlayedCell) => cell
+    const star = (cell?: PlayedCell) => showSaveControls && cell
       ? <StarButton saved={isPlySaved(cell.index)} state={getPlySaveState(cell.index)} canEdit={canEditModule} onToggle={(point) => onTogglePlySaved(cell.index, point)} />
       : null
     return (
@@ -119,7 +145,9 @@ export function MoveList({
   function renderTreeNode(node: ContinuationTreeNode, depth: number, parentPath: RepertoireMove[]): React.ReactNode {
     const path = [...parentPath, ...node.chain.map((item) => item.move)]
     const expandable = node.childCount > 0
-    const expanded = expandAllContinuations || (expansionOverrides[node.key] ?? depth === 0)
+    const responsiveDepth = continuationWidth >= 620 ? 2 : continuationWidth >= 420 ? 1 : 0
+    const defaultExpanded = responsiveContinuationExpansion ? depth <= responsiveDepth : depth === 0
+    const expanded = expandAllContinuations || (expansionOverrides[node.key] ?? defaultExpanded)
     return (
       <div className="continuation-branch" key={node.key}>
         <div className="continuation-tree-row" style={{ '--tree-depth': depth } as React.CSSProperties}>
@@ -131,7 +159,7 @@ export function MoveList({
             disabled={!expandable}
             onClick={() => setExpansionOverrides((current) => ({ ...current, [node.key]: !expanded }))}
           >
-            {expandable ? <span className={expanded ? 'continuation-chevron expanded' : 'continuation-chevron'} /> : <span className="continuation-leaf-dot">·</span>}
+            {expandable ? <span className="continuation-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span> : null}
           </button>
           <span className="continuation-connector" aria-hidden="true">{depth > 0 ? '└' : ''}</span>
           <div className="continuation-chain">
@@ -142,13 +170,16 @@ export function MoveList({
                     Keep the ellipsis when the chain itself begins with Black. */}
                 {!(item.ply % 2 === 1 && node.chain[itemIndex - 1]?.ply === item.ply - 1)
                   && <span className="continuation-move-number">{movePrefix(item.ply)}</span>}
-                <button
-                  type="button"
-                  className="continuation-move-button"
-                  onClick={() => onPlayContinuationPath([...parentPath, ...node.chain.slice(0, itemIndex + 1).map((part) => part.move)])}
-                >
-                  {item.move.san}
-                </button>
+                {continuationMovesInteractive
+                  ? <button
+                      type="button"
+                      className="continuation-move-button"
+                      onClick={() => onPlayContinuationPath([...parentPath, ...node.chain.slice(0, itemIndex + 1).map((part) => part.move)])}
+                      title={item.move.san}
+                    >
+                      {item.move.san}
+                    </button>
+                  : <span className="continuation-move-button continuation-move-preview" title={item.move.san}>{item.move.san}</span>}
               </span>
             ))}
           </div>
@@ -173,10 +204,10 @@ export function MoveList({
   }
 
   return (
-    <div ref={listRef} className="move-list">
+    <div ref={listRef} className={`move-list${!responsiveContinuationChain && continuationChainPlies === 2 ? ' paired-continuations' : ''}`}>
       {playedRows.map(renderPlayedRow)}
       {playedRows.length > 0 && tree.length > 0 && <div className="move-list-divider" />}
-      {tree.length > 0 && <p className="continuation-tree-heading">Saved continuations</p>}
+      {tree.length > 0 && <p className="continuation-tree-heading">{continuationHeading}</p>}
       {tree.map((node) => renderTreeNode(node, 0, []))}
       {playedRows.length === 0 && tree.length === 0 && <p className="panel-status">Play a move to begin.</p>}
       {playedRows.length > 0 && tree.length === 0 && <p className="panel-status">No saved continuations from this position.</p>}

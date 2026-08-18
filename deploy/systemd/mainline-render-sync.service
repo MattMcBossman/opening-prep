@@ -1,0 +1,13 @@
+[Unit]
+Description=Mirror authoritative Mainline data from Render
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/git/opening-prep/backend
+EnvironmentFile=%h/.config/mainline/render-sync.env
+ExecStart=%h/.local/bin/uv run manage.py sync_render_to_tailscale
+
+[Install]
+WantedBy=default.target

@@ -583,7 +583,7 @@ export function DrillView({
         <div className="board-controls">
           {isPaused && (
             <div className="drill-review-actions">
-              <button type="button" onClick={viewCompletionInExplorer}>View in explorer</button>
+              <button type="button" onClick={viewCompletionInExplorer}>View in Explorer</button>
               <button type="button" onClick={session.acknowledgeCompletion}>
                 {session.complete ? 'Finish' : 'Next drill'}
               </button>

@@ -15,7 +15,7 @@ The Moves panel keeps played history in its score grid and presents preparation 
 PGN import/export preserves RAV paths, authored line labels, per-ply comments,
 and numeric or symbolic annotation glyphs for signed-in repertoires.
 
-Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Each saved-module card can also launch that module alone from its displayed shared opening position, whether or not it is attached to the active profile. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints on repeated attempts. Finishing a line pauses without auto-scrolling; View in explorer, Next/Finish, Restart, and Shuffle drills stay directly below the board. Desktop shows Analysis and Lichess statistics automatically, while phones use compact Analysis/Stats buttons. The sole post-drill engine review streams three Stockfish candidates during iterative deepening toward depth 24, so the eval bar and arrows appear before the final cacheable result; rank 1 drives the eval bar and calibrated verdict, while recurring moves across all candidates drive continuation arrows and support move-order observations. Signed-in users share the strongest compatible normalized-FEN result through PostgreSQL, while signed-out sessions reuse it in browser memory. A session ends with a perfect/failed summary and a "Retry failed" option.
+Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Each saved-module card can also launch that module alone from its displayed shared opening position, whether or not it is attached to the active profile. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints on repeated attempts. Finishing a line pauses without auto-scrolling; View in Explorer, Next/Finish, Restart, and Shuffle drills stay directly below the board. Desktop shows Analysis and Lichess statistics automatically, while phones use compact Analysis/Stats buttons. The sole post-drill engine review streams three Stockfish candidates during iterative deepening toward depth 24, so the eval bar and arrows appear before the final cacheable result; rank 1 drives the eval bar and calibrated verdict, while recurring moves across all candidates drive continuation arrows and support move-order observations. Signed-in users share the strongest compatible normalized-FEN result through PostgreSQL, while signed-out sessions reuse it in browser memory. A session ends with a perfect/failed summary and a "Retry failed" option.
 
 A2 concrete position analysis is complete. It adds a public, versioned
 normalized-FEN cache of deterministic material, pawn, file, activity, king, and
@@ -25,9 +25,9 @@ highlights exact board squares.
 
 Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate; drills add corrective wrong-move feedback and a completion chime. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference. Dark mode is the first-visit default; an explicit light or dark choice remains persisted.
 
-Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Lichess never authenticates a Mainline account. Public Lichess explorer data requires signing into Mainline and linking Lichess; signed-out users see that action instead of a personal-token field. Chess.com linking stores no credentials and is not ownership verification because its generally available Published Data API has no OAuth flow. Signing in is optional — signed-out users can create reusable local opening modules, and an existing local repertoire is imported into the backend the first time you sign in. The explorer is scoped to one selected module: saved modules open read-only, Edit creates a buffered draft, and Save/Discard explicitly commits or abandons the changes with unload/navigation protection. Selecting New module (also the default when none exist) immediately opens an unnamed draft; its name is requested only when Save is chosen. Accounts currently expose one combined module collection; the retained profile tables are an internal compatibility foundation for a future composition redesign. The opening library has immutable JSON-backed releases split into official Mainline modules and community-published user modules, with anonymous read-only loading in the explorer; signing in additionally enables publishing owned modules, persistent library additions, editable copies, and per-line gap filling. Signed-in users with linked Lichess can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines. Private phone access to the laptop-hosted development stack is wired through Tailscale. Mobile-first engineering, automated Android/iPhone-sized browser coverage, and hands-on Android/Tailscale validation are complete; a top-right phone menu consolidates repertoire color, module management, sound, theme, and account controls. Remaining work is consolidated in [ROADMAP.md](ROADMAP.md), with isolated branch work in [AUTONOMOUS_TASKS.md](AUTONOMOUS_TASKS.md).
+Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Signing in is optional, and signed-out users can create reusable local opening modules. Saved modules open in viewing mode; Edit creates a buffered draft, and Save/Discard commits or abandons changes. The authoritative opening library currently contains only the 46-line Caro Kann and 99-line Vienna Game. Library selections are temporary in-memory previews; “Copy to My modules” creates a normal editable personal copy. Persistent read-only module attachments are not supported. Signed-in users with linked Lichess can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines. Private phone access uses Tailscale. Remaining work is consolidated in [ROADMAP.md](ROADMAP.md).
 
-During the invited alpha, signed-out users receive an editable local-storage copy of the published Vienna module, reusing that copy on later visits; signed-in users retain the published Vienna release in their default repertoire.
+During the invited alpha, signed-out users receive an editable local-storage copy of the published Vienna module and reuse that copy on later visits. Signed-in accounts use editable personal copies only.
 
 The signed-in **My games** explorer can use Lichess, the linked Chess.com
 username, or both sources combined. The backend streams game records while a
@@ -128,6 +128,33 @@ sudo tailscale set --operator="$USER"
 Run that once, then rerun `./scripts/remote-dev`. The wrapper configures
 Tailscale Serve before starting either long-running app process, so an access
 denial cannot leave a partial development stack behind.
+
+### Render-to-Tailscale data mirror
+
+Render is the source of truth for `matt.mcclelland`'s official repertoire data.
+The local/Tailscale database can periodically replace that account's profiles,
+modules, move graphs, authored lines, and library pins from Render while also
+mirroring every published opening template and release. Authentication records,
+linked chess accounts/tokens, drill history, and caches are deliberately not
+copied. Other local users are untouched; published entries absent from Render
+are retired from the local catalog rather than deleted.
+
+Install the user-level systemd service with:
+
+```bash
+./scripts/install-render-sync-service
+```
+
+Put Render's **external** PostgreSQL URL in
+`~/.config/mainline/render-sync.env` as `MAINLINE_RENDER_DATABASE_URL`, run the
+printed `--dry-run` command, then enable the timer. The management command loads
+that file automatically for manual runs. It runs roughly every six
+hours and can be triggered immediately with
+`systemctl --user start mainline-render-sync.service`. A conflicting local copy
+of the same published release is replaced in place from Render so existing
+local pins and copied-module provenance remain valid. A stale release pinned by
+another local account stops the sync, preserving that account's pin for manual
+review.
 
 ## Invited alpha deployment
 
