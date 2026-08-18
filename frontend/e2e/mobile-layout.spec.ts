@@ -43,26 +43,90 @@ test('mobile Explorer sections show one workspace at a time and preserve selecti
 
 test('walkthrough activates and scrolls mobile sections into view', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.route('**/api/v1/opening-templates/', (route) => route.fulfill({ json: [{
+    slug: 'vienna', name: 'Vienna Game', description: '', color: 'white', kind: 'community', publisherName: 'Kurtis',
+    latestRelease: { id: 99, version: 1, publishedAt: '2026-01-01T00:00:00Z', commonStart: '1. e4 e5 2. Nc3', lineCount: 99 },
+  }] }))
+  await page.route('**/api/v1/opening-templates/vienna/releases/1/', (route) => route.fulfill({ json: {
+    id: 99, templateSlug: 'vienna', name: 'Vienna Game', changelog: '', color: 'white', version: 1,
+    publishedAt: '2026-01-01T00:00:00Z', commonStart: '1. e4 e5 2. Nc3', lineCount: 99, tree: {}, lines: [],
+  } }))
+  await page.addInitScript(() => {
+    sessionStorage.setItem('opening-prep:explorer-session:v1', JSON.stringify({
+      baseFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      moves: [{ san: 'd4', uci: 'd2d4', fenAfter: 'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1' }],
+      pointer: 1,
+    }))
+  })
   await page.goto('/')
   await page.getByRole('button', { name: 'Start walkthrough' }).click()
+  await expect(page.locator('.opening-name')).toContainText('Open Game')
 
   const next = page.getByRole('button', { name: 'Next' })
-  for (let index = 0; index < 4; index += 1) await next.click()
+  await next.click()
+  await next.click()
+  await expect(page.locator('#mobile-moves-panel')).toBeInViewport()
+  await expect(page.locator('#mobile-moves-panel > h2')).toBeInViewport()
+  await expect(page.locator('.walkthrough-card')).toHaveCSS('top', '8px')
+  await expect(page.getByText('Saved continuations')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'e4', exact: true })).toBeVisible()
+  await expect(page.locator('.continuation-disclosure[aria-expanded="true"]')).toHaveCount(4)
+  await expect(page.locator('.continuation-disclosure[aria-expanded="false"]')).toHaveCount(0)
 
-  const coverageHeading = page.locator('#mobile-prep-panel .coverage-dashboard > h3')
+  for (const move of ['Nc3', 'Nf6', 'f4']) {
+    await page.locator('.continuation-move-button', { hasText: move }).first().click()
+  }
+  await expect(page.locator('.opening-name')).toContainText('Vienna Gambit')
+  await expect(page.locator('.continuation-move-button', { hasText: 'd5' })).toBeVisible()
+
+  await next.click()
+  await expect(page.locator('.walkthrough-card')).toHaveCSS('top', '8px')
+  await expect(page.locator('#mobile-stats-panel')).toContainText('d5')
+  await expect(page.locator('#mobile-stats-panel .explorer-row-saved')).toContainText('d5')
+
+  await next.click()
+  await expect(page.locator('.walkthrough-card')).toHaveCSS('top', '8px')
+  await expect(page.getByRole('tab', { name: 'My games', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.walkthrough-card')).toContainText('Link a Lichess or Chess.com account to review your own game history.')
+  await expect(page.locator('#mobile-stats-panel')).toContainText(/Found \d+ games/)
+
+  await next.click()
+  await expect(page.locator('.walkthrough-card')).toHaveCSS('top', '8px')
+
+  const coveragePanel = page.locator('[data-guide="coverage"]')
   await expect(page.getByRole('tab', { name: 'Prep', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect.poll(async () => coverageHeading.evaluate((element) => {
+  await expect.poll(async () => coveragePanel.evaluate((element) => {
     const rect = element.getBoundingClientRect()
     return rect.top >= 0 && rect.bottom <= window.innerHeight
   })).toBe(true)
 
   await next.click()
-  const recommendationHeading = page.locator('#mobile-prep-panel .opening-generator-heading')
-  await expect.poll(async () => recommendationHeading.evaluate((element) => {
+  await expect(page.locator('.walkthrough-card')).toHaveCSS('top', '8px')
+  const recommendationPanel = page.locator('[data-guide="opening-generator"]')
+  await expect.poll(async () => recommendationPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect()
     return rect.top >= 0 && rect.bottom <= window.innerHeight
   })).toBe(true)
   await expect(page.locator('.walkthrough-card')).toContainText('Experimental tree recommendations')
+
+  await next.click()
+  await expect(page.getByRole('tab', { name: 'Drills', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Explorer', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await next.click()
+
+  await next.click()
+  await next.click()
+  const moduleDialog = page.getByRole('dialog', { name: 'Opening modules' })
+  await expect(moduleDialog).toBeVisible()
+  await expect(page.locator('[data-guide="walkthrough-vienna-module"]')).toBeInViewport()
+  await expect(page.locator('.walkthrough-card')).toContainText('The Vienna Game opening module is loaded by default')
+  await next.click()
+  await page.getByRole('button', { name: 'Browse openings' }).click()
+  await expect(page.getByRole('dialog', { name: 'Opening modules' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Module library' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: 'Global opening library' })).toBeVisible()
+  await expect.poll(async () => JSON.parse(await page.evaluate(() => sessionStorage.getItem('opening-prep:explorer-session:v1') ?? '{}')).moves?.[0]?.uci).toBe('d2d4')
 })
 
 test('mobile board owns touch drags and places the eval bar on the left', async ({ page }) => {

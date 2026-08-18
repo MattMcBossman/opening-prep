@@ -59,11 +59,14 @@ export function selectAlphaViennaTemplate(templates: OpeningTemplateSummary[]) {
 
 function useAlphaViennaRelease(enabled: boolean) {
   const [release, setRelease] = useState<OpeningTemplateRelease | null>(null)
+  const [loading, setLoading] = useState(enabled)
   useEffect(() => {
     if (!enabled) {
       setRelease(null)
+      setLoading(false)
       return
     }
+    setLoading(true)
     const controller = new AbortController()
     listOpeningTemplates(controller.signal)
       .then((templates) => {
@@ -72,10 +75,13 @@ function useAlphaViennaRelease(enabled: boolean) {
           ? fetchOpeningTemplateRelease(template.slug, template.latestRelease.version, controller.signal)
           : null
       })
-      .then((snapshot) => { if (!controller.signal.aborted) setRelease(snapshot) }, () => {})
+      .then(
+        (snapshot) => { if (!controller.signal.aborted) { setRelease(snapshot); setLoading(false) } },
+        () => { if (!controller.signal.aborted) setLoading(false) },
+      )
     return () => controller.abort()
   }, [enabled])
-  return release
+  return { release, loading }
 }
 
 type LocalRepertoireV2 = {
@@ -870,8 +876,24 @@ export function useRepertoire(user: AuthUser | null) {
   const isAuthenticated = user !== null
   const local = useLocalRepertoireStore()
   const api = useApiRepertoireStore(isAuthenticated)
-  const alphaViennaRelease = useAlphaViennaRelease(!isAuthenticated)
+  const setApiPreviewRelease = api.setPreviewRelease
+  const localViennaModule = local.modules.find((module) => module.color === 'white' && ['vienna', 'vienna game'].includes(module.name.trim().toLocaleLowerCase())) ?? null
+  const { release: alphaViennaRelease, loading: alphaViennaLoading } = useAlphaViennaRelease(!isAuthenticated && localViennaModule === null)
   const importPrompt = useImportPrompt(user, local.repertoire, api.status === 'ready', api.refresh)
+
+  useEffect(() => {
+    if (isAuthenticated || localViennaModule || !alphaViennaRelease) return
+    void local.importModule(alphaViennaRelease.color, alphaViennaRelease.name, alphaViennaRelease.lines, local.activeProfileId ?? undefined)
+  }, [alphaViennaRelease, isAuthenticated, local, localViennaModule])
+
+  useEffect(() => {
+    if (isAuthenticated || !localViennaModule || local.editingModuleIds.white === localViennaModule.id) return
+    local.setEditingModule('white', localViennaModule.id)
+  }, [isAuthenticated, local, localViennaModule])
+
+  const setSelectedPreviewRelease = useCallback((release: OpeningTemplateRelease | null) => {
+    setApiPreviewRelease(release)
+  }, [setApiPreviewRelease])
 
   const active = isAuthenticated ? api : local
   // Normalizes the two stores' differently-named whole-tree fields
@@ -882,7 +904,7 @@ export function useRepertoire(user: AuthUser | null) {
   const activeRepertoire: Repertoire = isAuthenticated ? api.tree : local.repertoire
   const visibleRepertoire = useMemo<Repertoire>(() => {
     if (isAuthenticated) return activeRepertoire
-    const releases = [alphaViennaRelease, api.previewRelease].filter(
+    const releases = [api.previewRelease].filter(
       (release): release is OpeningTemplateRelease => release !== null,
     )
     if (releases.length === 0) return activeRepertoire
@@ -898,7 +920,7 @@ export function useRepertoire(user: AuthUser | null) {
     return {
       ...visible,
     }
-  }, [activeRepertoire, alphaViennaRelease, api.previewRelease, isAuthenticated])
+  }, [activeRepertoire, api.previewRelease, isAuthenticated])
 
   const getTree = useCallback(
     (color: RepertoireColor): RepertoireTree => visibleRepertoire[color],
@@ -938,27 +960,14 @@ export function useRepertoire(user: AuthUser | null) {
     }
   }
 
-  const localDrillLines = useMemo<Partial<Record<RepertoireColor, DrillLine[]>>>(() => {
-    if (!alphaViennaRelease) return {}
-    return {
-      [alphaViennaRelease.color]: alphaViennaRelease.lines.map((line) => ({
-        id: line.steps.map((step) => step.uci).join(' '),
-        steps: line.steps.map((step) => ({
-          fen: step.originFen,
-          san: step.san,
-          uci: step.uci,
-          resultingFen: step.resultingFen,
-          mover: sideToMove(step.originFen) === alphaViennaRelease.color ? 'own' : 'opponent',
-        })),
-        sources: [{
-          kind: 'template_release' as const,
-          id: alphaViennaRelease.id,
-          lineId: line.id,
-          name: alphaViennaRelease.name,
-        }],
-      })),
-    }
-  }, [alphaViennaRelease])
+  const localDrillLines = useMemo<Partial<Record<RepertoireColor, DrillLine[]>>>(() => Object.fromEntries(
+    (['white', 'black'] as const).map((color) => [
+      color,
+      (local.activeProfile?.modules ?? [])
+        .filter((module) => module.enabled && module.color === color)
+        .flatMap((module) => local.getModuleDrillLines(module.id)),
+    ]),
+  ), [local])
 
   return {
     getContinuations,
@@ -977,35 +986,13 @@ export function useRepertoire(user: AuthUser | null) {
     editingLinePaths: isAuthenticated ? api.editingLinePaths : {},
     editingLines: isAuthenticated ? api.editingLines : {},
     isSignedIn: isAuthenticated,
-    isSyncing: isAuthenticated && api.status === 'loading',
+    isSyncing: isAuthenticated ? api.status === 'loading' : alphaViennaLoading || (alphaViennaRelease !== null && localViennaModule === null),
     syncError: isAuthenticated ? api.error : null,
     syncErrorKind: isAuthenticated ? api.errorKind : null,
     clearSyncError: api.clearError,
     repertoireIds: recordingModuleIds,
-    profiles: isAuthenticated ? api.profiles : local.profiles.map((profile) => ({
-      ...profile,
-      templateReleases: alphaViennaRelease ? [{
-        id: alphaViennaRelease.id,
-        templateSlug: alphaViennaRelease.templateSlug,
-        name: alphaViennaRelease.name,
-        color: alphaViennaRelease.color,
-        version: alphaViennaRelease.version,
-        sortOrder: profile.modules.length,
-        enabled: true,
-      }] : [],
-    })),
-    activeProfile: isAuthenticated ? api.activeProfile : (local.activeProfile ? {
-      ...local.activeProfile,
-      templateReleases: alphaViennaRelease ? [{
-        id: alphaViennaRelease.id,
-        templateSlug: alphaViennaRelease.templateSlug,
-        name: alphaViennaRelease.name,
-        color: alphaViennaRelease.color,
-        version: alphaViennaRelease.version,
-        sortOrder: local.activeProfile.modules.length,
-        enabled: true,
-      }] : [],
-    } : null),
+    profiles: isAuthenticated ? api.profiles : local.profiles,
+    activeProfile: isAuthenticated ? api.activeProfile : local.activeProfile,
     activeProfileId: isAuthenticated ? api.activeProfileId : local.activeProfileId,
     editingModuleIds: isAuthenticated ? api.editingModuleIds : local.editingModuleIds,
     setActiveProfile: isAuthenticated ? api.setActiveProfile : local.setActiveProfile,
@@ -1026,7 +1013,7 @@ export function useRepertoire(user: AuthUser | null) {
     copyTemplate: api.copyTemplate,
     copyMissingTemplateLines: api.copyMissingTemplateLines,
     previewRelease: api.previewRelease,
-    setPreviewRelease: api.setPreviewRelease,
+    setPreviewRelease: setSelectedPreviewRelease,
     importPrompt,
   }
 }

@@ -17,6 +17,7 @@ type Props = {
   getPlySaveState?: (index: number) => 'unsaved' | 'saved' | 'pending-add' | 'pending-remove'
   onTogglePlySaved: (index: number, point: { x: number; y: number }) => void
   canEditModule?: boolean
+  expandAllContinuations?: boolean
   getContinuations: (fen: string) => RepertoireMove[]
   onPlayContinuationPath: (moves: RepertoireMove[]) => void
 }
@@ -72,6 +73,7 @@ export function MoveList({
   getPlySaveState = (index) => isPlySaved(index) ? 'saved' : 'unsaved',
   onTogglePlySaved,
   canEditModule = true,
+  expandAllContinuations = false,
   getContinuations,
   onPlayContinuationPath,
 }: Props) {
@@ -117,7 +119,7 @@ export function MoveList({
   function renderTreeNode(node: ContinuationTreeNode, depth: number, parentPath: RepertoireMove[]): React.ReactNode {
     const path = [...parentPath, ...node.chain.map((item) => item.move)]
     const expandable = node.childCount > 0
-    const expanded = expansionOverrides[node.key] ?? depth === 0
+    const expanded = expandAllContinuations || (expansionOverrides[node.key] ?? depth === 0)
     return (
       <div className="continuation-branch" key={node.key}>
         <div className="continuation-tree-row" style={{ '--tree-depth': depth } as React.CSSProperties}>

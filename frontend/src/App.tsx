@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { PieceDataType, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 import { useGame, START_FEN } from './hooks/useGame'
-import type { MoveInput } from './hooks/useGame'
+import type { GameSnapshot, MoveInput } from './hooks/useGame'
 import { useAuth } from './hooks/useAuth'
 import { useExplorerStats } from './hooks/useExplorerStats'
 import { useEngineEval } from './hooks/useEngineEval'
@@ -49,9 +49,10 @@ import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/reperto
 import { calculatePositionCoverage } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
 import { diffModuleDraft, moduleMoveDraftState } from './lib/moduleDraftDiff'
+import { TUTORIAL_VIENNA_TREE, tutorialPersonalGameStats, tutorialPositionStats } from './lib/tutorialDemo'
 import type { RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
-import type { RepertoireLine as ApiRepertoireLine, RepertoireSummary } from './lib/repertoireApi'
+import type { OpeningTemplateRelease, RepertoireLine as ApiRepertoireLine, RepertoireSummary } from './lib/repertoireApi'
 import './App.css'
 
 const SELECTED_SQUARE_STYLE: CSSProperties = { backgroundColor: 'rgba(0, 0, 0, 0.2)' }
@@ -76,6 +77,7 @@ function pieceMatchesColor(piece: PieceDataType | null, color: 'white' | 'black'
 }
 
 const VIEW_SESSION_KEY = 'opening-prep:view-session:v1'
+const WALKTHROUGH_START_LINE = ['e2e4', 'e7e5'] as const
 type ViewSession = {
   mode: AppMode
   mobileSection: 'moves' | 'stats' | 'prep'
@@ -99,12 +101,34 @@ function readViewSession(): Partial<ViewSession> {
 
 function App() {
   const [initialView] = useState(readViewSession)
-  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition, loadContinuationPath, boardTransition } = useGame()
+  const { fen, moves, pointer, goTo, goBack, goForward, makeMove, reset, loadLine, loadPosition, loadContinuationPath, boardTransition, snapshot: gameSnapshot, restoreSnapshot } = useGame()
   const { theme, toggleTheme } = useTheme()
   const { boardColor, setBoardColor, toggleBoardColor } = useBoardColor()
   const token = ''
   const auth = useAuth()
   const isSignedIn = auth.user !== null
+  const [tutorialActive, setTutorialActive] = useState(false)
+  const latestGameSnapshotRef = useRef(gameSnapshot)
+  const preWalkthroughGameRef = useRef<GameSnapshot | null>(null)
+  latestGameSnapshotRef.current = gameSnapshot
+  const handleWalkthroughActiveChange = useCallback((active: boolean) => {
+    if (active) {
+      if (preWalkthroughGameRef.current) return
+      preWalkthroughGameRef.current = latestGameSnapshotRef.current
+      loadLine(WALKTHROUGH_START_LINE)
+      setTutorialActive(true)
+      return
+    }
+    setTutorialActive(false)
+    const saved = preWalkthroughGameRef.current
+    preWalkthroughGameRef.current = null
+    if (saved) restoreSnapshot(saved)
+  }, [loadLine, restoreSnapshot])
+  const handleWalkthroughManagerChange = useCallback((view: 'modules' | null) => {
+    setWalkthroughManagerRequest((request) => ({ id: request.id + 1, view }))
+  }, [])
+  const [openLibraryRequest, setOpenLibraryRequest] = useState(0)
+  const [walkthroughManagerRequest, setWalkthroughManagerRequest] = useState<{ id: number; view: 'modules' | null }>({ id: 0, view: null })
   const [explorerSource, setExplorerSource] = useState<ExplorerSource>(initialView.explorerSource ?? 'lichess')
   const effectiveExplorerSource = explorerSource
   // Each source owns its filters independently: switching tabs restores that
@@ -115,6 +139,7 @@ function App() {
     'my-games': {},
   })
   const explorerFilters = explorerFiltersBySource[effectiveExplorerSource]
+  const displayedExplorerSource = effectiveExplorerSource
   const setExplorerFilters = useCallback((filters: LichessDatabaseFilters) => {
     setExplorerFiltersBySource((previous) => ({ ...previous, [effectiveExplorerSource]: filters }))
   }, [effectiveExplorerSource])
@@ -146,6 +171,11 @@ function App() {
   const [ancestorOpening, setAncestorOpening] = useState<{ eco: string; name: string } | null>(null)
   const [ancestorOpeningLoading, setAncestorOpeningLoading] = useState(false)
   const evaluation = useEngineEval(fen, isSignedIn)
+  const tutorialStats = useMemo(() => tutorialPositionStats(fen), [fen])
+  const tutorialDisplayedStats = useMemo(
+    () => displayedExplorerSource === 'my-games' ? tutorialPersonalGameStats(fen) : tutorialStats,
+    [displayedExplorerSource, fen, tutorialStats],
+  )
   const repertoire = useRepertoire(auth.user)
   type PendingModuleChange =
     | { kind: 'remove'; color: RepertoireColor; originFen: string; uci: string }
@@ -153,6 +183,7 @@ function App() {
   const [moduleWorkspaceMode, setModuleWorkspaceMode] = useState<'viewing' | 'editing'>('viewing')
   const [newModuleSelected, setNewModuleSelected] = useState(false)
   const [moduleDraftTree, setModuleDraftTree] = useState<RepertoireTree | null>(null)
+  const [draftSourceRelease, setDraftSourceRelease] = useState<OpeningTemplateRelease | null>(null)
   const [pendingModuleChanges, setPendingModuleChanges] = useState<PendingModuleChange[]>([])
   const [moduleSaveConfirmOpen, setModuleSaveConfirmOpen] = useState(false)
   const [moduleWorkspaceNotice, setModuleWorkspaceNotice] = useState<string | null>(null)
@@ -185,17 +216,20 @@ function App() {
   const selectedModuleId = repertoire.editingModuleIds[boardColor] ?? null
   const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
   const persistedModuleTree = viewedRelease?.tree ?? repertoire.getEditingTree(boardColor)
-  const moduleWorkspaceTree = moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
+  const moduleWorkspaceTree = tutorialActive
+    ? TUTORIAL_VIENNA_TREE
+    : moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
   const moduleDraftDiff = useMemo(
-    () => diffModuleDraft(newModuleSelected ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
-    [boardColor, moduleDraftTree, newModuleSelected, persistedModuleTree],
+    () => diffModuleDraft(newModuleSelected || draftSourceRelease ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
+    [boardColor, draftSourceRelease, moduleDraftTree, newModuleSelected, persistedModuleTree],
   )
-  const hasUnsavedModuleChanges = moduleDraftDiff.moves.length > 0 || moduleDraftDiff.lines.length > 0
+  const hasUnsavedModuleChanges = draftSourceRelease !== null || moduleDraftDiff.moves.length > 0 || moduleDraftDiff.lines.length > 0
 
   useEffect(() => {
     setModuleWorkspaceMode('viewing')
     setNewModuleSelected(false)
     setModuleDraftTree(null)
+    setDraftSourceRelease(null)
     setPendingModuleChanges([])
     setModuleSaveConfirmOpen(false)
     setModuleWorkspaceNotice(null)
@@ -220,12 +254,21 @@ function App() {
   const beginEditingModule = useCallback(() => {
     setNewModuleSelected(false)
     setModuleDraftTree(structuredClone(persistedModuleTree))
+    setDraftSourceRelease(!isSignedIn ? viewedRelease : null)
     setPendingModuleChanges([])
     setModuleWorkspaceNotice(null)
     setModuleWorkspaceMode('editing')
-  }, [persistedModuleTree])
+  }, [isSignedIn, persistedModuleTree, viewedRelease])
 
   const discardModuleChanges = useCallback(() => {
+    if (draftSourceRelease) {
+      setDraftSourceRelease(null)
+      setModuleDraftTree(null)
+      setPendingModuleChanges([])
+      setModuleWorkspaceNotice(null)
+      setModuleWorkspaceMode('viewing')
+      return
+    }
     if (newModuleSelected) {
       setModuleDraftTree({})
       setPendingModuleChanges([])
@@ -237,12 +280,12 @@ function App() {
     setPendingModuleChanges([])
     setModuleWorkspaceNotice(null)
     setModuleWorkspaceMode('viewing')
-  }, [newModuleSelected])
+  }, [draftSourceRelease, newModuleSelected])
 
   const saveModuleChanges = useCallback(async () => {
     setModuleSaveConfirmOpen(false)
-    if (newModuleSelected) {
-      const requestedName = window.prompt('Name this opening module')
+    if (newModuleSelected || draftSourceRelease) {
+      const requestedName = draftSourceRelease?.name ?? window.prompt('Name this opening module')
       if (requestedName === null) return
       const name = requestedName.trim()
       if (!name) {
@@ -253,10 +296,14 @@ function App() {
         setModuleWorkspaceNotice('Choose a different name; that module already exists.')
         return
       }
-      const lines = pendingModuleChanges.flatMap((change) => change.kind === 'add-line'
+      const retainedReleaseLines = draftSourceRelease?.lines
+        .filter((line) => line.steps.every((step) => (moduleDraftTree?.[normalizeFen(step.originFen)] ?? []).some((move) => move.uci === step.uci)))
+        .map((line) => ({ steps: line.steps, label: line.label, annotations: [] })) ?? []
+      const addedLines = pendingModuleChanges.flatMap((change) => change.kind === 'add-line'
         && change.steps.every((step) => (moduleDraftTree?.[normalizeFen(step.originFen)] ?? []).some((move) => move.uci === step.uci))
         ? [{ steps: change.steps, label: change.label, annotations: change.annotations }]
         : [])
+      const lines = [...retainedReleaseLines, ...addedLines]
       let created: unknown
       try {
         created = lines.length > 0
@@ -270,6 +317,8 @@ function App() {
         repertoire.setEditingModule(boardColor, created.id)
       }
       setNewModuleSelected(false)
+      setDraftSourceRelease(null)
+      repertoire.setPreviewRelease(null)
       setModuleDraftTree(null)
       setPendingModuleChanges([])
       setModuleWorkspaceNotice('Module saved.')
@@ -289,7 +338,7 @@ function App() {
     setPendingModuleChanges([])
     setModuleWorkspaceNotice('Module saved.')
     setModuleWorkspaceMode('viewing')
-  }, [boardColor, moduleDraftTree, newModuleSelected, pendingModuleChanges, repertoire])
+  }, [boardColor, draftSourceRelease, moduleDraftTree, newModuleSelected, pendingModuleChanges, repertoire])
 
   const addLineToModuleDraft = useCallback((
     color: RepertoireColor,
@@ -337,6 +386,7 @@ function App() {
   }, [allowLeavingModuleDraft, repertoire])
 
   const viewModule = useCallback((moduleId: number) => {
+    repertoire.setPreviewRelease(null)
     setNewModuleSelected(false)
     setModuleDraftTree(null)
     setPendingModuleChanges([])
@@ -589,13 +639,14 @@ function App() {
   }, [isSignedIn, moves, openingExplorer.data?.opening, openingExplorer.data?.totalGames, openingExplorer.loading, pointer, token])
 
   const resolvedOpening = useMemo(() => {
+    if (tutorialActive && tutorialStats.opening) return { opening: tutorialStats.opening, ply: pointer }
     if (openingExplorer.data?.opening) return { opening: openingExplorer.data.opening, ply: pointer }
     // The derived label already includes every move after the named ancestor,
     // so treat it as the current position's complete name. This prevents drill
     // handoff from appending the last move a second time.
     if (ancestorOpening) return { opening: { eco: ancestorOpening.eco, name: ancestorOpening.name }, ply: pointer }
     return null
-  }, [ancestorOpening, openingExplorer.data?.opening, pointer])
+  }, [ancestorOpening, openingExplorer.data?.opening, pointer, tutorialActive, tutorialStats.opening])
 
   const selectedModuleHasDrillContinuation = useMemo(() => {
     if (selectedModuleId === null) return false
@@ -790,6 +841,8 @@ function App() {
             onEditModule={beginEditingModule}
             onSaveModule={() => setModuleSaveConfirmOpen(true)}
             onDiscardModuleChanges={discardModuleChanges}
+            openLibraryRequest={openLibraryRequest}
+            walkthroughManagerRequest={walkthroughManagerRequest}
             />
           </div>
           {mode === 'drill' && (
@@ -834,7 +887,11 @@ function App() {
         open={mainlineGuide.open}
         onClose={mainlineGuide.dismiss}
         onWalkthroughModeChange={handleModeChange}
+        onWalkthroughSourceChange={setExplorerSource}
+        onWalkthroughManagerChange={handleWalkthroughManagerChange}
         onWalkthroughSectionChange={setMobileExplorerSection}
+        onWalkthroughActiveChange={handleWalkthroughActiveChange}
+        onOpenLibrary={() => setOpenLibraryRequest((request) => request + 1)}
       />
       {auth.authError && (
         <p className="panel-status error auth-error-banner">
@@ -975,11 +1032,12 @@ function App() {
               pointer={pointer}
               currentFen={fen}
               onSelect={goTo}
-              boardColor={boardColor}
+              boardColor={tutorialActive ? 'white' : boardColor}
               isPlySaved={isPlySaved}
               getPlySaveState={getPlySaveState}
               onTogglePlySaved={onTogglePlySaved}
               canEditModule={moduleWorkspaceMode === 'editing'}
+              expandAllContinuations={tutorialActive}
               getContinuations={coverageContinuations}
               onPlayContinuationPath={playRepertoirePath}
             />
@@ -993,7 +1051,7 @@ function App() {
                 loading={openingExplorer.loading || ancestorOpeningLoading}
               />
             </div>
-            <div className="board-with-eval">
+            <div className="board-with-eval" data-guide="explorer-board">
               <div className={`board-wrapper${isHistoryCaptureTransition ? ' history-capture-transition' : ''}`} data-active-piece-color={sideToMove(fen)}>
                 <Chessboard
                   options={{
@@ -1062,26 +1120,28 @@ function App() {
               className={`panel explorer-panel mobile-section-panel ${mobileExplorerSection === 'stats' ? 'mobile-active' : ''}`}
               role="tabpanel"
             >
-              <h2>{effectiveExplorerSource === 'my-games' ? 'My games explorer' : 'Lichess explorer'}</h2>
+              <h2>{displayedExplorerSource === 'my-games' ? 'My games explorer' : 'Lichess explorer'}</h2>
               <div className="explorer-toolbar">
-                <ExplorerSourceToggle source={explorerSource} onChange={setExplorerSource} />
+                <ExplorerSourceToggle source={displayedExplorerSource} onChange={setExplorerSource} />
                 <ExplorerFiltersPanel
-                  source={effectiveExplorerSource}
+                  source={displayedExplorerSource}
                   filters={explorerFilters}
                   onChange={setExplorerFilters}
                 />
               </div>
               <ExplorerStatsTable
-                data={explorer.data}
-                loading={explorer.loading}
-                error={explorer.error}
+                data={tutorialActive ? tutorialDisplayedStats : explorer.data}
+                loading={tutorialActive ? false : explorer.loading}
+                error={tutorialActive ? null : explorer.error}
                 onMoveClick={(san) => playMove(san)}
-                isMoveSaved={isExplorerMoveSaved}
-                isMyMove={isExplorerMyMove}
+                isMoveSaved={tutorialActive
+                  ? (uci) => (TUTORIAL_VIENNA_TREE[normalizeFen(fen)] ?? []).some((move) => move.uci === uci)
+                  : isExplorerMoveSaved}
+                isMyMove={tutorialActive ? sideToMove(fen) === 'white' : isExplorerMyMove}
                 isPolling={explorer.isPolling}
                 pollExhausted={explorer.pollExhausted}
                 onRetry={explorer.retry}
-                showFullGameCounts={effectiveExplorerSource === 'my-games'}
+                showFullGameCounts={displayedExplorerSource === 'my-games'}
                 accountActionHref={(isSignedIn ? lichessLoginUrl : googleLoginUrl)(window.location.pathname + window.location.search + window.location.hash)}
               />
               {positionCoverage && positionCoverage.totalGames > 0 && (
@@ -1098,7 +1158,7 @@ function App() {
             className={`explorer-prep-tools ${mobileExplorerSection !== 'prep' ? 'mobile-section-container-hidden' : ''}`}
             role="tabpanel"
           >
-            <section className="panel">
+            <section className="panel" data-guide="coverage">
               <CoverageDashboard
                 color={boardColor}
                 tree={moduleWorkspaceTree}

@@ -75,7 +75,7 @@ export function OpeningGeneratorPanel({ color, prefixUci, openingName, lichessTo
     }
   }
 
-  return <section className="panel opening-generator-panel">
+  return <section className="panel opening-generator-panel" data-guide="opening-generator">
     <div className="opening-generator-heading"><div><h2>Recommended tree <span className="development-tag">In development</span></h2><p>Build a practical repertoire from the selected explorer position.</p></div><button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>{open ? 'Close' : 'Open generator'}</button></div>
     {open && <div className="opening-generator-form">
       {prefixUci.length === 0 && <p className="panel-status error">Play or load an opening line before generating.</p>}

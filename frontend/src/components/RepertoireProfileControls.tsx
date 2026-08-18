@@ -44,16 +44,63 @@ type Props = {
   onEditModule: () => void
   onSaveModule: () => void
   onDiscardModuleChanges: () => void
+  openLibraryRequest?: number
+  walkthroughManagerRequest?: { id: number; view: 'modules' | null }
 }
 
 export function RepertoireProfileControls(props: Props) {
   const { profiles, activeProfileId, editingModuleId, color, disabled = false, onEditingModuleChange, previewRelease } = props
   const [managing, setManaging] = useState(false)
+  const [selectionError, setSelectionError] = useState<string | null>(null)
+  const [managerInitialView, setManagerInitialView] = useState<'modules' | 'library'>('modules')
+  const handledLibraryRequest = useRef(props.openLibraryRequest ?? 0)
+  const handledWalkthroughRequest = useRef(props.walkthroughManagerRequest?.id ?? 0)
   const manageButtonRef = useRef<HTMLButtonElement>(null)
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null
   const editableModules = props.modules.filter((module) => module.color === color)
+  const attachedReleases = (activeProfile?.templateReleases ?? []).filter((release) => release.enabled && release.color === color)
   const isViewingRelease = previewRelease?.color === color
-  const isEditing = props.workspaceMode === 'editing' && !isViewingRelease
+  const isEditing = props.workspaceMode === 'editing'
+
+  const selectWorkspace = (value: string) => {
+    setSelectionError(null)
+    if (value === 'new') {
+      props.onPreviewTemplate(null)
+      props.onNewModule()
+      return
+    }
+    if (value.startsWith('release-')) {
+      const release = attachedReleases.find((candidate) => `release-${candidate.id}` === value)
+      if (!release || previewRelease?.id === release.id) return
+      fetchOpeningTemplateRelease(release.templateSlug, release.version).then(
+        props.onPreviewTemplate,
+        (reason) => setSelectionError(reason instanceof Error ? reason.message : 'The opening module could not be loaded.'),
+      )
+      return
+    }
+    props.onPreviewTemplate(null)
+    onEditingModuleChange(Number(value))
+  }
+
+  useEffect(() => {
+    const request = props.openLibraryRequest ?? 0
+    if (request <= handledLibraryRequest.current) return
+    handledLibraryRequest.current = request
+    setManagerInitialView('library')
+    setManaging(true)
+  }, [props.openLibraryRequest])
+
+  useEffect(() => {
+    const request = props.walkthroughManagerRequest
+    if (!request || request.id <= handledWalkthroughRequest.current) return
+    handledWalkthroughRequest.current = request.id
+    if (request.view === null) {
+      setManaging(false)
+      return
+    }
+    setManagerInitialView(request.view)
+    setManaging(true)
+  }, [props.walkthroughManagerRequest])
 
   if (profiles.length === 0 && !disabled) return null
 
@@ -64,22 +111,20 @@ export function RepertoireProfileControls(props: Props) {
 
   return (
     <div className="repertoire-profile-controls" aria-label="Opening modules">
-      {props.context === 'explorer' && <><label><span>{isEditing ? 'Editing' : 'Viewing'}</span><select value={isViewingRelease ? `release-${previewRelease.id}` : (props.newModuleSelected ? 'new' : (editingModuleId ?? 'new'))} disabled={disabled || isViewingRelease || (isEditing && (!props.newModuleSelected || props.hasUnsavedChanges))} onChange={(event) => event.target.value === 'new' ? props.onNewModule() : onEditingModuleChange(Number(event.target.value))}>
-        {isViewingRelease
-          ? <option value={`release-${previewRelease.id}`}>{previewRelease.name}</option>
-          : profiles.length === 0
+      {props.context === 'explorer' && <><label><span>{isEditing ? 'Editing' : 'Viewing'}</span><select value={isViewingRelease ? `release-${previewRelease.id}` : (props.newModuleSelected ? 'new' : (editingModuleId ?? 'new'))} disabled={disabled || (isEditing && (!props.newModuleSelected || props.hasUnsavedChanges))} onChange={(event) => selectWorkspace(event.target.value)}>
+        {profiles.length === 0
           ? <option value="">Loading…</option>
-          : <><option value="new">New module…</option>{editableModules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}</>}
+          : <><option value="new">New module…</option>{editableModules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}{attachedReleases.map((release) => <option key={`release-${release.id}`} value={`release-${release.id}`}>{release.name} (read-only)</option>)}</>}
       </select></label>
-      {isViewingRelease
-        ? <><button type="button" className="profile-manage-button" disabled={disabled} onClick={() => void props.onCopyTemplate(previewRelease.templateSlug, previewRelease.version, activeProfile?.id)}>Save copy</button><button type="button" className="profile-manage-button" disabled={disabled} onClick={() => props.onPreviewTemplate(null)}>Close</button></>
-        : isEditing
+      {isEditing
           ? <><button type="button" className="profile-manage-button" disabled={disabled || !props.hasUnsavedChanges} onClick={props.onSaveModule}>Save</button><button type="button" className="profile-manage-button" disabled={disabled || (props.newModuleSelected && !props.hasUnsavedChanges)} onClick={props.onDiscardModuleChanges}>Discard</button></>
-          : <button type="button" className="profile-manage-button" disabled={disabled || editingModuleId === null} onClick={props.onEditModule}>Edit</button>}</>}
-      <button ref={manageButtonRef} type="button" className="profile-manage-button" disabled={disabled} aria-expanded={managing} aria-haspopup="dialog" onClick={() => managing ? closeManager() : setManaging(true)}>Manage</button>
+        : isViewingRelease
+          ? <>{props.canManageGlobalLibrary && <button type="button" className="profile-manage-button" disabled={disabled} onClick={() => void props.onCopyTemplate(previewRelease.templateSlug, previewRelease.version, activeProfile?.id)}>Save copy</button>}<button type="button" className="profile-manage-button" disabled={disabled} onClick={props.onEditModule}>Edit</button><button type="button" className="profile-manage-button" disabled={disabled} onClick={() => props.onPreviewTemplate(null)}>Close</button></>
+          : <button type="button" className="profile-manage-button" disabled={disabled || editingModuleId === null} onClick={props.onEditModule}>Edit</button>}{selectionError && <span className="panel-status error" role="alert">{selectionError}</span>}</>}
+      <button ref={manageButtonRef} type="button" className="profile-manage-button" disabled={disabled} aria-expanded={managing} aria-haspopup="dialog" onClick={() => { if (managing) closeManager(); else { setManagerInitialView('modules'); setManaging(true) } }}>Manage</button>
       {managing && createPortal(
         <div className="profile-manager-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManager() }}>
-          <ProfileManager {...props} activeProfile={activeProfile} onClose={closeManager} />
+          <ProfileManager {...props} initialManagerView={managerInitialView} activeProfile={activeProfile} onClose={closeManager} />
         </div>,
         document.body,
       )}
@@ -87,14 +132,14 @@ export function RepertoireProfileControls(props: Props) {
   )
 }
 
-function ProfileManager({ activeProfile, onClose, ...props }: Props & { activeProfile: RepertoireProfileSummary | null; onClose: () => void }) {
+function ProfileManager({ activeProfile, onClose, initialManagerView, ...props }: Props & { activeProfile: RepertoireProfileSummary | null; onClose: () => void; initialManagerView: 'modules' | 'library' }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const headingId = useId()
   const [moduleName, setModuleName] = useState('')
   const [moduleColor, setModuleColor] = useState<RepertoireColor>(props.color)
-  const [managerView, setManagerView] = useState<'modules' | 'library'>('modules')
+  const [managerView, setManagerView] = useState<'modules' | 'library'>(initialManagerView)
   const [moduleFilter, setModuleFilter] = useState<'all' | RepertoireColor>('all')
   const [moduleActionsId, setModuleActionsId] = useState<number | null>(null)
   const [moduleRename, setModuleRename] = useState<{ id: number; name: string } | null>(null)
@@ -132,13 +177,14 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
   }
 
   const visibleModules = props.modules.filter((module) => moduleFilter === 'all' || module.color === moduleFilter)
+  const visibleReleases = (activeProfile?.templateReleases ?? []).filter((release) => release.enabled && (moduleFilter === 'all' || release.color === moduleFilter))
 
   const renderModuleCard = (module: RepertoireSummary) => {
     if (!activeProfile) return null
     const membership = activeProfile.modules.find((candidate) => candidate.id === module.id)
     const preparedLineCount = Number.isFinite(module.lineCount) ? module.lineCount : (membership?.lineCount ?? 0)
     const actionsOpen = moduleActionsId === module.id
-    return <article className="manager-card" key={module.id}>
+    return <article className="manager-card" key={module.id} data-guide={module.name.trim().toLocaleLowerCase().includes('vienna') ? 'walkthrough-vienna-module' : undefined}>
       <div className="manager-card-title"><span><span className="manager-module-heading"><strong>{module.name}</strong><span className={`opening-color-tag ${module.color}`}>{module.color}</span><span className="manager-module-start">{module.commonStart || 'No shared starting line'}</span></span><small className="manager-card-meta"><span>{preparedLineCount} prepared line{preparedLineCount === 1 ? '' : 's'}</span><span>{module.moveCount} saved move{module.moveCount === 1 ? '' : 's'}</span></small>{module.hasResponseConflicts && <small className="panel-status error">Needs response cleanup</small>}</span></div>
       {moduleRename?.id === module.id && <form className="manager-inline-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleRename.name, props.modules.map(({ name }) => name), (value) => props.onRenameModule(module.id, value), module.name).then((saved) => { if (saved) setModuleRename(null) }) }}>
         <label htmlFor={`rename-module-${module.id}`}>Module name</label><input id={`rename-module-${module.id}`} type="text" maxLength={100} autoFocus value={moduleRename.name} onChange={(event) => setModuleRename({ id: module.id, name: event.target.value })} />
@@ -161,6 +207,16 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
     </article>
   }
 
+  const renderReleaseCard = (release: NonNullable<RepertoireProfileSummary['templateReleases']>[number]) => {
+    const loaded = props.previewRelease?.id === release.id ? props.previewRelease : null
+    return <article className="manager-card" key={`release-${release.id}`} data-guide={release.templateSlug.includes('vienna') ? 'walkthrough-vienna-module' : undefined}>
+      <div className="manager-card-title"><span><span className="manager-module-heading"><strong>{release.name}</strong><span className={`opening-color-tag ${release.color}`}>{release.color}</span></span><small className="manager-card-meta"><span>Read-only release v{release.version}</span>{loaded && <span>{loaded.lineCount} prepared lines</span>}</small></span></div>
+      <div className="manager-actions manager-membership-actions">
+        <button type="button" disabled={busy} onClick={() => { void run(() => fetchOpeningTemplateRelease(release.templateSlug, release.version).then(props.onPreviewTemplate)).then((loadedSuccessfully) => { if (loadedSuccessfully) onClose() }) }}><span className="desktop-manager-label">View module</span><span className="mobile-manager-label">View</span></button>
+      </div>
+    </article>
+  }
+
   return <div ref={dialogRef} className="profile-manager" role="dialog" aria-modal="true" aria-labelledby={headingId}>
     <div className="profile-manager-heading"><strong id={headingId}>Opening modules</strong><button type="button" className="profile-manager-close" onClick={onClose} aria-label="Close module manager">×</button></div>
     {localError && <p className="panel-status error" role="alert">{localError}</p>}
@@ -171,8 +227,8 @@ function ProfileManager({ activeProfile, onClose, ...props }: Props & { activePr
     {managerView === 'modules' && <>
     {activeProfile && <section>
       <div className="manager-modules-heading"><h4>Opening modules</h4><div className="manager-color-filter" role="group" aria-label="Filter modules by color">{(['all', 'white', 'black'] as const).map((filter) => <button type="button" key={filter} className={moduleFilter === filter ? 'selected-action' : ''} aria-pressed={moduleFilter === filter} onClick={() => setModuleFilter(filter)}>{filter[0].toUpperCase() + filter.slice(1)}</button>)}</div></div>
-      {visibleModules.length > 0 && <div className="manager-card-list">{visibleModules.map(renderModuleCard)}</div>}
-      {visibleModules.length === 0 && <p className="panel-status">No {moduleFilter === 'all' ? '' : `${moduleFilter} `}modules saved.</p>}
+      {(visibleModules.length > 0 || visibleReleases.length > 0) && <div className="manager-card-list">{visibleModules.map(renderModuleCard)}{visibleReleases.map(renderReleaseCard)}</div>}
+      {visibleModules.length === 0 && visibleReleases.length === 0 && <p className="panel-status">No {moduleFilter === 'all' ? '' : `${moduleFilter} `}modules saved.</p>}
       <form className="manager-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleName, props.modules.map(({ name }) => name), (value) => props.onCreateModule(moduleColor, value, '', activeProfile.id)).then((saved) => { if (saved) setModuleName('') }) }}>
         <label htmlFor="new-module-name">New opening module</label><div className="manager-form-actions manager-create-module"><select aria-label="New module color" value={moduleColor} onChange={(event) => setModuleColor(event.target.value as RepertoireColor)}><option value="white">White</option><option value="black">Black</option></select><input id="new-module-name" type="text" maxLength={100} placeholder={moduleColor === 'white' ? 'e.g. Vienna Game' : 'e.g. Caro Kann'} value={moduleName} onChange={(event) => setModuleName(event.target.value)} /><button type="submit" disabled={busy}>Create module</button></div>
       </form>
