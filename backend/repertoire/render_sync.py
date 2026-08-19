@@ -12,6 +12,7 @@ from .models import (
     OpeningTemplate,
     OpeningTemplateRelease,
     ProfileModule,
+    ProfileTemplateRelease,
     Repertoire,
     RepertoireLine,
     RepertoireLineStep,
@@ -93,6 +94,17 @@ def capture_sync_snapshot(*, using: str, username: str) -> dict:
                 "modules": [
                     {"source_id": link.module_id, "sort_order": link.sort_order, "enabled": link.enabled}
                     for link in profile.module_links.using(using).order_by("sort_order", "id")
+                ],
+                "releases": [
+                    {
+                        "slug": link.release.template.slug,
+                        "version": link.release.version,
+                        "sort_order": link.sort_order,
+                        "enabled": link.enabled,
+                    }
+                    for link in profile.template_links.using(using)
+                    .select_related("release__template")
+                    .order_by("sort_order", "id")
                 ],
             }
         )
@@ -248,6 +260,19 @@ def apply_sync_snapshot(*, snapshot: dict, using: str, target_username: str) -> 
                         enabled=link["enabled"],
                     )
                     for link in item["modules"]
+                ]
+            )
+            ProfileTemplateRelease.objects.using(using).bulk_create(
+                [
+                    ProfileTemplateRelease(
+                        profile=profile,
+                        release=OpeningTemplateRelease.objects.using(using).get(
+                            template__slug=link["slug"], version=link["version"]
+                        ),
+                        sort_order=link["sort_order"],
+                        enabled=link["enabled"],
+                    )
+                    for link in item["releases"]
                 ]
             )
 

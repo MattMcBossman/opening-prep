@@ -1,4 +1,5 @@
 import type { EngineEvaluation, ExplorerMoveStat, ExplorerResponse, RepertoireColor } from '../types'
+import { canonicalMoveUci } from './chessUtils'
 
 export type CommonContinuation = ExplorerMoveStat & { percentage: number }
 
@@ -16,14 +17,7 @@ export function mostCommonContinuation(explorer: ExplorerResponse | null): Commo
 
 /** Normalize the alternate king-to-rook UCI castling encoding for display. */
 export function canonicalArrowUci(uci: string): string {
-  const castleDestinations: Record<string, string> = {
-    e1h1: 'e1g1',
-    e1a1: 'e1c1',
-    e8h8: 'e8g8',
-    e8a8: 'e8c8',
-  }
-  const base = uci.slice(0, 4)
-  return `${castleDestinations[base] ?? base}${uci.slice(4)}`
+  return canonicalMoveUci(uci)
 }
 
 /**

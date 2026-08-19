@@ -109,6 +109,13 @@
   flex: 1 1 220px;
 }
 
+.manager-pgn-import textarea {
+  width: 100%;
+  min-height: 130px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
 .manager-section-heading,
 .manager-card-title {
   display: flex;

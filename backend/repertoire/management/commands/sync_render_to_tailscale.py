@@ -69,15 +69,6 @@ class Command(BaseCommand):
                     f"Would sync {len(snapshot['profiles'])} profiles, {len(snapshot['modules'])} modules, "
                     f"and {len(snapshot['templates'])} published templates."
                 )
-                if options["verbosity"] >= 2:
-                    for module in snapshot["modules"]:
-                        self.stdout.write(f"Account module: {module['name']} ({len(module['lines'])} lines)")
-                    for template in snapshot["templates"]:
-                        releases = ", ".join(
-                            f"v{release['version']}={release['line_count']} lines"
-                            for release in template["releases"]
-                        )
-                        self.stdout.write(f"Library module: {template['slug']} ({releases})")
                 return
             counts = apply_sync_snapshot(
                 snapshot=snapshot, using="default", target_username=options["target_username"]

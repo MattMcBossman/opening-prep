@@ -106,7 +106,7 @@ serve_configured=true
 
 (
   cd "$repo_dir/backend"
-  exec uv run manage.py runserver 127.0.0.1:8000 --noreload
+  exec uv run manage.py runserver 127.0.0.1:8000
 ) &
 backend_pid="$!"
 

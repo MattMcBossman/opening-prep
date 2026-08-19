@@ -183,7 +183,7 @@ export function MoveList({
               </span>
             ))}
           </div>
-          {expandable && !expanded && !node.truncated && (
+          {expandable && !expanded && (
             <span className="continuation-line-count">
               {node.leafCount} {node.leafCount === 1 ? 'line' : 'lines'}
             </span>

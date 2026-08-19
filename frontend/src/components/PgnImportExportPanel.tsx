@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { findResponseConflicts } from '../lib/repertoireTree'
-import { exportRepertoireToPgn } from '../lib/pgnExport'
+import { downloadRepertoirePgn } from '../lib/pgnExport'
 import { parsePgnLinesWithMetadata } from '../lib/pgnImport'
 import type { ParsedPgnEdge, ParsedPgnLine } from '../lib/pgnImport'
 import type { PgnExportLine } from '../lib/pgnExport'
@@ -26,17 +26,6 @@ type Preview = {
   internalConflictCount: number
 }
 
-/** Triggers a browser download of `text` as a file named `filename`, with no server round trip. */
-function downloadTextFile(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/x-chess-pgn' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
 /**
  * Export/import the active color's repertoire as PGN (with RAV variations for
  * every saved branch point - see pgnExport.ts/pgnImport.ts). Import previews response conflicts before writing. Users may skip conflicting lines, explicitly replace the selected module's response, or create a separate module; a PGN that contains internal repertoire-side alternatives must be split before becoming one module.
@@ -50,8 +39,7 @@ export function PgnImportExportPanel({ color, getTree, getEditingTree, getLines,
   const [moduleName, setModuleName] = useState('Imported opening')
 
   const handleExport = useCallback(() => {
-    const pgn = exportRepertoireToPgn(getTree(color), color, getLines(color))
-    downloadTextFile(`${color}-repertoire.pgn`, pgn)
+    downloadRepertoirePgn(`${color}-repertoire`, getTree(color), color, getLines(color))
   }, [getTree, getLines, color])
 
   const openImport = useCallback(() => {

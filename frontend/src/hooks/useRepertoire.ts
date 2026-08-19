@@ -180,6 +180,10 @@ function useLocalRepertoireStore() {
       sources: [{ kind: 'repertoire', id: module.id, name: module.name }],
     }))
   }, [store.modules])
+  const getModuleExportData = useCallback((moduleId: number) => {
+    const module = store.modules.find((candidate) => candidate.id === moduleId)
+    return { tree: module?.tree ?? {}, lines: [] as ApiRepertoireLine[] }
+  }, [store.modules])
 
   const isMoveSaved = useCallback(
     (color: RepertoireColor, fen: string, uci: string): boolean => {
@@ -255,7 +259,7 @@ function useLocalRepertoireStore() {
   }
 
   return {
-    repertoire, getContinuations, getEditingTree, getModuleDrillLines, isMoveSaved, addMove, removeMove, profiles, modules, activeProfile,
+    repertoire, getContinuations, getEditingTree, getModuleDrillLines, getModuleExportData, isMoveSaved, addMove, removeMove, profiles, modules, activeProfile,
     activeProfileId: activeProfile?.id ?? null, editingModuleIds: store.editingModuleIds,
     setActiveProfile: (profileId: number) => setStore((previous) => {
       const profile = previous.profiles.find((item) => item.id === profileId)
@@ -617,6 +621,10 @@ function useApiRepertoireStore(enabled: boolean) {
       sources: [{ kind: 'repertoire', id: module.id, lineId: line.id, name: module.name }],
     }))
   }, [state.lines, state.modules])
+  const getModuleExportData = useCallback((moduleId: number) => ({
+    tree: state.trees[moduleId] ?? {},
+    lines: state.lines[moduleId] ?? [],
+  }), [state.lines, state.trees])
   const isMoveSaved = useCallback(
     (color: RepertoireColor, fen: string, uci: string): boolean => {
       const moduleId = state.editingModuleIds[color]
@@ -678,6 +686,7 @@ function useApiRepertoireStore(enabled: boolean) {
     getContinuations,
     getEditingTree,
     getModuleDrillLines,
+    getModuleExportData,
     isMoveSaved,
     isMoveInActiveProfile,
     addMove,
@@ -932,6 +941,7 @@ export function useRepertoire(user: AuthUser | null) {
     getContinuations,
     getEditingTree: isAuthenticated ? api.getEditingTree : local.getEditingTree,
     getModuleDrillLines: isAuthenticated ? api.getModuleDrillLines : local.getModuleDrillLines,
+    getModuleExportData: isAuthenticated ? api.getModuleExportData : local.getModuleExportData,
     isMoveSaved: active.isMoveSaved,
     isMoveInActiveProfile: isAuthenticated
       ? api.isMoveInActiveProfile

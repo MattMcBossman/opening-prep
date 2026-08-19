@@ -16,6 +16,8 @@ import { useResetKeyboardShortcut } from './hooks/useResetKeyboardShortcut'
 import type { ExplorerSource } from './hooks/useExplorerStats'
 import { useRepertoire } from './hooks/useRepertoire'
 import { fetchExplorerStats } from './lib/lichessExplorer'
+import { StockfishEngine } from './engine/stockfishEngine'
+import { getOrComputePositionAnalysis } from './lib/positionAnalysis'
 import type { LichessDatabaseFilters } from './lib/lichessExplorer'
 import { useSound } from './hooks/useSound'
 import { useMainlineGuide } from './hooks/useMainlineGuide'
@@ -30,7 +32,6 @@ import { ImportRepertoirePrompt } from './components/ImportRepertoirePrompt'
 import { AccountMergePrompt } from './components/AccountMergePrompt'
 import { ThemeToggle } from './components/ThemeToggle'
 import { SoundToggle } from './components/SoundToggle'
-import { PgnImportExportPanel } from './components/PgnImportExportPanel'
 import { OpeningGeneratorPanel } from './components/OpeningGeneratorPanel'
 import { parsePgnLinesWithMetadata } from './lib/pgnImport'
 import { RepertoireProfileControls } from './components/RepertoireProfileControls'
@@ -42,11 +43,11 @@ import { ModeToggle } from './components/ModeToggle'
 import { MainlineGuide } from './components/MainlineGuide'
 import type { AppMode } from './components/ModeToggle'
 import { DrillView } from './components/DrillView'
-import { normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
+import { canonicalMoveUci, normalizeFen, originFenForPly, sideToMove } from './lib/chessUtils'
 import { inheritedOpeningName, OPENING_NAME_GUARANTEE_MIN_GAMES } from './lib/openingName'
-import { createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel, prepareDrillLines } from './lib/repertoireDrills'
+import { collectDrillLines, createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel, prepareDrillLines } from './lib/repertoireDrills'
 import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
-import { calculatePositionCoverage } from './lib/repertoireCoverage'
+import { calculatePositionCoverage, moduleCoverageScope } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
 import { diffModuleDraft, moduleMoveDraftState } from './lib/moduleDraftDiff'
 import { TUTORIAL_VIENNA_TREE, tutorialPersonalGameStats, tutorialPositionStats } from './lib/tutorialDemo'
@@ -181,6 +182,7 @@ function App() {
     | { kind: 'remove'; color: RepertoireColor; originFen: string; uci: string }
     | { kind: 'add-line'; color: RepertoireColor; steps: Array<{ originFen: string; san: string; uci: string; resultingFen: string }>; source: 'manual' | 'pgn_import'; label: string; annotations: ApiRepertoireLine['annotations']; conflictPolicy: 'reject' | 'replace' }
   const [moduleWorkspaceMode, setModuleWorkspaceMode] = useState<'viewing' | 'editing'>('viewing')
+  const [viewingFullRepertoire, setViewingFullRepertoire] = useState(false)
   const [newModuleSelected, setNewModuleSelected] = useState(false)
   const [moduleDraftTree, setModuleDraftTree] = useState<RepertoireTree | null>(null)
   const [draftSourceRelease, setDraftSourceRelease] = useState<OpeningTemplateRelease | null>(null)
@@ -215,10 +217,76 @@ function App() {
 
   const selectedModuleId = repertoire.editingModuleIds[boardColor] ?? null
   const viewedRelease = repertoire.previewRelease?.color === boardColor ? repertoire.previewRelease : null
-  const persistedModuleTree = viewedRelease?.tree ?? repertoire.getEditingTree(boardColor)
+  const coverageLabel = tutorialActive ? 'Vienna Game'
+    : viewingFullRepertoire ? (boardColor === 'white' ? 'White' : 'Black')
+      : newModuleSelected ? 'New module'
+        : viewedRelease?.name ?? repertoire.modules.find((module) => module.id === selectedModuleId)?.name ?? 'Module'
+  const coverageScopeKey = tutorialActive ? 'tutorial-vienna'
+    : viewedRelease ? `release-${viewedRelease.id}`
+      : viewingFullRepertoire ? `full-${boardColor}`
+        : newModuleSelected ? `new-${boardColor}`
+          : `module-${selectedModuleId ?? 'none'}`
+  const persistedModuleTree = viewedRelease?.tree ?? (viewingFullRepertoire ? repertoire.getTree(boardColor) : repertoire.getEditingTree(boardColor))
   const moduleWorkspaceTree = tutorialActive
     ? TUTORIAL_VIENNA_TREE
     : moduleWorkspaceMode === 'editing' && moduleDraftTree ? moduleDraftTree : persistedModuleTree
+  const warmedCoverageStatsRef = useRef(new Set<string>())
+  const warmedCoverageEvaluationsRef = useRef(new Set<string>())
+  const coverageWarmEngineRef = useRef<StockfishEngine | null>(null)
+
+  useEffect(() => () => coverageWarmEngineRef.current?.terminate(), [])
+
+  useEffect(() => {
+    if (!isSignedIn || tutorialActive) return
+    const lines = collectDrillLines(boardColor, (positionFen) => persistedModuleTree[normalizeFen(positionFen)] ?? [])
+    const filterKey = 'unfiltered'
+    const scope = moduleCoverageScope(lines, boardColor, viewingFullRepertoire)
+    const displayedPositions = lines.flatMap((line) => line.steps
+      .slice(scope.openingPly)
+      .map((step) => step.resultingFen))
+    const opponentOrigins = lines.flatMap((line) => line.steps
+      .slice(scope.openingPly)
+      .filter((step) => step.mover === 'opponent')
+      .map((step) => step.fen))
+    const coveragePositions = [...new Set([...displayedPositions, ...opponentOrigins])]
+    const evaluationKeys = new Set(displayedPositions.map(normalizeFen))
+    const pending = coveragePositions.filter((position) => {
+      const normalized = normalizeFen(position)
+      const statsMissing = !warmedCoverageStatsRef.current.has(`${normalized}|${filterKey}`)
+      const evaluationMissing = evaluationKeys.has(normalized) && !warmedCoverageEvaluationsRef.current.has(normalized)
+      return statsMissing || evaluationMissing
+    })
+    if (pending.length === 0) return
+    const controller = new AbortController()
+    let cancelled = false
+    const warm = async () => {
+      if (!coverageWarmEngineRef.current) coverageWarmEngineRef.current = new StockfishEngine()
+      for (const position of pending) {
+        if (cancelled) return
+        const completePosition = position.split(' ').length >= 6 ? position : `${position} 0 1`
+        try {
+          const normalized = normalizeFen(position)
+          const statsKey = `${normalized}|${filterKey}`
+          const tasks: Promise<unknown>[] = []
+          if (!warmedCoverageStatsRef.current.has(statsKey)) tasks.push(fetchExplorerStats(completePosition, {
+              apiToken: token,
+              signedIn: true,
+              signal: controller.signal,
+            }))
+          if (evaluationKeys.has(normalized) && !warmedCoverageEvaluationsRef.current.has(normalized)) {
+            tasks.push(getOrComputePositionAnalysis(completePosition, true, coverageWarmEngineRef.current))
+          }
+          await Promise.all(tasks)
+          warmedCoverageStatsRef.current.add(statsKey)
+          if (evaluationKeys.has(normalized)) warmedCoverageEvaluationsRef.current.add(normalized)
+        } catch {
+          // Warming is best-effort; a later module change or drill completion retries it.
+        }
+      }
+    }
+    void warm()
+    return () => { cancelled = true; controller.abort() }
+  }, [boardColor, isSignedIn, persistedModuleTree, token, tutorialActive, viewingFullRepertoire])
   const moduleDraftDiff = useMemo(
     () => diffModuleDraft(newModuleSelected || draftSourceRelease ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
     [boardColor, draftSourceRelease, moduleDraftTree, newModuleSelected, persistedModuleTree],
@@ -340,30 +408,6 @@ function App() {
     setModuleWorkspaceMode('viewing')
   }, [boardColor, draftSourceRelease, moduleDraftTree, newModuleSelected, pendingModuleChanges, repertoire])
 
-  const addLineToModuleDraft = useCallback((
-    color: RepertoireColor,
-    steps: Array<{ originFen: string; san: string; uci: string; resultingFen: string }>,
-    source: 'manual' | 'pgn_import' = 'manual',
-    label = '',
-    annotations: ApiRepertoireLine['annotations'] = [],
-    conflictPolicy: 'reject' | 'replace' = 'reject',
-  ) => {
-    if (moduleWorkspaceMode !== 'editing' || !moduleDraftTree || color !== boardColor) {
-      setModuleWorkspaceNotice('Select Edit before importing lines into this module.')
-      return
-    }
-    const conflicts = findResponseConflicts(moduleDraftTree, color, steps)
-    if (conflicts.length > 0 && conflictPolicy === 'reject') return
-    let nextTree = moduleDraftTree
-    if (conflictPolicy === 'replace') {
-      for (const conflict of conflicts) nextTree = removeMoveFromTree(nextTree, color, conflict.originFen, conflict.existingUci)
-    }
-    for (const step of steps) nextTree = addMoveToTree(nextTree, step.originFen, step)
-    setModuleDraftTree(nextTree)
-    setPendingModuleChanges((current) => [...current, { kind: 'add-line', color, steps, source, label, annotations, conflictPolicy }])
-    setModuleWorkspaceNotice(null)
-  }, [boardColor, moduleDraftTree, moduleWorkspaceMode])
-
   const allowLeavingModuleDraft = useCallback(() => {
     if (!hasUnsavedModuleChanges) return true
     if (!window.confirm('Discard the unsaved changes to this module?')) return false
@@ -378,6 +422,7 @@ function App() {
   const beginNewModule = useCallback(() => {
     if (!allowLeavingModuleDraft()) return
     repertoire.setPreviewRelease(null)
+    setViewingFullRepertoire(false)
     setNewModuleSelected(true)
     setModuleDraftTree({})
     setPendingModuleChanges([])
@@ -392,8 +437,20 @@ function App() {
     setPendingModuleChanges([])
     setModuleWorkspaceNotice(null)
     setModuleWorkspaceMode('viewing')
+    setViewingFullRepertoire(false)
     repertoire.setEditingModule(boardColor, moduleId)
   }, [boardColor, repertoire])
+
+  const viewFullRepertoire = useCallback(() => {
+    if (!allowLeavingModuleDraft()) return
+    repertoire.setPreviewRelease(null)
+    setNewModuleSelected(false)
+    setModuleDraftTree(null)
+    setPendingModuleChanges([])
+    setModuleWorkspaceNotice(null)
+    setModuleWorkspaceMode('viewing')
+    setViewingFullRepertoire(true)
+  }, [allowLeavingModuleDraft, repertoire])
 
   useEffect(() => {
     if (repertoire.isSyncing || viewedRelease || newModuleSelected) return
@@ -502,7 +559,7 @@ function App() {
       const originFen = originFenForPly(moves, index)
       if (moduleWorkspaceMode !== 'editing' || !moduleDraftTree) {
         setReadOnlyStarNotice({
-          message: viewedRelease ? 'Save a copy to change this module.' : 'Select Edit to change this module.',
+          message: viewedRelease ? 'Save a copy to change this module.' : viewingFullRepertoire ? 'Select an individual module to edit it.' : 'Select Edit to change this module.',
           x: Math.max(8, Math.min(point.x + 10, window.innerWidth - 230)),
           y: Math.max(8, Math.min(point.y + 10, window.innerHeight - 70)),
         })
@@ -539,7 +596,7 @@ function App() {
       setPendingModuleChanges((current) => [...current, { kind: 'add-line', color: boardColor, steps, source: 'manual', label: '', annotations: [], conflictPolicy: conflicts.length > 0 ? 'replace' : 'reject' }])
       setModuleWorkspaceNotice(null)
     },
-    [moves, boardColor, moduleWorkspaceMode, moduleDraftTree, viewedRelease],
+    [moves, boardColor, moduleWorkspaceMode, moduleDraftTree, viewedRelease, viewingFullRepertoire],
   )
 
   const handleToggleBoardColor = useCallback(() => {
@@ -553,10 +610,36 @@ function App() {
     (positionFen: string) => moduleWorkspaceTree[normalizeFen(positionFen)] ?? [],
     [moduleWorkspaceTree],
   )
-  const openCoveragePosition = useCallback((positionFen: string) => {
-    if (!loadPosition(positionFen)) return
+  const repertoireDrillLines = repertoire.drillLines
+  const getModuleDrillLines = repertoire.getModuleDrillLines
+  const coverageLines = useMemo<DrillLine[]>(() => {
+    if (tutorialActive || (moduleWorkspaceMode === 'editing' && moduleDraftTree)) {
+      return collectDrillLines(boardColor, coverageContinuations)
+    }
+    if (viewedRelease) return viewedRelease.lines.map((line) => ({
+      id: line.id,
+      steps: line.steps.map((step) => ({
+        fen: step.originFen,
+        san: step.san,
+        uci: step.uci,
+        resultingFen: step.resultingFen,
+        mover: sideToMove(step.originFen) === boardColor ? 'own' : 'opponent',
+      })),
+      sources: [{ kind: 'template_release' as const, id: viewedRelease.id, lineId: line.id, name: viewedRelease.name }],
+    }))
+    if (viewingFullRepertoire) return repertoireDrillLines[boardColor] ?? []
+    return selectedModuleId === null ? [] : getModuleDrillLines(selectedModuleId)
+  }, [boardColor, coverageContinuations, getModuleDrillLines, moduleDraftTree, moduleWorkspaceMode, repertoireDrillLines, selectedModuleId, tutorialActive, viewedRelease, viewingFullRepertoire])
+  const openCoveragePosition = useCallback((positionFen: string, pathUci?: string[]) => {
+    if (!(pathUci?.length && loadLine(pathUci)) && !loadPosition(positionFen)) return
     setMobileExplorerSection('stats')
-  }, [loadPosition])
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('[data-guide="board"]')?.scrollIntoView({
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        block: 'start',
+      })
+    })
+  }, [loadLine, loadPosition])
 
   const playRepertoirePath = useCallback((path: RepertoireMove[]) => {
     if (!loadContinuationPath(path.map((move) => move.uci))) return
@@ -564,7 +647,7 @@ function App() {
     if (destination) playMoveSound(destination.san)
   }, [loadContinuationPath, playMoveSound])
   const isExplorerMoveSaved = useCallback(
-    (uci: string) => (moduleWorkspaceTree[normalizeFen(fen)] ?? []).some((move) => move.uci === uci),
+    (uci: string) => (moduleWorkspaceTree[normalizeFen(fen)] ?? []).some((move) => canonicalMoveUci(move.uci) === canonicalMoveUci(uci)),
     [moduleWorkspaceTree, fen],
   )
 
@@ -649,14 +732,13 @@ function App() {
   }, [ancestorOpening, openingExplorer.data?.opening, pointer, tutorialActive, tutorialStats.opening])
 
   const selectedModuleHasDrillContinuation = useMemo(() => {
-    if (selectedModuleId === null) return false
     const context = createDrillStartContext(fen, pointer, moves)
     return prepareDrillLines(
-      repertoire.getModuleDrillLines(selectedModuleId),
+      viewingFullRepertoire ? (repertoire.drillLines[boardColor] ?? []) : selectedModuleId === null ? [] : repertoire.getModuleDrillLines(selectedModuleId),
       'selected_position',
       context,
     ).lines.length > 0
-  }, [fen, moves, pointer, repertoire, selectedModuleId])
+  }, [boardColor, fen, moves, pointer, repertoire, selectedModuleId, viewingFullRepertoire])
 
   const selectCurrentDrillStartPosition = useCallback(() => {
     setDrillStartContext(createDrillStartContext(fen, pointer, moves, {
@@ -826,18 +908,22 @@ function App() {
             canManageGlobalLibrary={isSignedIn}
             onEditingModuleChange={viewModule}
             onCreateModule={repertoire.createModule}
+            onImportModule={repertoire.importModule}
             onRenameModule={repertoire.renameModule}
             onDuplicateModule={repertoire.duplicateModule}
+            getModuleExportData={repertoire.getModuleExportData}
             onDrillModule={startModuleDrill}
             onDeleteModule={repertoire.deleteModule}
             onCopyTemplate={repertoire.copyTemplate}
             onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
             previewRelease={repertoire.previewRelease}
-            onPreviewTemplate={repertoire.setPreviewRelease}
+            onPreviewTemplate={(release) => { if (release) setViewingFullRepertoire(false); repertoire.setPreviewRelease(release) }}
             workspaceMode={moduleWorkspaceMode}
+            viewingFullRepertoire={viewingFullRepertoire}
             newModuleSelected={newModuleSelected}
             hasUnsavedChanges={hasUnsavedModuleChanges}
             onNewModule={beginNewModule}
+            onViewFullRepertoire={viewFullRepertoire}
             onEditModule={beginEditingModule}
             onSaveModule={() => setModuleSaveConfirmOpen(true)}
             onDiscardModuleChanges={discardModuleChanges}
@@ -985,6 +1071,7 @@ function App() {
             playDrillCompleteSound={playDrillCompleteSound}
             playWrongMoveSound={playWrongMoveSound}
             lichessToken={token}
+            explorerFilters={explorerFiltersBySource.lichess}
             user={auth.user}
             repertoireId={repertoire.repertoireIds[boardColor] ?? null}
             repertoireIds={moduleDrill ? [moduleDrill.module.id] : repertoire.activeProfile?.modules
@@ -1149,24 +1236,6 @@ function App() {
                 </p>
               )}
             </section>
-          </div>
-          <div
-            id="mobile-prep-panel"
-            data-guide="prep"
-            className={`explorer-prep-tools ${mobileExplorerSection !== 'prep' ? 'mobile-section-container-hidden' : ''}`}
-            role="tabpanel"
-          >
-            <section className="panel" data-guide="coverage">
-              <CoverageDashboard
-                color={boardColor}
-                tree={moduleWorkspaceTree}
-                apiToken={token}
-                signedIn={isSignedIn}
-                filters={explorerFiltersBySource.lichess}
-                getContinuations={coverageContinuations}
-                onOpenPosition={openCoveragePosition}
-              />
-            </section>
             <OpeningGeneratorPanel
               color={boardColor}
               prefixUci={moves.slice(0, pointer).map((move) => move.uci)}
@@ -1179,16 +1248,23 @@ function App() {
                 return lines.length
               }}
             />
-            <section className="panel">
-              <h2>PGN</h2>
-              <PgnImportExportPanel
+          </div>
+          <div
+            id="mobile-prep-panel"
+            data-guide="prep"
+            className={`explorer-prep-tools ${mobileExplorerSection !== 'prep' ? 'mobile-section-container-hidden' : ''}`}
+            role="tabpanel"
+          >
+            <section className="panel" data-guide="coverage">
+              <CoverageDashboard
+                key={coverageScopeKey}
                 color={boardColor}
-                getTree={() => moduleWorkspaceTree}
-                getEditingTree={() => moduleWorkspaceTree}
-                getLines={(color) => repertoire.editingLines[color] ?? []}
-                isMoveSaved={(_color, positionFen, uci) => (moduleWorkspaceTree[normalizeFen(positionFen)] ?? []).some((move) => move.uci === uci)}
-                addLine={addLineToModuleDraft}
-                createModuleFromLines={(name, lines) => repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)}
+                coverageLabel={coverageLabel}
+                tree={moduleWorkspaceTree}
+                lines={coverageLines}
+                fullRepertoire={viewingFullRepertoire}
+                signedIn={isSignedIn}
+                onOpenPosition={openCoveragePosition}
               />
             </section>
           </div>

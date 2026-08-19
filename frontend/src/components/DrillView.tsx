@@ -4,6 +4,7 @@ import { Chessboard } from 'react-chessboard'
 import type { Arrow, PieceDataType, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
+import { StockfishEngine } from '../engine/stockfishEngine'
 import { useDrillSession } from '../hooks/useDrillSession'
 import { useDrillSessionRecording } from '../hooks/useDrillSessionRecording'
 import { useExplorerStats } from '../hooks/useExplorerStats'
@@ -18,10 +19,12 @@ import { useRepertoire } from '../hooks/useRepertoire'
 import { denormalizeFen, sideToMove } from '../lib/chessUtils'
 import { completedDrillHistoryUci } from '../lib/repertoireDrills'
 import { pendingAutoPlayStep } from '../lib/drillSessionLogic'
-import { analysisArrowMoves } from '../lib/positionAnalysis'
+import { analysisArrowMoves, getOrComputePositionAnalysis } from '../lib/positionAnalysis'
+import { fetchExplorerStats } from '../lib/lichessExplorer'
 import { canonicalArrowUci, playerContinuationArrowColor } from '../lib/drillPositionAssessment'
 import type { DrillLine, DrillStartContext, DrillStartMode } from '../lib/repertoireDrills'
 import type { AuthUser } from '../lib/authApi'
+import type { LichessDatabaseFilters } from '../lib/lichessExplorer'
 import type { PositionAnalysis, PositionFact, RepertoireColor } from '../types'
 import { DrillFeedbackPanel } from './DrillFeedbackPanel'
 import { DrillLineCompletePanel } from './DrillLineCompletePanel'
@@ -43,6 +46,7 @@ type Props = {
   playWrongMoveSound: () => void
   /** Lichess API token, used only for the end-of-line review stats (see below) when signed out. */
   lichessToken: string
+  explorerFilters?: LichessDatabaseFilters
   /** Signed-in user, if any - drives both the review stats' backend routing and drill session recording. */
   user: AuthUser | null
   /** The signed-in user's server-side repertoire id for `color`, if known - see useDrillSessionRecording. */
@@ -106,6 +110,7 @@ export function DrillView({
   playDrillCompleteSound,
   playWrongMoveSound,
   lichessToken,
+  explorerFilters,
   user,
   repertoireId,
   repertoireIds,
@@ -119,6 +124,8 @@ export function DrillView({
   onResetStartPosition,
 }: Props) {
   const getContinuations = useCallback((fen: string) => repertoire.getContinuations(color, fen), [repertoire, color])
+  const coverageRefreshEngineRef = useRef<StockfishEngine | null>(null)
+  useEffect(() => () => coverageRefreshEngineRef.current?.terminate(), [])
   const onStepApplied = useCallback((step: { san: string }) => playMoveSound(step.san), [playMoveSound])
   const recordingConfig = useMemo(() => {
     const ids = repertoireIds ?? (repertoireId === null ? [] : [repertoireId])
@@ -240,11 +247,39 @@ export function DrillView({
   // while paused there: during the drill itself they'd both spoil the prepared
   // move and cost an API call for every position walked through.
   const reviewFen = session.completionFen
+  useEffect(() => {
+    if (!state.completionPause || !user) return
+    const controller = new AbortController()
+    const positions = [...new Set(state.playedSteps.map((step) => {
+      const fen = step.resultingFen
+      return fen.split(' ').length >= 6 ? fen : `${fen} 0 1`
+    }))]
+    const refresh = async () => {
+      if (!coverageRefreshEngineRef.current) coverageRefreshEngineRef.current = new StockfishEngine()
+      for (const position of positions) {
+        if (controller.signal.aborted) return
+        await Promise.all([
+          fetchExplorerStats(position, {
+            apiToken: lichessToken,
+            signedIn: true,
+            filters: explorerFilters,
+            signal: controller.signal,
+          }),
+          getOrComputePositionAnalysis(position, true, coverageRefreshEngineRef.current),
+        ]).catch(() => undefined)
+      }
+    }
+    void refresh()
+    return () => controller.abort()
+  }, [explorerFilters, lichessToken, state.completionPause, state.playedSteps, user])
   const reviewExplorer = useExplorerStats(
     reviewFen ?? '',
     lichessToken,
-    isPaused && (isDesktopReview || reviewSection === 'stats'),
+    isPaused,
     user !== null,
+    'lichess',
+    'white',
+    explorerFilters,
   )
   const positionAnalysis = usePositionAnalysis(
     reviewFen ?? '',

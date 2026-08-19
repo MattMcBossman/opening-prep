@@ -274,3 +274,12 @@ class ImportResponseSerializer(serializers.Serializer):
 
     white = ImportCountsSerializer()
     black = ImportCountsSerializer()
+class CoverageSnapshotRequestSerializer(serializers.Serializer):
+    # Large published modules share many prefixes but can still exceed 500
+    # distinct calculation positions (the Vienna library currently has 780
+    # saved moves). Keep this bounded without rejecting ordinary full modules.
+    fens = serializers.ListField(child=serializers.CharField(), allow_empty=False, max_length=5000)
+    since = serializers.CharField(required=False, allow_blank=True, default="")
+    until = serializers.CharField(required=False, allow_blank=True, default="")
+    ratings = serializers.ListField(child=serializers.CharField(), required=False, default=list)
+    speeds = serializers.ListField(child=serializers.CharField(), required=False, default=list)
