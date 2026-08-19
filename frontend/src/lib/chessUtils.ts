@@ -13,6 +13,18 @@ export function sideToMove(fen: string): RepertoireColor {
   return fen.split(' ')[1] === 'b' ? 'black' : 'white'
 }
 
+/** Normalize king-to-rook castling UCI to the standard king-destination form. */
+export function canonicalMoveUci(uci: string): string {
+  const castleDestinations: Record<string, string> = {
+    e1h1: 'e1g1',
+    e1a1: 'e1c1',
+    e8h8: 'e8g8',
+    e8a8: 'e8c8',
+  }
+  const base = uci.slice(0, 4)
+  return `${castleDestinations[base] ?? base}${uci.slice(4)}`
+}
+
 /**
  * Normalizes a FEN for use as a repertoire/position-identity key by dropping the
  * halfmove clock and fullmove number (fields 5 and 6). Two FENs that differ only in

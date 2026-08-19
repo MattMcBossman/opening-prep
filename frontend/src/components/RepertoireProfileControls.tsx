@@ -12,7 +12,12 @@ import {
 import type { RepertoireColor, RepertoireTree } from '../types'
 import { START_FEN } from '../hooks/useGame'
 import { normalizeFen } from '../lib/chessUtils'
+import { downloadRepertoirePgn } from '../lib/pgnExport'
+import type { PgnExportLine } from '../lib/pgnExport'
 import { validateManagementName } from '../lib/managementValidation'
+import { parsePgnLinesWithMetadata } from '../lib/pgnImport'
+import type { ParsedPgnLine } from '../lib/pgnImport'
+import { findResponseConflicts } from '../lib/repertoireTree'
 import { MoveList } from './MoveList'
 import './RepertoireProfileControls.css'
 
@@ -32,8 +37,10 @@ type Props = {
   canManageGlobalLibrary?: boolean
   onEditingModuleChange: (moduleId: number) => void
   onCreateModule: (color: RepertoireColor, name: string, description?: string, profileId?: number) => Promise<unknown>
+  onImportModule: (color: RepertoireColor, name: string, lines: ParsedPgnLine[], profileId?: number) => Promise<unknown>
   onRenameModule: (id: number, name: string) => Promise<unknown>
   onDuplicateModule: (id: number) => Promise<unknown>
+  getModuleExportData: (id: number) => { tree: RepertoireTree; lines: PgnExportLine[] }
   onDrillModule: (module: RepertoireSummary) => void
   onDeleteModule: (id: number) => Promise<unknown>
   onCopyTemplate: (slug: string, version: number, profileId?: number) => Promise<unknown>
@@ -41,9 +48,11 @@ type Props = {
   previewRelease: OpeningTemplateRelease | null
   onPreviewTemplate: (release: OpeningTemplateRelease | null) => void
   workspaceMode: 'viewing' | 'editing'
+  viewingFullRepertoire: boolean
   newModuleSelected: boolean
   hasUnsavedChanges: boolean
   onNewModule: () => void
+  onViewFullRepertoire: () => void
   onEditModule: () => void
   onSaveModule: () => void
   onDiscardModuleChanges: () => void
@@ -69,6 +78,11 @@ export function RepertoireProfileControls(props: Props) {
     if (value === 'new') {
       props.onPreviewTemplate(null)
       props.onNewModule()
+      return
+    }
+    if (value === 'full') {
+      props.onPreviewTemplate(null)
+      props.onViewFullRepertoire()
       return
     }
     props.onPreviewTemplate(null)
@@ -104,16 +118,16 @@ export function RepertoireProfileControls(props: Props) {
 
   return (
     <div className="repertoire-profile-controls" aria-label="Opening modules">
-      {props.context === 'explorer' && <><label><span>{isEditing ? 'Editing' : 'Viewing'}</span><select value={isViewingRelease ? `release-${previewRelease.id}` : (props.newModuleSelected ? 'new' : (editingModuleId ?? 'new'))} disabled={disabled || (isEditing && (!props.newModuleSelected || props.hasUnsavedChanges))} onChange={(event) => selectWorkspace(event.target.value)}>
+      {props.context === 'explorer' && <><label><span>{isEditing ? 'Editing' : 'Viewing'}</span><select value={isViewingRelease ? `release-${previewRelease.id}` : props.viewingFullRepertoire ? 'full' : (props.newModuleSelected ? 'new' : (editingModuleId ?? 'new'))} disabled={disabled || (isEditing && (!props.newModuleSelected || props.hasUnsavedChanges))} onChange={(event) => selectWorkspace(event.target.value)}>
         {profiles.length === 0
           ? <option value="">Loading…</option>
-          : <><option value="new">New module…</option>{editableModules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}{isViewingRelease && <option value={`release-${previewRelease.id}`}>{previewRelease.name} (preview)</option>}</>}
+          : <><option value="full">Full {color === 'white' ? 'White' : 'Black'} repertoire</option><option value="new">New module…</option>{editableModules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}{isViewingRelease && <option value={`release-${previewRelease.id}`}>{previewRelease.name} (preview)</option>}</>}
       </select></label>
       {isEditing
           ? <><button type="button" className="profile-manage-button" disabled={disabled || !props.hasUnsavedChanges} onClick={props.onSaveModule}>Save</button><button type="button" className="profile-manage-button" disabled={disabled || (props.newModuleSelected && !props.hasUnsavedChanges)} onClick={props.onDiscardModuleChanges}>Discard</button></>
         : isViewingRelease
           ? <>{props.canManageGlobalLibrary && <button type="button" className="profile-manage-button" disabled={disabled} onClick={() => void props.onCopyTemplate(previewRelease.templateSlug, previewRelease.version, activeProfile?.id)}>Edit</button>}{!props.canManageGlobalLibrary && <button type="button" className="profile-manage-button" disabled={disabled} onClick={props.onEditModule}>Edit</button>}<button type="button" className="profile-manage-button" disabled={disabled} onClick={() => props.onPreviewTemplate(null)}>Close</button></>
-          : <button type="button" className="profile-manage-button" disabled={disabled || editingModuleId === null} onClick={props.onEditModule}>Edit</button>}{selectionError && <span className="panel-status error" role="alert">{selectionError}</span>}</>}
+          : !props.viewingFullRepertoire && <button type="button" className="profile-manage-button" disabled={disabled || editingModuleId === null} onClick={props.onEditModule}>Edit</button>}{selectionError && <span className="panel-status error" role="alert">{selectionError}</span>}</>}
       <button ref={manageButtonRef} type="button" className="profile-manage-button" disabled={disabled} aria-expanded={managing} aria-haspopup="dialog" onClick={() => { if (managing) closeManager(); else { setManagerInitialView('modules'); setManaging(true) } }}>Manage</button>
       {managing && createPortal(
         <div className="profile-manager-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeManager() }}>
@@ -132,6 +146,10 @@ function ProfileManager({ activeProfile, onClose, initialManagerView, ...props }
   const headingId = useId()
   const [moduleName, setModuleName] = useState('')
   const [moduleColor, setModuleColor] = useState<RepertoireColor>(props.color)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importName, setImportName] = useState('Imported opening')
+  const [importColor, setImportColor] = useState<RepertoireColor>(props.color)
+  const [importPgn, setImportPgn] = useState('')
   const [managerView, setManagerView] = useState<'modules' | 'library'>(initialManagerView)
   const [moduleFilter, setModuleFilter] = useState<'all' | RepertoireColor>('all')
   const [moduleActionsId, setModuleActionsId] = useState<number | null>(null)
@@ -170,6 +188,23 @@ function ProfileManager({ activeProfile, onClose, initialManagerView, ...props }
   }
 
   const visibleModules = props.modules.filter((module) => moduleFilter === 'all' || module.color === moduleFilter)
+  const submitImport = async () => {
+    if (!activeProfile) return
+    const nameError = validateManagementName(importName, props.modules.map(({ name }) => name))
+    if (nameError) { setLocalError(nameError); return }
+    let lines: ParsedPgnLine[]
+    try { lines = parsePgnLinesWithMetadata(importPgn) } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'That PGN could not be parsed.')
+      return
+    }
+    if (lines.length === 0 || lines.every((line) => line.steps.length === 0)) { setLocalError('No moves were found in that PGN.'); return }
+    if (findResponseConflicts({}, importColor, lines.flatMap((line) => line.steps)).length > 0) {
+      setLocalError('This PGN contains multiple repertoire responses at one position. Split those responses into separate modules before importing.')
+      return
+    }
+    const saved = await run(() => props.onImportModule(importColor, importName.trim(), lines, activeProfile.id))
+    if (saved) { setImportOpen(false); setImportPgn(''); setImportName('Imported opening') }
+  }
 
   const renderModuleCard = (module: RepertoireSummary) => {
     if (!activeProfile) return null
@@ -186,6 +221,7 @@ function ProfileManager({ activeProfile, onClose, initialManagerView, ...props }
         <button type="button" disabled={busy} onClick={() => { props.onEditingModuleChange(module.id); onClose() }}><span className="desktop-manager-label">View module</span><span className="mobile-manager-label">View</span></button>
         <button type="button" disabled={busy || preparedLineCount === 0} onClick={() => { onClose(); props.onDrillModule(module) }}><span className="desktop-manager-label">Drill module</span><span className="mobile-manager-label">Drill</span></button>
         <button type="button" disabled={busy} onClick={() => void run(() => props.onDuplicateModule(module.id))}>Duplicate</button>
+        <button type="button" disabled={busy || preparedLineCount === 0} onClick={() => { const data = props.getModuleExportData(module.id); downloadRepertoirePgn(module.name, data.tree, module.color, data.lines) }}>Export PGN</button>
         <button type="button" className="manager-more-button" aria-expanded={actionsOpen} onClick={() => setModuleActionsId(actionsOpen ? null : module.id)}>More</button>
       </div>
       {actionsOpen && <div className="manager-actions manager-secondary-actions"><button type="button" disabled={busy} onClick={() => { setModuleRename({ id: module.id, name: module.name }); setModuleActionsId(null) }}>Rename</button>{props.canManageGlobalLibrary && <button type="button" disabled={busy || preparedLineCount === 0 || module.hasResponseConflicts} title={module.hasResponseConflicts ? "Resolve multiple responses before publishing" : undefined} onClick={() => { setPublishDraft({ moduleId: module.id, changelog: '' }); setModuleActionsId(null) }}>Publish to community</button>}<button type="button" className="danger" disabled={busy} onClick={() => { if (window.confirm(`Delete module “${module.name}” and all of its lines?`)) void run(() => props.onDeleteModule(module.id)); setModuleActionsId(null) }}>Delete module</button></div>}
@@ -214,6 +250,18 @@ function ProfileManager({ activeProfile, onClose, initialManagerView, ...props }
       <form className="manager-form" onSubmit={(event) => { event.preventDefault(); void submitName(moduleName, props.modules.map(({ name }) => name), (value) => props.onCreateModule(moduleColor, value, '', activeProfile.id)).then((saved) => { if (saved) setModuleName('') }) }}>
         <label htmlFor="new-module-name">New opening module</label><div className="manager-form-actions manager-create-module"><select aria-label="New module color" value={moduleColor} onChange={(event) => setModuleColor(event.target.value as RepertoireColor)}><option value="white">White</option><option value="black">Black</option></select><input id="new-module-name" type="text" maxLength={100} placeholder={moduleColor === 'white' ? 'e.g. Vienna Game' : 'e.g. Caro Kann'} value={moduleName} onChange={(event) => setModuleName(event.target.value)} /><button type="submit" disabled={busy}>Create module</button></div>
       </form>
+      {!importOpen && <button type="button" onClick={() => { setImportOpen(true); setLocalError(null) }}>Import PGN as module</button>}
+      {importOpen && <form className="manager-form manager-pgn-import" onSubmit={(event) => { event.preventDefault(); void submitImport() }}>
+        <label htmlFor="manager-import-pgn">Import PGN as a new module</label>
+        <div className="manager-form-actions manager-create-module">
+          <select aria-label="Imported module color" value={importColor} onChange={(event) => setImportColor(event.target.value as RepertoireColor)}><option value="white">White</option><option value="black">Black</option></select>
+          <input aria-label="Imported module name" value={importName} maxLength={100} onChange={(event) => setImportName(event.target.value)} />
+          <button type="submit" disabled={busy || importPgn.trim() === ''}>Import module</button>
+        </div>
+        <textarea id="manager-import-pgn" rows={6} placeholder="Paste PGN here, or choose a file below" value={importPgn} onChange={(event) => setImportPgn(event.target.value)} />
+        <input type="file" accept=".pgn,.txt" onChange={(event) => { const file = event.target.files?.[0]; if (file) file.text().then(setImportPgn, () => setLocalError('That file could not be read.')); event.target.value = '' }} />
+        <div className="manager-actions"><button type="button" onClick={() => { setImportOpen(false); setImportPgn(''); setLocalError(null) }}>Cancel</button></div>
+      </form>}
     </section>}
     </>}
     {managerView === 'library' && activeProfile && <GlobalLibrary libraryRevision={libraryRevision} profile={activeProfile} busy={busy} run={run} onClose={onClose} {...props} />}
@@ -234,6 +282,7 @@ function GlobalLibrary({ libraryRevision, profile, busy, run, onClose, canManage
       return <article className={`manager-card global-module-card${selectedPreview ? ' previewing' : ''}`} key={template.slug}><div className="manager-card-title"><span><span className="manager-module-heading"><strong>{template.name}</strong><span className={`opening-color-tag ${template.color}`}>{template.color}</span>{release && <span className="manager-module-start">{release.commonStart || 'No shared starting line'}</span>}</span><small className="global-module-meta"><span>{template.kind === 'official' ? 'Official · Mainline' : 'Community · ' + template.publisherName}</span><span>{release ? 'Release v' + release.version : 'No published release'}</span>{release && <span>{release.lineCount} line{release.lineCount === 1 ? '' : 's'}</span>}{release && <span>{release.moveCount} move{release.moveCount === 1 ? '' : 's'}</span>}</small></span></div>
         {release && <div className="manager-actions"><button type="button" disabled={busy} onClick={() => fetchOpeningTemplateRelease(template.slug, release.version).then((snapshot) => { onPreviewTemplate(snapshot) }, (reason) => setError(reason instanceof Error ? reason.message : 'Load failed.'))}>Preview</button>
           <button type="button" disabled={busy} onClick={() => fetchOpeningTemplateRelease(template.slug, release.version).then((snapshot) => { onPreviewTemplate(snapshot); onClose() }, (reason) => setError(reason instanceof Error ? reason.message : 'Load failed.'))}>View in Explorer</button>
+          <button type="button" disabled={busy} onClick={() => void run(async () => { const snapshot = await fetchOpeningTemplateRelease(template.slug, release.version); downloadRepertoirePgn(snapshot.name, snapshot.tree, snapshot.color, snapshot.lines.map((line) => ({ uciPath: line.steps.map((step) => step.uci).join(' '), label: line.label }))) })}>Export PGN</button>
           {canManage && <button type="button" disabled={busy} onClick={() => void run(() => onCopyTemplate(template.slug, release.version, profile.id))}>Copy to My modules</button>}{selectedPreview && <button type="button" className="library-close-preview" onClick={() => onPreviewTemplate(null)}>Close preview</button>}</div>}
         {selectedPreview && <div className="library-tree-preview">
           <MoveList

@@ -10,6 +10,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from common.fen import normalize_fen
+from explorer_cache.cache import params_key_for
+from explorer_cache.models import EngineLineCache, MainlineOpeningName, PositionAnalysis, PositionStatsCache
+from explorer_cache.response_shape import to_explorer_response
 
 from . import services
 from .models import (
@@ -24,6 +27,7 @@ from .serializers import (
     AuthoredLineInputSerializer,
     CopyMissingTemplateLinesSerializer,
     CopyTemplateSerializer,
+    CoverageSnapshotRequestSerializer,
     ImportResponseSerializer,
     ImportSerializer,
     OpeningTemplateReleaseSerializer,
@@ -434,3 +438,68 @@ class RepertoireImportView(APIView):
             repertoire = services.get_or_create_default(request.user, color)
             result[color] = services.import_tree(repertoire, tree_payload)
         return Response(result)
+class CoverageSnapshotsView(APIView):
+    """Bulk, database-only coverage input. This endpoint never contacts Lichess."""
+
+    @extend_schema(
+        summary="Read persisted explorer and engine snapshots for coverage analysis.",
+        request=CoverageSnapshotRequestSerializer,
+        responses={200: dict},
+    )
+    def post(self, request):
+        body = CoverageSnapshotRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        fens = list(dict.fromkeys(normalize_fen(fen) for fen in body.validated_data["fens"]))
+        key = params_key_for(
+            12,
+            body.validated_data["since"] or None,
+            body.validated_data["until"] or None,
+            ",".join(sorted(body.validated_data["ratings"])) or None,
+            ",".join(sorted(body.validated_data["speeds"])) or None,
+        )
+        stats = {
+            row.fen: row
+            for row in PositionStatsCache.objects.filter(
+                source=PositionStatsCache.SOURCE_LICHESS, fen__in=fens, params_key=key
+            )
+        }
+        evaluations = {}
+        for row in EngineLineCache.objects.filter(fen__in=fens).order_by("fen", "-depth", "-updated_at"):
+            evaluations.setdefault(row.fen, row)
+        analyses = {}
+        for row in PositionAnalysis.objects.filter(fen__in=fens).order_by("fen", "-depth", "-updated_at"):
+            analyses.setdefault(row.fen, row)
+        names = {row.fen: row for row in MainlineOpeningName.objects.filter(fen__in=fens)}
+        positions = {}
+        for fen in fens:
+            stats_row = stats.get(fen)
+            evaluation = evaluations.get(fen)
+            analysis = analyses.get(fen)
+            leading_candidate = next(
+                (
+                    candidate
+                    for candidate in (analysis.candidates if analysis else [])
+                    if candidate.get("rank") == 1
+                ),
+                None,
+            )
+            data = to_explorer_response(stats_row.response) if stats_row else None
+            preferred = names.get(fen)
+            if data is not None and preferred is not None:
+                data["opening"] = {"eco": preferred.eco, "name": preferred.name}
+            positions[fen] = {
+                "stats": data,
+                "statsFetchedAt": stats_row.fetched_at if stats_row else None,
+                "evaluation": ({
+                    "scoreType": evaluation.score_type,
+                    "scoreValue": evaluation.score_value,
+                    "depth": evaluation.depth,
+                    "updatedAt": evaluation.updated_at,
+                } if evaluation else ({
+                    "scoreType": leading_candidate["scoreType"],
+                    "scoreValue": leading_candidate["scoreValue"],
+                    "depth": leading_candidate.get("depth", analysis.depth),
+                    "updatedAt": analysis.updated_at,
+                } if leading_candidate else None)),
+            }
+        return Response({"positions": positions})

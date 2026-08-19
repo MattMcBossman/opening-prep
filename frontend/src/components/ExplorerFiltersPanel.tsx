@@ -25,6 +25,8 @@ type Props = {
   source: ExplorerSource
   filters: LichessDatabaseFilters
   onChange: (filters: LichessDatabaseFilters) => void
+  showDateRange?: boolean
+  inline?: boolean
 }
 
 function toggled(list: string[] | undefined, value: string): string[] {
@@ -84,17 +86,74 @@ function MonthYearSelect({
 }
 
 /** Explorer query filters: since/until and game type apply to both sources; rating bands are public-database-only. */
-export function ExplorerFiltersPanel({ source, filters, onChange }: Props) {
+export function ExplorerFiltersPanel({ source, filters, onChange, showDateRange = true, inline = false }: Props) {
   // Control disclosure state so Chromium's form-state restoration cannot
   // occasionally reopen it on a fresh app mount and shift the mobile toolbar.
   const [open, setOpen] = useState(false)
   const selectedDatabases = filters.databases ?? ['lichess', 'chesscom']
   const activeCount =
-    Number(Boolean(filters.since)) +
-    Number(Boolean(filters.until)) +
+    (showDateRange ? Number(Boolean(filters.since)) + Number(Boolean(filters.until)) : 0) +
     (source === 'lichess' ? (filters.ratings?.length ?? 0) : 0) +
     SPEEDS.filter(({ values }) => values.some((value) => filters.speeds?.includes(value) ?? false)).length +
     (source === 'my-games' && selectedDatabases.length !== 2 ? 1 : 0)
+
+  const controls = <>
+    {showDateRange && <div className="explorer-filters-row">
+      <MonthYearSelect label="From" value={filters.since} onChange={(since) => onChange({ ...filters, since })} />
+      <MonthYearSelect label="To" value={filters.until} onChange={(until) => onChange({ ...filters, until })} />
+    </div>}
+    {source === 'lichess' && (
+      <fieldset className="explorer-filters-group">
+        <legend>Rating</legend>
+        {RATING_BANDS.map((band) => (
+          <label key={band} className="explorer-filters-checkbox">
+            <input
+              type="checkbox"
+              checked={filters.ratings?.includes(band) ?? false}
+              onChange={() => onChange({ ...filters, ratings: toggled(filters.ratings, band) })}
+            />
+            {band}+
+          </label>
+        ))}
+      </fieldset>
+    )}
+    {source === 'my-games' && (
+      <fieldset className="explorer-filters-group">
+        <legend>Game database</legend>
+        {MY_GAME_DATABASES.map(({ value, label }) => (
+          <label key={value} className="explorer-filters-checkbox">
+            <input
+              type="checkbox"
+              checked={selectedDatabases.includes(value)}
+              disabled={selectedDatabases.length === 1 && selectedDatabases.includes(value)}
+              onChange={() => onChange({
+                ...filters,
+                databases: selectedDatabases.includes(value)
+                  ? selectedDatabases.filter((database) => database !== value)
+                  : [...selectedDatabases, value],
+              })}
+            />
+            {label}
+          </label>
+        ))}
+      </fieldset>
+    )}
+    <fieldset className="explorer-filters-group">
+      <legend>Game type</legend>
+      {SPEEDS.map(({ values, label }) => (
+        <label key={label} className="explorer-filters-checkbox">
+          <input
+            type="checkbox"
+            checked={values.some((value) => filters.speeds?.includes(value) ?? false)}
+            onChange={() => onChange({ ...filters, speeds: toggledGroup(filters.speeds, values) })}
+          />
+          {label}
+        </label>
+      ))}
+    </fieldset>
+  </>
+
+  if (inline) return <div className="explorer-filters explorer-filters-inline">{controls}</div>
 
   return (
     <details
@@ -107,59 +166,7 @@ export function ExplorerFiltersPanel({ source, filters, onChange }: Props) {
         {activeCount > 0 && <span className="explorer-filter-count">{activeCount} active</span>}
       </summary>
       <div className="explorer-filters">
-        <div className="explorer-filters-row">
-          <MonthYearSelect label="From" value={filters.since} onChange={(since) => onChange({ ...filters, since })} />
-          <MonthYearSelect label="To" value={filters.until} onChange={(until) => onChange({ ...filters, until })} />
-        </div>
-        {source === 'lichess' && (
-          <fieldset className="explorer-filters-group">
-              <legend>Rating</legend>
-              {RATING_BANDS.map((band) => (
-                <label key={band} className="explorer-filters-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={filters.ratings?.includes(band) ?? false}
-                    onChange={() => onChange({ ...filters, ratings: toggled(filters.ratings, band) })}
-                  />
-                  {band}+
-                </label>
-              ))}
-          </fieldset>
-        )}
-        {source === 'my-games' && (
-          <fieldset className="explorer-filters-group">
-            <legend>Game database</legend>
-            {MY_GAME_DATABASES.map(({ value, label }) => (
-              <label key={value} className="explorer-filters-checkbox">
-                <input
-                  type="checkbox"
-                  checked={selectedDatabases.includes(value)}
-                  disabled={selectedDatabases.length === 1 && selectedDatabases.includes(value)}
-                  onChange={() => onChange({
-                    ...filters,
-                    databases: selectedDatabases.includes(value)
-                      ? selectedDatabases.filter((database) => database !== value)
-                      : [...selectedDatabases, value],
-                  })}
-                />
-                {label}
-              </label>
-            ))}
-          </fieldset>
-        )}
-        <fieldset className="explorer-filters-group">
-          <legend>Game type</legend>
-          {SPEEDS.map(({ values, label }) => (
-            <label key={label} className="explorer-filters-checkbox">
-              <input
-                type="checkbox"
-                checked={values.some((value) => filters.speeds?.includes(value) ?? false)}
-                onChange={() => onChange({ ...filters, speeds: toggledGroup(filters.speeds, values) })}
-              />
-              {label}
-            </label>
-          ))}
-        </fieldset>
+        {controls}
       </div>
     </details>
   )

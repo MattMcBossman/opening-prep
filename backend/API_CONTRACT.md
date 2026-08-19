@@ -139,6 +139,14 @@ from the FEN graph after every existing add/remove/import mutation. A later
 line-authoring endpoint below can make authored lines the mutation source of
 truth for new writes.
 
+### `POST /api/v1/repertoires/coverage-snapshots/`
+Bulk database-only read used by module coverage. The body contains `fens` plus
+the active optional Lichess `since`, `until`, `ratings`, and `speeds` filters.
+Each normalized FEN maps to its persisted explorer sample and deepest stored
+Stockfish evaluation, or `null` for either missing half. Expired explorer rows
+remain readable here: this endpoint never contacts Lichess and therefore cannot
+turn a coverage calculation into a per-position upstream scan.
+
 ### `POST /api/v1/repertoires/{id}/lines/`
 Adds a complete legal path beginning at the standard initial position. Exact
 duplicates and prefixes of existing lines are idempotent; extending a terminal

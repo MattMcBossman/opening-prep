@@ -7,6 +7,7 @@ import {
   createRepertoire,
   deleteRepertoireProfile,
   fetchOpeningTemplateRelease,
+  fetchCoverageSnapshots,
   ensureRepertoires,
   fetchRepertoireTree,
   importRepertoire,
@@ -30,6 +31,21 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('fetchCoverageSnapshots', () => {
+  it('requests all positions and active public-explorer filters in one batch', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ positions: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchCoverageSnapshots(['fen-a', 'fen-b'], { ratings: ['2000', '1800'], speeds: ['rapid'] })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/v1/repertoires/coverage-snapshots/')
+    expect(JSON.parse(init.body)).toEqual({
+      fens: ['fen-a', 'fen-b'], since: '', until: '', ratings: ['2000', '1800'], speeds: ['rapid'],
+    })
+  })
 })
 
 describe('listRepertoires / createRepertoire', () => {

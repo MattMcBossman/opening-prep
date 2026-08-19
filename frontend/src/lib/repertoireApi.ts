@@ -1,5 +1,6 @@
 import { apiRequest } from './apiClient'
-import type { Repertoire, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
+import type { EngineEvaluation, ExplorerResponse, Repertoire, RepertoireColor, RepertoireMove, RepertoireTree } from '../types'
+import type { LichessDatabaseFilters } from './lichessExplorer'
 
 export type RepertoireSummary = {
   id: number
@@ -87,6 +88,29 @@ export type RepertoireLine = {
 
 export type ImportResult = { imported: number; skipped: number }
 export type ImportSummary = { white: ImportResult; black: ImportResult }
+
+export type CoverageSnapshot = {
+  stats: ExplorerResponse | null
+  statsFetchedAt: string | null
+  evaluation: Pick<EngineEvaluation, 'scoreType' | 'scoreValue' | 'depth'> & { updatedAt: string } | null
+}
+
+export function fetchCoverageSnapshots(
+  fens: string[],
+  filters?: LichessDatabaseFilters,
+  signal?: AbortSignal,
+): Promise<{ positions: Record<string, CoverageSnapshot> }> {
+  return apiRequest('/repertoires/coverage-snapshots/', {
+    method: 'POST', signal,
+    body: {
+      fens,
+      since: filters?.since ?? '',
+      until: filters?.until ?? '',
+      ratings: filters?.ratings ?? [],
+      speeds: filters?.speeds ?? [],
+    },
+  })
+}
 
 export function listRepertoires(signal?: AbortSignal): Promise<RepertoireSummary[]> {
   return apiRequest('/repertoires/', { signal })

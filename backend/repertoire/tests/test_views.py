@@ -7,9 +7,12 @@ request validation, atomicity, and idempotency.
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from common.fen import normalize_fen
+from explorer_cache.cache import params_key_for
+from explorer_cache.models import EngineLineCache, PositionStatsCache
 from repertoire.models import (
     ProfileModule,
     Repertoire,
@@ -271,6 +274,61 @@ class TestRemoveMove:
 
         assert response.status_code == 200
         assert response.data == {}
+
+
+@pytest.mark.django_db
+class TestCoverageSnapshots:
+    def test_accepts_a_full_large_module_request(self, client):
+        response = client.post(
+            "/api/v1/repertoires/coverage-snapshots/",
+            {"fens": [START_FEN] * 781},
+            format="json",
+        )
+        assert response.status_code == 200
+        assert list(response.data["positions"]) == [normalize_fen(START_FEN)]
+
+    def test_bulk_reads_persisted_stats_and_evaluation_without_upstream(self, client):
+        fen = normalize_fen(START_FEN)
+        PositionStatsCache.objects.create(
+            fen=fen,
+            params_key=params_key_for(12),
+            response={"white": 60, "draws": 20, "black": 20, "moves": []},
+            expires_at=timezone.now(),  # Stale is deliberate: coverage remains a DB-only read.
+        )
+        EngineLineCache.objects.create(
+            fen=fen,
+            depth=18,
+            score_type="cp",
+            score_value=34,
+            best_move_uci="e2e4",
+            pv_uci=["e2e4"],
+        )
+
+        response = client.post(
+            "/api/v1/repertoires/coverage-snapshots/",
+            {"fens": [START_FEN]},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        snapshot = response.data["positions"][fen]
+        assert snapshot["stats"]["totalGames"] == 100
+        assert snapshot["evaluation"]["scoreType"] == "cp"
+        assert snapshot["evaluation"]["scoreValue"] == 34
+
+    def test_reports_missing_snapshots_without_fetching(self, client):
+        fen = normalize_fen(AFTER_E4)
+        response = client.post(
+            "/api/v1/repertoires/coverage-snapshots/",
+            {"fens": [AFTER_E4]},
+            format="json",
+        )
+        assert response.status_code == 200
+        assert response.data["positions"][fen] == {
+            "stats": None,
+            "statsFetchedAt": None,
+            "evaluation": None,
+        }
 
 
 @pytest.mark.django_db

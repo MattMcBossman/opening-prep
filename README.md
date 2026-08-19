@@ -12,7 +12,7 @@ Phase 2 (repertoire builder) is implemented: a FEN-keyed repertoire tree per col
 
 The Moves panel keeps played history in its score grid and presents preparation below it as a collapsible tree rooted at the current position. Forced move/reply pairs share compact rows, collapsed branches show their fully traversed leaf-line count, deep moves navigate through the exact saved path, and transpositions terminate with a reference instead of duplicating the shared subtree indefinitely. Counts are omitted rather than approximated if an extreme profile reaches a defensive traversal ceiling.
 
-PGN import/export preserves RAV paths, authored line labels, per-ply comments,
+PGN import/export in the module manager preserves RAV paths, authored line labels, per-ply comments,
 and numeric or symbolic annotation glyphs for signed-in repertoires.
 
 Phase 3 (drills) is implemented: a "Drills" mode (toggle next to the explorer) that walks every saved repertoire line for the active color one at a time, accepts any saved move at a branch point (not just one "correct" answer), and tracks progress until every line has been drilled once. Each saved-module card can also launch that module alone from its displayed shared opening position, whether or not it is attached to the active profile. Wrong moves are classified by engine centipawn loss (objectively bad vs. just off-book), with progressively stronger hints on repeated attempts. Finishing a line pauses without auto-scrolling; View in Explorer, Next/Finish, Restart, and Shuffle drills stay directly below the board. Desktop shows Analysis and Lichess statistics automatically, while phones use compact Analysis/Stats buttons. The sole post-drill engine review streams three Stockfish candidates during iterative deepening toward depth 24, so the eval bar and arrows appear before the final cacheable result; rank 1 drives the eval bar and calibrated verdict, while recurring moves across all candidates drive continuation arrows and support move-order observations. Signed-in users share the strongest compatible normalized-FEN result through PostgreSQL, while signed-out sessions reuse it in browser memory. A session ends with a perfect/failed summary and a "Retry failed" option.
@@ -38,16 +38,40 @@ and personal-game positions do not consume PostgreSQL storage.
 Mainline sign-in uses Google OpenID Connect. Lichess OAuth is retained as an optional linked data source
 rather than the primary account requirement.
 
-The on-demand module coverage headline is the ratio of matching games summed
-across distinct prepared leaf positions to matching games at the module's
-listed opening position (or its latest common ancestor when the lines branch
-earlier). The per-position gap analysis retains a 95% practical full-coverage
+The selected module's coverage partitions sampled opponent-response probability
+from its listed opening into qualifying prepared positions, terminal positions
+that fail the score threshold, unprepared opponent replies, and unknown data.
+Coverage stops at the first qualifying prepared position on each path, so adding
+optional prepared continuations can never reduce existing coverage. The
+uncovered share is failing-terminal probability plus
+unprepared-response probability, while unknown samples are reported separately.
+A line's probability is the product of every opponent move's observed response
+rate after the module's listed opening position (or latest common ancestor when
+the lines branch earlier); the popularity of the repertoire side's own moves is
+deliberately ignored. A prepared position contributes when its preparation score is at
+the configured minimum (default 16), where `score = plies beyond the module
+opening + configurable evaluation weight (default 6) × evaluation in pawns
+from the repertoire side`; evaluations worse than the configured floor
+(default −1), missing
+evaluations, and forced mates against the repertoire never qualify. Forced mate
+for the repertoire always qualifies. The per-position gap analysis retains a
+95% practical full-coverage
 target and distinguishes fully covered, partially covered, and no-data
-positions. Its highest-impact list
+positions. Required path snapshots are warmed after a signed-in module changes
+and refreshed for positions traversed by completed drills. Coverage itself
+is a single PostgreSQL bulk read and never fans out to Lichess; stale saved
+samples remain usable while background warming refreshes them. Its highest-impact list
 ranks positions by uncovered matching games adjusted for the repertoire side's
 cached engine advantage, then opens each selected gap directly in Explorer.
 Equal or worse positions keep their full exposure while already-winning
 positions are discounted.
+The completed calculation plots every position reached after a move by the
+repertoire side, by ply and cached engine evaluation, with terminal positions
+identified in the table. Positions reached after opponent moves remain
+probability inputs but are not score-qualified or plotted.
+Near-colliding evaluations cluster within the same ply, while transposed
+authored paths retain their separate probability contributions. The score
+parameters are editable directly in the coverage panel.
 
 First-time visitors also receive a short browser-local welcome guide covering
 exploration, module building, and drills. Selecting the Mainline logo reopens
@@ -117,7 +141,9 @@ Generator usage is documented in [backend/repertoire/OPENING_GENERATOR.md](backe
 `remote-dev` owns ports 8000 (Django) and 5173 (Vite). Stop separately started
 development servers before running it. The script checks both ports before
 starting anything and reports the conflicting port and listener; Vite is run in
-strict-port mode so it cannot silently move to 5174 and break the proxy.
+strict-port mode so it cannot silently move to 5174 and break the proxy. Django's
+development autoreloader remains enabled, so backend code changes take effect
+without restarting the remote-development stack.
 
 On first use, Tailscale may require one administrator-approved operator setting:
 

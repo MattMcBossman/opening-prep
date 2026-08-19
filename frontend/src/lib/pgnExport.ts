@@ -128,3 +128,15 @@ export function exportRepertoireToPgn(tree: RepertoireTree, color: RepertoireCol
   const body = movetext ? `${movetext} *` : '*'
   return `${buildHeaders(color)}\n\n${body}\n`
 }
+
+/** Export one module as a browser download without changing the active workspace. */
+export function downloadRepertoirePgn(name: string, tree: RepertoireTree, color: RepertoireColor, lines: PgnExportLine[] = []): void {
+  const filename = `${name.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `${color}-repertoire`}.pgn`
+  const blob = new Blob([exportRepertoireToPgn(tree, color, lines)], { type: 'application/x-chess-pgn' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}

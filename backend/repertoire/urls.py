@@ -22,6 +22,7 @@ urlpatterns = [
     ),
     path("", views.RepertoireListCreateView.as_view(), name="repertoire-list"),
     path("import/", views.RepertoireImportView.as_view(), name="repertoire-import"),
+    path("coverage-snapshots/", views.CoverageSnapshotsView.as_view(), name="coverage-snapshots"),
     path("<int:pk>/tree/", views.RepertoireTreeView.as_view(), name="repertoire-tree"),
     path("<int:pk>/", views.RepertoireDetailView.as_view(), name="repertoire-detail"),
     path("<int:pk>/lines/", views.RepertoireLinesView.as_view(), name="repertoire-lines"),
