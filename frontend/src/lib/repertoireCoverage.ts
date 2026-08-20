@@ -238,7 +238,7 @@ export function repertoireEvaluationPawns(
 }
 
 export function leafPreparationScore(
-  pliesBeyondOpening: number,
+  positionPly: number,
   evaluation: Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null | undefined,
   color: RepertoireColor,
   parameters: LeafScoreParameters = DEFAULT_LEAF_SCORE_PARAMETERS,
@@ -247,16 +247,16 @@ export function leafPreparationScore(
   const pawns = repertoireEvaluationPawns(evaluation, color)
   if (pawns === Infinity) return Infinity
   if (pawns === -Infinity || pawns < parameters.minimumEvaluation) return null
-  return pliesBeyondOpening + parameters.evaluationWeight * pawns
+  return positionPly + parameters.evaluationWeight * pawns
 }
 
 export function leafQualifiesForCoverage(
-  pliesBeyondOpening: number,
+  positionPly: number,
   evaluation: Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null | undefined,
   color: RepertoireColor,
   parameters: LeafScoreParameters = DEFAULT_LEAF_SCORE_PARAMETERS,
 ): boolean {
-  const score = leafPreparationScore(pliesBeyondOpening, evaluation, color, parameters)
+  const score = leafPreparationScore(positionPly, evaluation, color, parameters)
   return score !== null && score >= parameters.minimumScore
 }
 
@@ -338,7 +338,10 @@ export function calculateModuleCoveragePartition(
     return result
   }
 
-  const partition = walk(root, 1, 0)
+  // Depth is the position's absolute game ply, not its distance from this
+  // module's coverage opening. The same FEN therefore receives the same score
+  // in a module and in the full-repertoire view.
+  const partition = walk(root, 1, openingPly)
   return { ...partition, percent: partition.coveredProbability * 100 }
 }
 

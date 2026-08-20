@@ -3,7 +3,7 @@ import { Chess } from 'chess.js'
 import { START_FEN } from '../hooks/useGame'
 import type { RepertoireTree } from '../types'
 import { normalizeFen } from './chessUtils'
-import { diffModuleDraft, moduleMoveDraftState } from './moduleDraftDiff'
+import { diffModuleDraft, isAuthoredPathPrefixSaved, moduleMoveDraftState } from './moduleDraftDiff'
 import { addMoveToTree, removeMoveFromTree } from './repertoireTree'
 
 function lineTree(uciMoves: string[]): RepertoireTree {
@@ -66,5 +66,20 @@ describe('module draft diff', () => {
     expect(diffModuleDraft(persisted, structuredClone(persisted), 'white')).toMatchObject({
       moves: [], lines: [], addedMoveCount: 0, deletedMoveCount: 0,
     })
+  })
+
+  it('distinguishes authored move orders that share a transposition edge', () => {
+    const path = 'g1f3 d7d5 d2d4 g8f6 c2c4 e7e6'
+    expect(isAuthoredPathPrefixSaved([path], path.split(' '), 5)).toBe(true)
+    expect(isAuthoredPathPrefixSaved(
+      [path],
+      ['d2d4', 'g8f6', 'g1f3', 'd7d5', 'c2c4', 'e7e6'],
+      5,
+    )).toBe(false)
+  })
+
+  it('treats a prefix of a longer authored continuation as saved', () => {
+    const path = 'e2e4 e7e5 g1f3 b8c6'
+    expect(isAuthoredPathPrefixSaved([path], path.split(' '), 2)).toBe(true)
   })
 })

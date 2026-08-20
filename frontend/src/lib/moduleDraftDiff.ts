@@ -82,3 +82,10 @@ export function moduleMoveDraftState(
   if (wasSaved && !isSaved) return 'pending-remove'
   return isSaved ? 'saved' : 'unsaved'
 }
+
+/** Whether this exact played move-order prefix belongs to an authored line. */
+export function isAuthoredPathPrefixSaved(linePaths: string[], playedUcis: string[], index: number): boolean {
+  const prefix = playedUcis.slice(0, index + 1).join(' ')
+  if (!prefix) return false
+  return linePaths.some((path) => path === prefix || path.startsWith(`${prefix} `))
+}

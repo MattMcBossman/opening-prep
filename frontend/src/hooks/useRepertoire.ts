@@ -979,6 +979,7 @@ export function useRepertoire(user: AuthUser | null) {
     removeModuleMembership: isAuthenticated ? api.removeModuleMembership : local.removeModuleMembership,
     copyTemplate: api.copyTemplate,
     copyMissingTemplateLines: api.copyMissingTemplateLines,
+    refresh: isAuthenticated ? api.refresh : async () => undefined,
     previewRelease: api.previewRelease,
     setPreviewRelease: setSelectedPreviewRelease,
     importPrompt,
