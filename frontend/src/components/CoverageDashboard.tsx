@@ -65,7 +65,7 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
     point.id ? point.id.split(' ') : undefined,
   )
   const pointScore = (point: LeafCoveragePoint) => leafPreparationScore(
-    point.depth - openingPly, point.evaluation, color, scoreParameters,
+    point.depth, point.evaluation, color, scoreParameters,
   )
   const preparedReplyRate = (point: LeafCoveragePoint) => {
     const reach = point.reachFrequency ?? 0
@@ -285,7 +285,7 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
     ...leafDetails[node.fen],
   }))]
   const qualifyingNodes = preparedPoints.filter((point) => point.games > 0 && leafQualifiesForCoverage(
-    point.depth - scope.openingPly,
+    point.depth,
     point.evaluation,
     color,
     scoreParameters,

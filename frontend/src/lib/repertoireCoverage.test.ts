@@ -234,6 +234,23 @@ describe('coverage dashboard helpers', () => {
     expect(result).toMatchObject({ coveredProbability: 0, failingLeafProbability: 1, percent: 0 })
   })
 
+  it('scores a position by its full game ply regardless of the coverage opening', () => {
+    const lines: DrillLine[] = [{ id: 'line', steps: [
+      { fen: 'start', san: 'First', uci: 'a2a3', resultingFen: 'ply-1', mover: 'own' },
+      { fen: 'ply-1', san: 'Second', uci: 'a7a6', resultingFen: 'ply-2', mover: 'own' },
+      { fen: 'ply-2', san: 'Third', uci: 'b2b3', resultingFen: 'module-opening', mover: 'own' },
+      { fen: 'module-opening', san: 'Fourth', uci: 'b7b6', resultingFen: 'same-position', mover: 'own' },
+    ] }]
+    const parameters = { minimumScore: 4, evaluationWeight: 0, minimumEvaluation: -10 }
+    const evaluations = { 'same-position': { scoreType: 'cp' as const, scoreValue: 0 } }
+
+    const moduleCoverage = calculateModuleCoveragePartition(lines, 3, {}, evaluations, 'white', parameters)
+    const fullCoverage = calculateModuleCoveragePartition(lines, 0, {}, evaluations, 'white', parameters)
+
+    expect(moduleCoverage.percent).toBe(100)
+    expect(moduleCoverage).toEqual(fullCoverage)
+  })
+
   it('does not penalize a qualifying internal node for optional prepared continuations', () => {
     const lines: DrillLine[] = [{ id: 'line', steps: [
       { fen: 'opening', san: 'Own', uci: 'a2a3', resultingFen: 'prepared', mover: 'own' },

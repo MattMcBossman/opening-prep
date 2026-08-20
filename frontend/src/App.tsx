@@ -49,7 +49,7 @@ import { collectDrillLines, createDrillStartContext, migrateDrillStartContext, o
 import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
 import { calculatePositionCoverage, moduleCoverageScope } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
-import { diffModuleDraft, moduleMoveDraftState } from './lib/moduleDraftDiff'
+import { diffModuleDraft, isAuthoredPathPrefixSaved, moduleMoveDraftState } from './lib/moduleDraftDiff'
 import { TUTORIAL_VIENNA_TREE, tutorialPersonalGameStats, tutorialPositionStats } from './lib/tutorialDemo'
 import type { RepertoireColor, RepertoireMove, RepertoireTree } from './types'
 import { googleLoginUrl, lichessLoginUrl } from './lib/authApi'
@@ -291,7 +291,13 @@ function App() {
     () => diffModuleDraft(newModuleSelected || draftSourceRelease ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
     [boardColor, draftSourceRelease, moduleDraftTree, newModuleSelected, persistedModuleTree],
   )
-  const hasUnsavedModuleChanges = draftSourceRelease !== null || moduleDraftDiff.moves.length > 0 || moduleDraftDiff.lines.length > 0
+  // An authored move order can be new even when all of its FEN-graph edges
+  // already exist through a transposition, so tree diffs alone are not enough.
+  const pendingAddedLineCount = new Set(pendingModuleChanges.flatMap((change) => change.kind === 'add-line'
+    ? [change.steps.map((step) => step.uci).join(' ')]
+    : [])).size
+  const draftAddedLineCount = Math.max(moduleDraftDiff.addedLineCount, pendingAddedLineCount)
+  const hasUnsavedModuleChanges = draftSourceRelease !== null || pendingModuleChanges.length > 0 || moduleDraftDiff.moves.length > 0 || moduleDraftDiff.lines.length > 0
 
   useEffect(() => {
     setModuleWorkspaceMode('viewing')
@@ -398,6 +404,11 @@ function App() {
         if (change.kind === 'remove') await repertoire.removeMove(change.color, change.originFen, change.uci)
         else await repertoire.addLine(change.color, change.steps, change.source, change.label, change.annotations, change.conflictPolicy)
       }
+      // Tree mutations are applied optimistically, but the module manager's
+      // move/line counts and common start come from the repertoire summaries.
+      // Reconcile once after the complete save batch so those statistics and
+      // the canonical authored lines reflect the saved module immediately.
+      await repertoire.refresh()
     } catch (error) {
       setModuleWorkspaceNotice(error instanceof Error ? `Module could not be saved: ${error.message}` : 'Module could not be saved. Your edits are still open.')
       return
@@ -535,9 +546,24 @@ function App() {
     (index: number) => {
       const entry = moves[index]
       if (!entry) return false
+      // The FEN graph deliberately shares edges after a transposition, but a
+      // star in the played move list describes this particular move order.
+      // Consult authored paths so an edge saved through another route does not
+      // prevent this route from being added as its own continuation.
+      if (isSignedIn && !viewedRelease && !viewingFullRepertoire) {
+        const persistedPaths = repertoire.editingLinePaths[boardColor] ?? []
+        const pendingPaths = pendingModuleChanges.flatMap((change) => change.kind === 'add-line'
+          ? [change.steps.map((step) => step.uci).join(' ')]
+          : [])
+        return isAuthoredPathPrefixSaved(
+          [...persistedPaths, ...pendingPaths],
+          moves.map((move) => move.uci),
+          index,
+        )
+      }
       return (moduleWorkspaceTree[normalizeFen(originFenForPly(moves, index))] ?? []).some((move) => move.uci === entry.uci)
     },
-    [moves, moduleWorkspaceTree],
+    [boardColor, isSignedIn, moduleWorkspaceTree, moves, pendingModuleChanges, repertoire.editingLinePaths, viewedRelease, viewingFullRepertoire],
   )
 
   const getPlySaveState = useCallback(
@@ -545,11 +571,22 @@ function App() {
       const entry = moves[index]
       if (!entry) return 'unsaved' as const
       const originFen = originFenForPly(moves, index)
+      if (isSignedIn && !viewedRelease && !viewingFullRepertoire) {
+        const wasSaved = isAuthoredPathPrefixSaved(
+          repertoire.editingLinePaths[boardColor] ?? [],
+          moves.map((move) => move.uci),
+          index,
+        )
+        const saved = isPlySaved(index)
+        if (!wasSaved && saved) return 'pending-add' as const
+        if (wasSaved && !saved) return 'pending-remove' as const
+        return saved ? 'saved' as const : 'unsaved' as const
+      }
       return moduleWorkspaceMode === 'editing' && moduleDraftTree
         ? moduleMoveDraftState(newModuleSelected ? {} : persistedModuleTree, moduleDraftTree, originFen, entry.uci)
         : (isPlySaved(index) ? 'saved' as const : 'unsaved' as const)
     },
-    [isPlySaved, moduleDraftTree, moduleWorkspaceMode, moves, newModuleSelected, persistedModuleTree],
+    [boardColor, isPlySaved, isSignedIn, moduleDraftTree, moduleWorkspaceMode, moves, newModuleSelected, persistedModuleTree, repertoire.editingLinePaths, viewedRelease, viewingFullRepertoire],
   )
 
   const onTogglePlySaved = useCallback(
@@ -565,7 +602,7 @@ function App() {
         })
         return
       }
-      if ((moduleDraftTree[normalizeFen(originFen)] ?? []).some((move) => move.uci === entry.uci)) {
+      if (isPlySaved(index)) {
         setModuleDraftTree(removeMoveFromTree(moduleDraftTree, boardColor, originFen, entry.uci))
         setPendingModuleChanges((current) => [...current, { kind: 'remove', color: boardColor, originFen, uci: entry.uci }])
         return
@@ -596,7 +633,7 @@ function App() {
       setPendingModuleChanges((current) => [...current, { kind: 'add-line', color: boardColor, steps, source: 'manual', label: '', annotations: [], conflictPolicy: conflicts.length > 0 ? 'replace' : 'reject' }])
       setModuleWorkspaceNotice(null)
     },
-    [moves, boardColor, moduleWorkspaceMode, moduleDraftTree, viewedRelease, viewingFullRepertoire],
+    [moves, boardColor, isPlySaved, moduleWorkspaceMode, moduleDraftTree, viewedRelease, viewingFullRepertoire],
   )
 
   const handleToggleBoardColor = useCallback(() => {
@@ -1010,7 +1047,7 @@ function App() {
             <p>The following updates will be applied when you confirm.</p>
             <div className="module-save-summary">
               <span className="module-save-metric module-save-metric-add">
-                <strong>{moduleDraftDiff.addedLineCount} lines <span className="module-save-metric-separator">·</span> {moduleDraftDiff.addedMoveCount} moves</strong>
+                <strong>{draftAddedLineCount} lines <span className="module-save-metric-separator">·</span> {moduleDraftDiff.addedMoveCount} moves</strong>
                 <span>added</span>
               </span>
               <span className="module-save-metric module-save-metric-delete">
