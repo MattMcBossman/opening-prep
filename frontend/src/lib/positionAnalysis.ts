@@ -14,6 +14,18 @@ export const IMMEDIATE_MOVE_INFERIOR_CP = 50
 const memory = new Map<string, PositionAnalysis>()
 const inFlight = new Map<string, Promise<PositionAnalysis>>()
 
+export type PositionAnalysisUpdate = {
+  fen: string
+  evaluation: Pick<AnalysisCandidate, 'scoreType' | 'scoreValue' | 'depth'>
+}
+
+const updateListeners = new Set<(update: PositionAnalysisUpdate) => void>()
+
+export function subscribeToPositionAnalysisUpdates(listener: (update: PositionAnalysisUpdate) => void): () => void {
+  updateListeners.add(listener)
+  return () => updateListeners.delete(listener)
+}
+
 export type AnalysisArrowMove = {
   uci: string
   side: 'white' | 'black'
@@ -30,6 +42,20 @@ function hydrateAnalysis(analysis: PositionAnalysis, fen: string): PositionAnaly
     ? analysis.recurringMoves
     : deriveRecurringMoves(fen, analysis.candidates)
   return { ...analysis, fen, recurringMoves }
+}
+
+function rememberAnalysis(analysis: PositionAnalysis, fen: string): PositionAnalysis {
+  const hydrated = hydrateAnalysis(analysis, fen)
+  memory.set(key(fen), hydrated)
+  const leading = hydrated.candidates.find((candidate) => candidate.rank === 1)
+  if (leading) {
+    const update = {
+      fen: normalizeFen(fen),
+      evaluation: { scoreType: leading.scoreType, scoreValue: leading.scoreValue, depth: leading.depth },
+    }
+    updateListeners.forEach((listener) => listener(update))
+  }
+  return hydrated
 }
 
 export function deriveRecurringMoves(fen: string, candidates: AnalysisCandidate[]): RecurringAnalysisMove[] {
@@ -193,9 +219,7 @@ export async function fetchPositionAnalysis(fen: string): Promise<PositionAnalys
   const params = new URLSearchParams({ fen, engineVersion: ENGINE_VERSION, analysisProfile: ANALYSIS_PROFILE })
   try {
     const analysis = await apiRequest<PositionAnalysis>(`/explorer/position-analyses/?${params}`)
-    const hydrated = hydrateAnalysis(analysis, fen)
-    memory.set(key(fen), hydrated)
-    return hydrated
+    return rememberAnalysis(analysis, fen)
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null
     throw error
@@ -207,9 +231,7 @@ export async function persistPositionAnalysis(fen: string, candidates: AnalysisC
     method: 'PUT',
     body: { fen, engineVersion: ENGINE_VERSION, analysisProfile: ANALYSIS_PROFILE, candidates },
   })
-  const hydrated = hydrateAnalysis(analysis, fen)
-  memory.set(key(fen), hydrated)
-  return hydrated
+  return rememberAnalysis(analysis, fen)
 }
 
 export async function getOrComputePositionAnalysis(
@@ -253,9 +275,8 @@ export async function getOrComputePositionAnalysis(
     )
     if (candidates.length === 0) throw new Error('Stockfish returned no candidate lines.')
     const local = toAnalysis(candidates)
-    if (signedIn) return persistPositionAnalysis(fen, candidates).catch(() => local)
-    memory.set(cacheKey, local)
-    return local
+    if (signedIn) return persistPositionAnalysis(fen, candidates).catch(() => rememberAnalysis(local, fen))
+    return rememberAnalysis(local, fen)
   })().finally(() => inFlight.delete(cacheKey))
   inFlight.set(cacheKey, request)
   return request

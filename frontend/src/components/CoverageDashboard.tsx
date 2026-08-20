@@ -6,6 +6,7 @@ import type { LeafCoverageCluster, LeafCoveragePoint, LeafScoreParameters, Posit
 import type { DrillLine } from '../lib/repertoireDrills'
 import { canonicalMoveUci, normalizeFen } from '../lib/chessUtils'
 import { START_FEN } from '../hooks/useGame'
+import { subscribeToPositionAnalysisUpdates } from '../lib/positionAnalysis'
 import type { RepertoireColor, RepertoireTree } from '../types'
 
 type Props = {
@@ -281,6 +282,14 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
     setLoading(false)
     setError(null)
   }, [color, tree])
+
+  useEffect(() => subscribeToPositionAnalysisUpdates(({ fen, evaluation }) => {
+    if (!nodeFens.includes(fen)) return
+    setLeafDetails((current) => ({
+      ...current,
+      [fen]: { ...current[fen], evaluation },
+    }))
+  }), [nodeFens])
 
   useEffect(() => {
     if (!signedIn || scanPositions.length === 0) return
