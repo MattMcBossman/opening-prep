@@ -1018,6 +1018,25 @@
   width: 100%;
 }
 
+.drill-board-controls {
+  flex-direction: column;
+}
+
+.drill-history-controls,
+.drill-session-actions {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.drill-history-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.drill-session-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .mobile-review-section-button {
   display: none;
 }
@@ -2996,6 +3015,12 @@
 
   .explorer-board-controls button:last-child {
     white-space: nowrap;
+  }
+
+  .drill-history-controls button {
+    height: 44px;
+    min-width: 0;
+    padding: 8px 4px;
   }
 
   .drill-review-actions {
