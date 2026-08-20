@@ -674,14 +674,14 @@
 .leaf-table td {
   padding: 0.45rem;
   border-bottom: 1px solid var(--border);
-  text-align: right;
+  text-align: center;
   vertical-align: top;
 }
 
 .coverage-table-score {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   font-weight: 700;
 }
 
@@ -735,7 +735,7 @@
 .coverage-table-eval {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 0.25rem;
   white-space: nowrap;
 }

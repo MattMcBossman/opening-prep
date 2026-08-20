@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnalysisCandidate } from '../types'
-import { analysisArrowMoves, deriveRecurringMoves, describeRecurringMove, fetchPositionAnalysis, persistPositionAnalysis } from './positionAnalysis'
+import { analysisArrowMoves, deriveRecurringMoves, describeRecurringMove, fetchPositionAnalysis, persistPositionAnalysis, subscribeToPositionAnalysisUpdates } from './positionAnalysis'
 
 const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
@@ -144,5 +144,33 @@ describe('position analysis API', () => {
       analysisProfile: 'drill-review-basic-v1',
       candidates,
     })
+  })
+
+  it('publishes completed rank-one evaluations to subscribers', async () => {
+    const response = {
+      fen,
+      engineVersion: 'Stockfish 18',
+      analysisProfile: 'drill-review-basic-v1',
+      depth: 18,
+      multiPv: 3,
+      candidates,
+      recurringMoves: [],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+    const listener = vi.fn()
+    const unsubscribe = subscribeToPositionAnalysisUpdates(listener)
+
+    await persistPositionAnalysis(`${fen} `, candidates)
+
+    expect(listener).toHaveBeenCalledWith({
+      fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -',
+      evaluation: { scoreType: 'cp', scoreValue: 24, depth: 18 },
+    })
+    unsubscribe()
+    await persistPositionAnalysis(fen, candidates)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })
