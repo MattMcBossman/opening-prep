@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { fetchCoverageSnapshots } from '../lib/repertoireApi'
-import { calculateModuleCoveragePartition, calculateRepertoireNodeProbabilities, clusterLeafCoverage, coveragePositionLabel, DEFAULT_LEAF_SCORE_PARAMETERS, leafEvaluationValue, leafPreparationScore, leafQualifiesForCoverage, moduleCoverageScope, opponentPositions } from '../lib/repertoireCoverage'
+import { calculateModuleCoveragePartition, calculateRepertoireNodeProbabilities, clusterLeafCoverage, coveragePositionLabel, DEFAULT_LEAF_SCORE_PARAMETERS, leafEvaluationValue, leafPreparationScore, leafQualifiesForCoverage, moduleCoverageScope, opponentPositions, repertoireEvaluationPawns } from '../lib/repertoireCoverage'
 import type { LeafCoverageCluster, LeafCoveragePoint, LeafScoreParameters, PositionCoverage } from '../lib/repertoireCoverage'
 import type { DrillLine } from '../lib/repertoireDrills'
 import { canonicalMoveUci, normalizeFen } from '../lib/chessUtils'
+import { START_FEN } from '../hooks/useGame'
 import type { RepertoireColor, RepertoireTree } from '../types'
 
 type Props = {
@@ -27,10 +28,11 @@ type ScoreBand = 'unavailable' | 'far-below' | 'below' | 'meets' | 'strong'
 const COVERAGE_CHART_MAX_EVALUATION = 5
 const COVERAGE_CHART_MIN_EVALUATION = -1
 const COVERAGE_TABLE_PAGE_SIZE = 25
-function CoverageTableEvaluation({ score }: { score: NonNullable<PositionCoverage['evaluation']> }) {
+function CoverageTableEvaluation({ score, color }: { score: NonNullable<PositionCoverage['evaluation']>; color: RepertoireColor }) {
   if (score.scoreType === 'cp' && score.scoreValue === 0) return <>0.0</>
   if (score.scoreType === 'mate' && score.scoreValue === 0) return <>M</>
   const whiteAdvantage = score.scoreValue > 0
+  const repertoireAdvantage = whiteAdvantage === (color === 'white')
   const value = score.scoreType === 'mate'
     ? `M${Math.abs(score.scoreValue)}`
     : Math.abs(score.scoreValue / 100).toFixed(1)
@@ -39,7 +41,7 @@ function CoverageTableEvaluation({ score }: { score: NonNullable<PositionCoverag
       className={`coverage-eval-arrow ${whiteAdvantage ? 'white' : 'black'}`}
       role="img"
       aria-label={`${whiteAdvantage ? 'White' : 'Black'} advantage`}
-    >{whiteAdvantage ? '↑' : '↓'}</span>
+    >{repertoireAdvantage ? '↑' : '↓'}</span>
     <span>{value}</span>
   </span>
 }
@@ -49,12 +51,26 @@ function formatCoveragePercent(value: number): string {
   return value < 0.01 ? '<0.01%' : `${value.toFixed(2)}%`
 }
 
-function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParameters, onOpenPosition }: { points: LeafCoveragePoint[]; color: RepertoireColor; openingPly: number; scoreParameters: LeafScoreParameters; onOpenPosition: (fen: string, pathUci?: string[]) => void }) {
+function formatReplyCount(moves: number, totalGames: number, percent: number): string {
+  return `${moves.toLocaleString()} (${totalGames > 0 ? formatCoveragePercent(percent) : 'no data'})`
+}
+
+function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParameters, initialWhiteEvaluation, onOpenPosition }: { points: LeafCoveragePoint[]; color: RepertoireColor; openingPly: number; scoreParameters: LeafScoreParameters; initialWhiteEvaluation: number; onOpenPosition: (fen: string, pathUci?: string[]) => void }) {
   const [selected, setSelected] = useState<LeafCoverageCluster | null>(null)
+  const [previewedClusterId, setPreviewedClusterId] = useState<string | null>(null)
+  const [previewTableHeight, setPreviewTableHeight] = useState<number | null>(null)
+  const tableRegionRef = useRef<HTMLDivElement>(null)
+  const previewScrollPositionRef = useRef<number | null>(null)
+  const previewedClusterIdRef = useRef<string | null>(null)
+  const previewExitFrameRef = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (previewExitFrameRef.current !== null) window.cancelAnimationFrame(previewExitFrameRef.current)
+  }, [])
   const [sort, setSort] = useState<CoverageTableSort>('frequency')
   const [sortDirection, setSortDirection] = useState<SortDirection>('descending')
   const [page, setPage] = useState(0)
   const clusters = useMemo(() => clusterLeafCoverage(points, color), [color, points])
+  const previewedCluster = clusters.find((cluster) => cluster.id === previewedClusterId) ?? null
   const plottedDepths = [...new Set(clusters.map((cluster) => cluster.depth))]
   const pointName = (point: LeafCoveragePoint) => coveragePositionLabel(
     point.moves,
@@ -65,7 +81,7 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
     point.id ? point.id.split(' ') : undefined,
   )
   const pointScore = (point: LeafCoveragePoint) => leafPreparationScore(
-    point.depth, point.evaluation, color, scoreParameters,
+    point.depth, point.evaluation, color, scoreParameters, initialWhiteEvaluation,
   )
   const preparedReplyRate = (point: LeafCoveragePoint) => {
     const reach = point.reachFrequency ?? 0
@@ -75,7 +91,8 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
     const reach = point.reachFrequency ?? 0
     return reach > 0 ? (point.frequency / reach) * 100 : 0
   }
-  const sorted = [...(selected?.points ?? points)].sort((left, right) => {
+  const activeCluster = previewedCluster ?? selected
+  const sorted = [...(activeCluster?.points ?? points)].sort((left, right) => {
     let comparison: number
     if (sort === 'position') comparison = pointName(left).localeCompare(pointName(right))
     else {
@@ -108,7 +125,7 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
       setSortDirection('ascending')
     }
   }
-  const sortableHeading = (key: CoverageTableSort, label: string, title?: string) => <th aria-sort={sort === key ? sortDirection : 'none'} title={title}>
+  const sortableHeading = (key: CoverageTableSort, label: string, title?: string) => <th aria-sort={sort === key ? sortDirection : 'none'}>
     <button type="button" title={title} onClick={() => changeSort(key)}>{label}<span aria-hidden="true">{sort === key ? sortDirection === 'ascending' ? ' ↑' : ' ↓' : ''}</span></button>
   </th>
   const chartWidth = Math.max(180, plottedDepths.length * 68 + 68)
@@ -142,11 +159,47 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
   const visiblePoints = sorted.slice(currentPage * COVERAGE_TABLE_PAGE_SIZE, (currentPage + 1) * COVERAGE_TABLE_PAGE_SIZE)
   const firstVisible = sorted.length === 0 ? 0 : currentPage * COVERAGE_TABLE_PAGE_SIZE + 1
   const lastVisible = Math.min(sorted.length, (currentPage + 1) * COVERAGE_TABLE_PAGE_SIZE)
+  useLayoutEffect(() => {
+    if (previewedClusterId === null || previewTableHeight === null || !tableRegionRef.current) return
+    const requiredHeight = tableRegionRef.current.scrollHeight
+    if (requiredHeight > previewTableHeight) setPreviewTableHeight(requiredHeight)
+  }, [pageCount, previewedClusterId, previewTableHeight, visiblePoints.length])
+  useLayoutEffect(() => {
+    const scrollPosition = previewScrollPositionRef.current
+    if (scrollPosition === null) return
+    window.scrollTo({ top: scrollPosition, behavior: 'instant' })
+    previewScrollPositionRef.current = null
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollPosition, behavior: 'instant' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [previewedClusterId])
+  const beginPreview = (clusterId: string) => {
+    if (previewExitFrameRef.current !== null) {
+      window.cancelAnimationFrame(previewExitFrameRef.current)
+      previewExitFrameRef.current = null
+    }
+    previewScrollPositionRef.current = window.scrollY
+    if (previewedClusterId === null) setPreviewTableHeight(tableRegionRef.current?.getBoundingClientRect().height ?? null)
+    previewedClusterIdRef.current = clusterId
+    setPreviewedClusterId(clusterId)
+  }
+  const endPreview = (clusterId: string) => {
+    if (previewedClusterIdRef.current !== clusterId) return
+    previewExitFrameRef.current = window.requestAnimationFrame(() => {
+      previewExitFrameRef.current = null
+      if (previewedClusterIdRef.current !== clusterId) return
+      previewScrollPositionRef.current = window.scrollY
+      previewedClusterIdRef.current = null
+      setPreviewedClusterId(null)
+      setPreviewTableHeight(null)
+    })
+  }
   return <section className="leaf-coverage-analysis">
     <h4>Prepared-position depth and evaluation</h4>
     <p className="panel-status">Every authored position is included. Each marker has the same size; its label is the summed probability of reaching its positions, using only opponent response rates.</p>
     {clusters.length > 0 ? <>
-      <div className="leaf-chart-scroll"><div className="leaf-chart" role="img" aria-label="Leaf depth by engine evaluation" style={{ width: `${chartWidth}px` }}>
+      <div className="leaf-chart-scroll"><div className="leaf-chart" role="img" aria-label="Leaf depth by engine evaluation" style={{ width: `${chartWidth}px` }} onClick={() => { setSelected(null); setPage(0) }}>
         <span className="leaf-axis-label" style={{ top: `${y(5)}%` }}>+5</span><span className="leaf-axis-label" style={{ top: `${y(0)}%` }}>Equal</span><span className="leaf-axis-label" style={{ top: `${y(-1)}%` }}>−1</span>
         <div className="leaf-zero-line" style={{ top: `${y(0)}%` }} />
         {plottedDepths.map((depth) => <span className="leaf-depth-label" key={depth} style={{ left: `${x(depth)}px` }}>Ply {depth}</span>)}
@@ -157,21 +210,42 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
           style={{ left: `${x(cluster.depth)}px`, top: `${y(cluster.evaluation)}%`, '--cluster-score-color': scoreColor(clusterScore(cluster)) } as CSSProperties}
           aria-label={`${cluster.frequency.toFixed(2)} percent at ply ${cluster.depth}, ${cluster.points.length} position${cluster.points.length === 1 ? '' : 's'}`}
           aria-pressed={selected?.id === cluster.id}
-          onClick={() => { setSelected((current) => current?.id === cluster.id ? null : cluster); setPage(0) }}
+          onPointerEnter={() => beginPreview(cluster.id)}
+          onPointerLeave={() => endPreview(cluster.id)}
+          onFocus={() => beginPreview(cluster.id)}
+          onBlur={() => endPreview(cluster.id)}
+          onClick={(event) => { event.stopPropagation(); setSelected((current) => current?.id === cluster.id ? null : cluster); setPage(0) }}
         ><strong>{cluster.frequency < 0.1 ? '<0.1' : cluster.frequency.toFixed(1)}%</strong><small>{cluster.points.length} position{cluster.points.length === 1 ? '' : 's'}</small></button>)}
       </div></div>
       <div className="coverage-score-legend" aria-label="Plot score color bands"><span>Far below</span><span>Below minimum</span><span>Meets minimum</span><span>Strong</span></div>
     </> : <p className="panel-status">No cached engine evaluations are available for these leaves yet. Background analysis will add points to the graph.</p>}
+    <div ref={tableRegionRef} style={previewTableHeight === null ? undefined : { height: `${previewTableHeight}px`, overflow: 'hidden' }}>
     <div className="leaf-table-heading">
-      <h4>{selected ? `Positions in selected bubble (${selected.points.length})` : 'All prepared positions'}</h4>
+      <h4>{previewedCluster
+        ? `Positions in hovered bubble (${previewedCluster.points.length})`
+        : selected
+          ? `Positions in selected bubble (${selected.points.length})`
+          : 'All prepared positions'}</h4>
       {selected && <button type="button" onClick={() => { setSelected(null); setPage(0) }}>Show all positions</button>}
     </div>
-    <div className="leaf-table-wrap"><table className="leaf-table"><colgroup><col className="leaf-col-position" /><col className="leaf-col-missing" /><col className="leaf-col-score" /><col className="leaf-col-ply" /><col className="leaf-col-eval" /><col className="leaf-col-reach" /><col className="leaf-col-children" /><col className="leaf-col-unprepared" /></colgroup><thead><tr>{sortableHeading('position', 'Position')}{sortableHeading('frequency', 'Missing coverage', 'Total opening coverage missing at this position')}{sortableHeading('score', 'Score')}{sortableHeading('depth', 'Ply')}{sortableHeading('evaluation', 'Eval')}{sortableHeading('reach', 'Position rate', 'Sampled opponent-response probability reaching this position')}{sortableHeading('children', 'Prepared replies', 'Share of replies at this position continued into prepared children')}{sortableHeading('unprepared', 'Unprepared replies', 'Share of replies at this position without a prepared continuation')}</tr></thead><tbody>
+    <div className="leaf-table-wrap"><table className="leaf-table"><colgroup><col className="leaf-col-position" /><col className="leaf-col-missing" /><col className="leaf-col-score" /><col className="leaf-col-ply" /><col className="leaf-col-eval" /><col className="leaf-col-reach" /><col className="leaf-col-children" /><col className="leaf-col-unprepared" /></colgroup><thead><tr>{sortableHeading('position', 'Position')}{sortableHeading('frequency', 'Missing coverage', 'Total opening coverage missing at this position. Position rate × unprepared replies.')}{sortableHeading('score', 'Score', 'Determines whether this position meets the minimum coverage criteria. Ply + evaluation weight × baseline-adjusted repertoire-side evaluation.')}{sortableHeading('depth', 'Ply')}{sortableHeading('evaluation', 'Eval')}{sortableHeading('reach', 'Position rate', 'Sampled opponent-response probability reaching this position')}{sortableHeading('children', 'Prepared replies', 'Number of opponent moves with a prepared response (weighted percentage of Lichess responses covered)')}{sortableHeading('unprepared', 'Unprepared replies', 'Number of opponent moves without a prepared response (weighted percentage of Lichess responses uncovered)')}</tr></thead><tbody>
       {visiblePoints.map((point) => {
         const score = pointScore(point)
-        const qualifies = score !== null && score >= scoreParameters.minimumScore
+        const qualifies = leafQualifiesForCoverage(
+          point.depth, point.evaluation, color, scoreParameters, initialWhiteEvaluation,
+        )
         const band = scoreBand(score)
-        return <tr key={point.id ?? point.fen} onClick={() => openPoint(point)}><td><button type="button">{pointName(point)}{point.kind !== 'leaf' ? ' …' : ''}</button></td><td title="Total opening coverage missing at this position">{formatCoveragePercent(point.frequency)}</td><td>{score === null ? <span className="coverage-table-score unavailable" title="Score unavailable">—</span> : <span className={`coverage-table-score ${band}`} title={qualifies ? 'Meets the minimum score' : 'Below the minimum score'}>{Number.isFinite(score) ? score.toFixed(1) : '∞'}</span>}</td><td>{point.depth}</td><td>{point.evaluation ? <CoverageTableEvaluation score={point.evaluation} /> : 'Not cached'}</td><td title="Sampled opponent-response probability reaching this position">{formatCoveragePercent(point.reachFrequency ?? 0)}</td><td title="Share of replies at this position continued into prepared children">{formatCoveragePercent(preparedReplyRate(point))}</td><td title="Share of replies at this position without a prepared continuation">{formatCoveragePercent(unpreparedReplyRate(point))}</td></tr>
+        const repertoireSign = color === 'white' ? 1 : -1
+        const evaluation = point.evaluation
+          ? repertoireEvaluationPawns(point.evaluation, color) - repertoireSign * initialWhiteEvaluation
+          : null
+        const scoreFormula = evaluation === null
+          ? 'Ply + evaluation weight × baseline-adjusted repertoire-side evaluation.'
+          : `Ply + evaluation weight × baseline-adjusted repertoire-side evaluation: ${point.depth} + ${scoreParameters.evaluationWeight} × ${Number.isFinite(evaluation) ? evaluation.toFixed(1) : evaluation > 0 ? '∞' : '−∞'}.`
+        const scoreTitle = score === null
+          ? `Score unavailable. ${scoreFormula}`
+          : `${qualifies ? 'Meets the minimum coverage criteria.' : 'Below the minimum coverage criteria.'} ${scoreFormula}`
+        return <tr key={point.id ?? point.fen} onClick={() => openPoint(point)}><td><button type="button">{pointName(point)}{point.kind !== 'leaf' ? ' …' : ''}</button></td><td title={`Total opening coverage missing at this position. Position rate × unprepared replies: ${formatCoveragePercent(point.reachFrequency ?? 0)} × ${formatCoveragePercent(unpreparedReplyRate(point))}.`}>{formatCoveragePercent(point.frequency)}</td><td title={scoreTitle}>{score === null ? <span className="coverage-table-score unavailable">—</span> : <span className={`coverage-table-score ${band}`}>{Number.isFinite(score) ? score.toFixed(1) : score > 0 ? '∞' : '−∞'}</span>}</td><td>{point.depth}</td><td>{point.evaluation ? <CoverageTableEvaluation score={point.evaluation} color={color} /> : 'Not cached'}</td><td title="Sampled opponent-response probability reaching this position">{formatCoveragePercent(point.reachFrequency ?? 0)}</td><td title="Number of opponent moves with a prepared response (weighted percentage of Lichess responses covered)">{formatReplyCount(point.preparedMoveCount ?? 0, point.games, preparedReplyRate(point))}</td><td title="Number of opponent moves without a prepared response (weighted percentage of Lichess responses uncovered)">{formatReplyCount(point.unpreparedMoveCount ?? 0, point.games, unpreparedReplyRate(point))}</td></tr>
       })}
     </tbody></table></div>
     {pageCount > 1 && <nav className="leaf-table-pagination" aria-label="Coverage table pages">
@@ -179,6 +253,7 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
       <span>Page {currentPage + 1} of {pageCount} · {firstVisible}–{lastVisible} of {sorted.length}</span>
       <button type="button" disabled={currentPage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Next</button>
     </nav>}
+    </div>
   </section>
 }
 
@@ -186,6 +261,7 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
   const positions = useMemo(() => opponentPositions(tree, color), [color, tree])
   const scope = useMemo(() => moduleCoverageScope(lines, color, fullRepertoire), [color, fullRepertoire, lines])
   const nodeFens = useMemo(() => [...new Set([
+    normalizeFen(START_FEN),
     normalizeFen(scope.openingFen),
     ...lines.flatMap((line) => line.steps
       .slice(scope.openingPly)
@@ -240,13 +316,32 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
   }, [nodeFens, positions, runId, scanPositions, signedIn])
 
   const evaluationsByFen = Object.fromEntries(Object.entries(leafDetails).map(([fen, detail]) => [fen, detail.evaluation]))
+  const initialEvaluation = leafDetails[normalizeFen(START_FEN)]?.evaluation
+  const initialWhiteEvaluation = initialEvaluation
+    ? repertoireEvaluationPawns(initialEvaluation, 'white')
+    : 0
   const coveragePartition = calculateModuleCoveragePartition(
-    lines, scope.openingPly, statsByFen, evaluationsByFen, color, scoreParameters,
+    lines, scope.openingPly, statsByFen, evaluationsByFen, color, scoreParameters, initialWhiteEvaluation,
   )
   const preparedNodes = calculateRepertoireNodeProbabilities(lines, scope.openingPly, statsByFen)
   const ownMoveNodes = preparedNodes.filter((node) => node.mover === 'own')
   const openingFen = normalizeFen(scope.openingFen)
   const openingStats = statsByFen[openingFen]
+  const replyCounts = (fen: string, pathId: string) => {
+    const stats = statsByFen[normalizeFen(fen)]
+    const prefix = pathId ? pathId.split(' ') : []
+    const preparedMoves = new Set(lines.flatMap((line) => {
+      const linePrefix = line.steps.slice(0, prefix.length).map((step) => canonicalMoveUci(step.uci))
+      if (linePrefix.join(' ') !== prefix.map(canonicalMoveUci).join(' ')) return []
+      const reply = line.steps[prefix.length]
+      return reply?.mover === 'opponent' ? [canonicalMoveUci(reply.uci)] : []
+    }))
+    if (!stats || stats.totalGames <= 0) return { preparedMoveCount: preparedMoves.size, unpreparedMoveCount: 0 }
+    return {
+      preparedMoveCount: preparedMoves.size,
+      unpreparedMoveCount: stats.moves.filter((move) => !preparedMoves.has(canonicalMoveUci(move.uci))).length,
+    }
+  }
   const openingSteps = [...new Map(lines.flatMap((line) => {
     const step = line.steps[scope.openingPly]
     return step ? [[canonicalMoveUci(step.uci), step] as const] : []
@@ -255,8 +350,9 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
     ? openingSteps.reduce((sum, step) => sum + (openingStats?.moves.find((move) => canonicalMoveUci(move.uci) === canonicalMoveUci(step.uci))?.totalGames ?? 0), 0) / (openingStats?.totalGames || 1)
     : openingSteps.length > 0 ? 1 : 0
   const openingPath = lines[0]?.steps.slice(0, scope.openingPly)
+  const openingPathId = openingPath?.map((step) => step.uci).join(' ') ?? ''
   const openingPoint: LeafCoveragePoint = {
-    id: openingPath?.map((step) => step.uci).join(' ') ?? '',
+    id: openingPathId,
     fen: openingFen,
     depth: scope.openingPly,
     moves: openingPath?.map((step) => step.san) ?? [],
@@ -267,28 +363,34 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
     pathIds: lines[0] ? [lines[0].id] : [],
     kind: openingSteps.length > 0 ? 'internal' : 'leaf',
     occurrenceCount: 1,
+    ...replyCounts(openingFen, openingPathId),
     ...leafDetails[openingFen],
   }
-  const preparedPoints: LeafCoveragePoint[] = [openingPoint, ...ownMoveNodes.map((node) => ({
-    id: node.id,
-    fen: node.fen,
-    depth: node.depth,
-    finalMove: node.finalMove,
-    moves: lines.find((line) => line.id === node.pathId)?.steps.slice(scope.openingPly, node.depth).map((step) => step.san),
-    games: node.minimumSample,
-    frequency: node.exclusiveProbability * 100,
-    reachFrequency: node.probability * 100,
-    childFrequency: Math.max(0, node.probability - node.exclusiveProbability) * 100,
-    pathIds: [node.pathId],
-    kind: node.isLeaf ? 'leaf' as const : 'internal' as const,
-    occurrenceCount: 1,
-    ...leafDetails[node.fen],
-  }))]
+  const preparedPoints: LeafCoveragePoint[] = [openingPoint, ...ownMoveNodes.map((node) => {
+    const stats = statsByFen[node.fen]
+    return {
+      id: node.id,
+      fen: node.fen,
+      depth: node.depth,
+      finalMove: node.finalMove,
+      moves: lines.find((line) => line.id === node.pathId)?.steps.slice(scope.openingPly, node.depth).map((step) => step.san),
+      games: stats?.totalGames ?? 0,
+      frequency: node.exclusiveProbability * 100,
+      reachFrequency: node.probability * 100,
+      childFrequency: Math.max(0, node.probability - node.exclusiveProbability) * 100,
+      pathIds: [node.pathId],
+      kind: node.isLeaf ? 'leaf' as const : 'internal' as const,
+      occurrenceCount: 1,
+      ...replyCounts(node.fen, node.id),
+      ...leafDetails[node.fen],
+    }
+  })]
   const qualifyingNodes = preparedPoints.filter((point) => point.games > 0 && leafQualifiesForCoverage(
     point.depth,
     point.evaluation,
     color,
     scoreParameters,
+    initialWhiteEvaluation,
   )).length
   return <section className="coverage-dashboard">
     <h3>{coverageLabel} coverage <span className="development-tag">In development</span></h3>
@@ -302,7 +404,7 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
         <label>Evaluation weight <input type="number" step="0.5" value={scoreParameters.evaluationWeight} onChange={(event) => setScoreParameters((current) => ({ ...current, evaluationWeight: Number(event.target.value) }))} /></label>
         <label>Evaluation floor <input type="number" step="0.1" value={scoreParameters.minimumEvaluation} onChange={(event) => setScoreParameters((current) => ({ ...current, minimumEvaluation: Number(event.target.value) }))} /></label>
       </div>
-      {!loading && !error && <PreparedPositionCoverageGraph points={preparedPoints} color={color} openingPly={scope.openingPly} scoreParameters={scoreParameters} onOpenPosition={onOpenPosition} />}
+      {!loading && !error && <PreparedPositionCoverageGraph points={preparedPoints} color={color} openingPly={scope.openingPly} scoreParameters={scoreParameters} initialWhiteEvaluation={initialWhiteEvaluation} onOpenPosition={onOpenPosition} />}
       {loading && <p className="panel-status">Loading saved coverage data…</p>}
       {error && <p className="panel-status error">{error}</p>}
       {!loading && <button type="button" onClick={() => { setStatsByFen({}); setLeafDetails({}); setError(null); setRunId((value) => value + 1) }}>Refresh saved data</button>}

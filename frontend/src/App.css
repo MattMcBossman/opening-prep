@@ -522,6 +522,7 @@
   margin-top: 1rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border);
+  overflow-anchor: none;
 }
 
 .coverage-score-controls {
@@ -612,6 +613,7 @@
 .coverage-score-legend span:last-child { text-align: right; }
 
 .leaf-cluster.selected {
+  z-index: 1;
   outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
