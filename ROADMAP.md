@@ -5,7 +5,7 @@ work. Detailed plan documents explain individual systems, but they do not set
 priority. Completed phase documents are historical records. Update this file
 whenever work ships, is deferred, or changes direction.
 
-Last reconciled: 2026-08-12.
+Last reconciled: 2026-08-19.
 
 ## Product direction
 
@@ -133,6 +133,12 @@ and [position-analysis-plan.md](position-analysis-plan.md).
 ## Backburner
 
 - Curating the common unnamed-position queue.
+- Intent-specific repertoire construction: build distinct aggressive/must-win
+  lines and stable, drawish/must-not-lose lines. Keep these as explicit module
+  intents rather than presenting either as the objectively best repertoire;
+  candidate selection should combine engine soundness with transparent
+  practical signals such as decisiveness, draw rate, risk, and opponent reply
+  difficulty.
 - A3/A4 advanced positional interpretation and plan explanations; resume only
   after A2 and C1/C2 are trusted.
 - A5 subjective playability/coaching labels.

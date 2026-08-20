@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregatePositionCoverage, calculateLineCoverageProbabilities, calculateModuleCoveragePartition, calculateModuleLeafCoverage, calculatePositionCoverage, calculateRepertoireNodeProbabilities, clusterLeafCoverage, coverageGapImpact, coveragePositionLabel, leafPreparationScore, leafQualifiesForCoverage, moduleCoverageScope, opponentPositions, rankCoverageGaps } from './repertoireCoverage'
+import { aggregatePositionCoverage, calculateLineCoverageProbabilities, calculateModuleCoveragePartition, calculateModuleLeafCoverage, calculatePositionCoverage, calculateRepertoireNodeProbabilities, clusterLeafCoverage, coverageGapImpact, coveragePositionLabel, DEFAULT_LEAF_SCORE_PARAMETERS, leafPreparationScore, leafQualifiesForCoverage, moduleCoverageScope, opponentPositions, rankCoverageGaps } from './repertoireCoverage'
 
 describe('coveragePositionLabel', () => {
   it('shows the complete continuation from the opening position when it fits', () => {
@@ -249,6 +249,20 @@ describe('coverage dashboard helpers', () => {
 
     expect(moduleCoverage.percent).toBe(100)
     expect(moduleCoverage).toEqual(fullCoverage)
+  })
+
+  it('shows a score for loaded evaluations below the coverage floor without qualifying them', () => {
+    const evaluation = { scoreType: 'cp' as const, scoreValue: -150 }
+
+    expect(leafPreparationScore(20, evaluation, 'white')).toBe(5)
+    expect(leafQualifiesForCoverage(20, evaluation, 'white')).toBe(false)
+  })
+
+  it('normalizes scores against White\'s cached starting advantage', () => {
+    const evaluation = { scoreType: 'cp' as const, scoreValue: 75 }
+
+    expect(leafPreparationScore(20, evaluation, 'white', DEFAULT_LEAF_SCORE_PARAMETERS, 0.25)).toBe(25)
+    expect(leafPreparationScore(20, evaluation, 'black', DEFAULT_LEAF_SCORE_PARAMETERS, 0.25)).toBe(15)
   })
 
   it('does not penalize a qualifying internal node for optional prepared continuations', () => {

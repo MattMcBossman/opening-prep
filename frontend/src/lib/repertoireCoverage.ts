@@ -86,6 +86,8 @@ export type LeafCoveragePoint = {
   frequency: number
   reachFrequency?: number
   childFrequency?: number
+  preparedMoveCount?: number
+  unpreparedMoveCount?: number
   evaluation?: Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null
   pathIds: string[]
   kind?: 'internal' | 'leaf' | 'mixed'
@@ -242,11 +244,12 @@ export function leafPreparationScore(
   evaluation: Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null | undefined,
   color: RepertoireColor,
   parameters: LeafScoreParameters = DEFAULT_LEAF_SCORE_PARAMETERS,
+  initialWhiteEvaluation = 0,
 ): number | null {
   if (!evaluation) return null
-  const pawns = repertoireEvaluationPawns(evaluation, color)
-  if (pawns === Infinity) return Infinity
-  if (pawns === -Infinity || pawns < parameters.minimumEvaluation) return null
+  const repertoireSign = color === 'white' ? 1 : -1
+  const pawns = repertoireEvaluationPawns(evaluation, color) - repertoireSign * initialWhiteEvaluation
+  if (!Number.isFinite(pawns)) return pawns
   return positionPly + parameters.evaluationWeight * pawns
 }
 
@@ -255,9 +258,14 @@ export function leafQualifiesForCoverage(
   evaluation: Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null | undefined,
   color: RepertoireColor,
   parameters: LeafScoreParameters = DEFAULT_LEAF_SCORE_PARAMETERS,
+  initialWhiteEvaluation = 0,
 ): boolean {
-  const score = leafPreparationScore(positionPly, evaluation, color, parameters)
-  return score !== null && score >= parameters.minimumScore
+  const score = leafPreparationScore(positionPly, evaluation, color, parameters, initialWhiteEvaluation)
+  if (score === null || !evaluation) return false
+  const repertoireSign = color === 'white' ? 1 : -1
+  const adjustedEvaluation = repertoireEvaluationPawns(evaluation, color) - repertoireSign * initialWhiteEvaluation
+  return adjustedEvaluation >= parameters.minimumEvaluation
+    && score >= parameters.minimumScore
 }
 
 type CoverageTrieNode = {
@@ -273,6 +281,7 @@ export function calculateModuleCoveragePartition(
   evaluationsByFen: Readonly<Record<string, Pick<EngineEvaluation, 'scoreType' | 'scoreValue'> | null | undefined>>,
   color: RepertoireColor,
   parameters: LeafScoreParameters = DEFAULT_LEAF_SCORE_PARAMETERS,
+  initialWhiteEvaluation = 0,
 ): ModuleCoveragePartition {
   const root: CoverageTrieNode = { fen: '', children: new Map() }
   for (const line of lines) {
@@ -291,7 +300,7 @@ export function calculateModuleCoveragePartition(
     // Preparation is monotonic: once any authored position is deep/good enough
     // to satisfy the score, optional continuations beneath it cannot turn that
     // already-prepared probability back into uncovered probability.
-    if (node.fen && node.mover === 'own' && leafQualifiesForCoverage(depth, evaluationsByFen[node.fen], color, parameters)) {
+    if (node.fen && node.mover === 'own' && leafQualifiesForCoverage(depth, evaluationsByFen[node.fen], color, parameters, initialWhiteEvaluation)) {
       return {
         coveredProbability: reach,
         failingLeafProbability: 0,
