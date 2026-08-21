@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import chess
 from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
@@ -12,6 +13,7 @@ from rest_framework.views import APIView
 from accounts.tokens import get_lichess_access_token
 from explorer_cache.lichess_token import token_for_user
 
+from .gap_recommender import candidates_from_generated_tree, rank_gap_candidates
 from .opening_generator import (
     GenerationError,
     GeneratorConfig,
@@ -26,8 +28,8 @@ class OpeningGenerationRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100)
     color = serializers.ChoiceField(choices=("white", "black"))
     prefix = serializers.ListField(child=serializers.CharField(max_length=16), allow_empty=False)
-    coverage = serializers.FloatField(min_value=0.01, max_value=1, default=0.85)
-    maxLines = serializers.IntegerField(min_value=1, max_value=250, default=40)
+    coverage = serializers.FloatField(min_value=0.01, max_value=1, default=0.60)
+    maxLines = serializers.IntegerField(min_value=1, max_value=250, default=50)
     maxPly = serializers.IntegerField(min_value=2, max_value=80, default=24)
     minGames = serializers.IntegerField(min_value=1, default=20)
     minFrequency = serializers.FloatField(min_value=0, max_value=1, default=0.01)
@@ -39,6 +41,14 @@ class OpeningGenerationRequestSerializer(serializers.Serializer):
     ratings = serializers.CharField(required=False, allow_blank=True, max_length=100)
     speeds = serializers.CharField(required=False, allow_blank=True, max_length=100)
     lichessToken = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    mode = serializers.ChoiceField(choices=("new_tree", "fill_gaps"), default="new_tree")
+    existingLines = serializers.ListField(
+        child=serializers.ListField(child=serializers.CharField(max_length=16)),
+        required=False,
+        default=list,
+        write_only=True,
+    )
+    moveBudget = serializers.IntegerField(min_value=1, max_value=500, default=50)
 
     def validate_prefix(self, value):
         try:
@@ -50,6 +60,18 @@ class OpeningGenerationRequestSerializer(serializers.Serializer):
     def validate(self, attrs):
         if len(attrs["prefix"]) >= attrs["maxPly"]:
             raise serializers.ValidationError({"maxPly": "Must extend beyond the selected position."})
+        normalized = []
+        for line in attrs["existingLines"]:
+            try:
+                _, uci = parse_prefix(line)
+            except GenerationError as exc:
+                raise serializers.ValidationError({"existingLines": str(exc)}) from exc
+            normalized.append(uci)
+        attrs["existingLines"] = normalized
+        if attrs["mode"] == "fill_gaps" and not normalized:
+            raise serializers.ValidationError(
+                {"existingLines": "Gap filling needs existing repertoire lines."}
+            )
         return attrs
 
 
@@ -60,6 +82,7 @@ class OpeningGenerationResponseSerializer(serializers.Serializer):
     leafCount = serializers.IntegerField()
     pgn = serializers.CharField()
     report = serializers.JSONField()
+    proposals = serializers.JSONField(required=False)
 
 
 class OpeningGenerationView(APIView):
@@ -133,6 +156,24 @@ class OpeningGenerationView(APIView):
                     depth=values["engineDepth"],
                 )
             result = generate_candidate(values["prefix"], config, source, evaluator)
+            proposals = []
+            if values["mode"] == "fill_gaps":
+                existing_paths = [tuple(line) for line in values["existingLines"]]
+                repertoire_fens = set()
+                for path in existing_paths:
+                    board = chess.Board()
+                    repertoire_fens.add(board.fen(en_passant="legal"))
+                    for uci in path:
+                        board.push_uci(uci)
+                        repertoire_fens.add(board.fen(en_passant="legal"))
+                proposals = rank_gap_candidates(
+                    candidates_from_generated_tree(result, existing_paths),
+                    existing_paths,
+                    repertoire_fens,
+                    move_budget=values["moveBudget"],
+                    max_engine_loss_cp=values["maxEngineLossCp"],
+                )
+                result.lines = [list(proposal.candidate.path_uci) for proposal in proposals]
         except GenerationError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         finally:
@@ -147,5 +188,6 @@ class OpeningGenerationView(APIView):
                 "leafCount": len(result.lines),
                 "pgn": result.pgn(),
                 "report": result.report_payload(),
+                "proposals": [proposal.payload() for proposal in proposals],
             }
         )

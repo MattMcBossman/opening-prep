@@ -82,8 +82,22 @@ def test_generator_branches_and_chooses_popular_engine_sound_move():
 
     assert result.lines == [[*uci, "d7d5", "e4d5"], [*uci, "f6e4", "c4f7"]]
     assert result.reports[0].covered_fraction == 0.9
+    assert result.reports[0].reason == "coverage_target_met"
     assert result.reports[1].reason == "popular_engine_sound_choice"
-    assert json.loads(result.report_json())["leafCount"] == 2
+    report = json.loads(result.report_json())
+    assert report["leafCount"] == 2
+    assert report["summary"] == {
+        "positionsAnalyzed": 3,
+        "opponentPositions": 1,
+        "coverageTargetMet": 1,
+        "leafBudgetLimited": 0,
+        "replyLimitReached": 0,
+        "frequencyThresholdLimited": 0,
+        "noEligibleMoves": 0,
+        "minimumOpponentCoverage": 0.9,
+        "averageOpponentCoverage": 0.9,
+        "maximumGeneratedPly": 9,
+    }
     game = chess.pgn.read_game(io.StringIO(result.pgn()))
     branch = game
     for _ in range(7):
@@ -117,7 +131,56 @@ def test_generator_respects_small_leaf_budget_and_reports_omissions():
     result = generate_candidate(["e4"], config, source)
 
     assert len(result.lines) == 2
+    assert result.reports[0].reason == "leaf_budget_limited"
     assert [move["uci"] for move in result.reports[0].omitted] == ["e7e6"]
+
+
+def test_generator_distinguishes_reply_limit_from_frequency_threshold():
+    position = after("e2e4")
+    source = FakeSource(
+        {
+            position: ExplorerPosition(
+                100,
+                (
+                    ExplorerMove("c7c5", "c5", 50),
+                    ExplorerMove("e7e5", "e5", 30),
+                    ExplorerMove("e7e6", "e6", 20),
+                ),
+            )
+        }
+    )
+    reply_limited = generate_candidate(
+        ["e4"],
+        GeneratorConfig(
+            name="Reply limited",
+            color="white",
+            coverage=0.9,
+            max_lines=10,
+            max_ply=2,
+            min_games=1,
+            min_frequency=0,
+            max_opponent_replies=1,
+        ),
+        source,
+    )
+    threshold_limited = generate_candidate(
+        ["e4"],
+        GeneratorConfig(
+            name="Threshold limited",
+            color="white",
+            coverage=0.9,
+            max_lines=10,
+            max_ply=2,
+            min_games=40,
+            min_frequency=0,
+        ),
+        source,
+    )
+
+    assert reply_limited.reports[0].reason == "reply_limit_reached"
+    assert reply_limited.summary_payload()["replyLimitReached"] == 1
+    assert threshold_limited.reports[0].reason == "frequency_threshold_limited"
+    assert threshold_limited.summary_payload()["frequencyThresholdLimited"] == 1
 
 
 def test_generator_rejects_bad_prefix_and_prefix_at_depth_limit():

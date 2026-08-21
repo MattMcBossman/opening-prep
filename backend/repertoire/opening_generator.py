@@ -139,9 +139,9 @@ class StockfishEvaluator:
 class GeneratorConfig:
     name: str
     color: str
-    max_lines: int = 40
+    max_lines: int = 50
     max_ply: int = 24
-    coverage: float = 0.85
+    coverage: float = 0.60
     min_games: int = 20
     min_frequency: float = 0.01
     max_opponent_replies: int = 8
@@ -181,6 +181,33 @@ class GenerationResult:
     settings: dict
     engine: str | None
 
+    def summary_payload(self) -> dict:
+        opponent_turn = "black" if self.color == "white" else "white"
+        opponent_reports = [report for report in self.reports if report.turn == opponent_turn]
+        sampled = [report.covered_fraction for report in opponent_reports if report.total_games > 0]
+        reasons = {
+            reason: sum(report.reason == reason for report in opponent_reports)
+            for reason in (
+                "coverage_target_met",
+                "leaf_budget_limited",
+                "reply_limit_reached",
+                "frequency_threshold_limited",
+                "no_eligible_moves",
+            )
+        }
+        return {
+            "positionsAnalyzed": len(self.reports),
+            "opponentPositions": len(opponent_reports),
+            "coverageTargetMet": reasons["coverage_target_met"],
+            "leafBudgetLimited": reasons["leaf_budget_limited"],
+            "replyLimitReached": reasons["reply_limit_reached"],
+            "frequencyThresholdLimited": reasons["frequency_threshold_limited"],
+            "noEligibleMoves": reasons["no_eligible_moves"],
+            "minimumOpponentCoverage": round(min(sampled), 6) if sampled else None,
+            "averageOpponentCoverage": round(sum(sampled) / len(sampled), 6) if sampled else None,
+            "maximumGeneratedPly": max((len(line) for line in self.lines), default=len(self.prefix_uci)),
+        }
+
     def report_payload(self) -> dict:
         return {
             "name": self.name,
@@ -190,6 +217,7 @@ class GenerationResult:
             "lines": self.lines,
             "generation": self.settings,
             "engine": self.engine,
+            "summary": self.summary_payload(),
             "positions": [asdict(report) for report in self.reports],
         }
 
@@ -354,7 +382,15 @@ def generate_candidate(
                 covered += pair[0].games
                 if total and covered / total >= config.coverage:
                     break
-            reason = "coverage_replies"
+            covered_fraction = covered / total if total else 0
+            if total and covered_fraction >= config.coverage:
+                reason = "coverage_target_met"
+            elif len(selected) >= available and len(selected) < len(eligible):
+                reason = "leaf_budget_limited"
+            elif len(selected) >= config.max_opponent_replies and len(selected) < len(eligible):
+                reason = "reply_limit_reached"
+            else:
+                reason = "frequency_threshold_limited"
 
         selected_uci = {item.uci for item, _ in selected}
         included = [_move_payload(item, total, scores.get(item.uci)) for item, _ in selected]

@@ -539,6 +539,39 @@
   font-size: 0.72rem;
 }
 
+.opening-generator-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.opening-generator-summary span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-muted, var(--text));
+  font-size: 0.78rem;
+}
+
+.opening-generator-summary strong {
+  color: var(--text-h);
+  font-size: 0.9rem;
+}
+
+.opening-generator-warning {
+  color: var(--text-h);
+}
+
+@media (max-width: 520px) {
+  .opening-generator-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .coverage-score-controls input {
   width: 100%;
 }

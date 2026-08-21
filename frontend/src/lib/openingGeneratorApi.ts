@@ -18,6 +18,9 @@ export type OpeningGenerationRequest = {
   ratings?: string
   speeds?: string
   lichessToken?: string
+  mode?: 'new_tree' | 'fill_gaps'
+  existingLines?: string[][]
+  moveBudget?: number
 }
 
 export type OpeningGenerationResult = {
@@ -26,7 +29,31 @@ export type OpeningGenerationResult = {
   prefixUci: string[]
   leafCount: number
   pgn: string
-  report: Record<string, unknown>
+  report: Record<string, unknown> & {
+    engine?: string | null
+    summary?: {
+      positionsAnalyzed: number
+      opponentPositions: number
+      coverageTargetMet: number
+      leafBudgetLimited: number
+      replyLimitReached: number
+      frequencyThresholdLimited: number
+      noEligibleMoves: number
+      minimumOpponentCoverage: number | null
+      averageOpponentCoverage: number | null
+      maximumGeneratedPly: number
+    }
+  }
+  proposals?: Array<{
+    id: string
+    pathUci: string[]
+    marginalCoverage: number
+    moveGames: number
+    newMoveCount: number
+    exactTransposition: boolean
+    similarityDistance: number | null
+    score: number
+  }>
 }
 
 export function generateOpeningCandidate(

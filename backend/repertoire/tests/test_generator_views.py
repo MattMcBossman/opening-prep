@@ -4,6 +4,7 @@ import pytest
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from repertoire.generator_views import OpeningGenerationRequestSerializer
 from repertoire.opening_generator import GenerationResult
 
 
@@ -20,6 +21,16 @@ def payload():
         "maxLines": 15,
         "maxPly": 22,
     }
+
+
+def test_generation_defaults_to_fifty_leaves_and_sixty_percent_coverage():
+    body = payload()
+    body.pop("maxLines")
+    serializer = OpeningGenerationRequestSerializer(data=body)
+
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["maxLines"] == 50
+    assert serializer.validated_data["coverage"] == 0.60
 
 
 def test_generation_is_available_anonymously_with_supplied_token(client, db, monkeypatch):

@@ -1355,11 +1355,28 @@ function App() {
               prefixUci={moves.slice(0, pointer).map((move) => move.uci)}
               openingName={resolvedOpening?.opening.name}
               lichessToken={token}
+              existingLines={coverageLines.map((line) => line.steps.map((step) => step.uci))}
+              canFillGaps={moduleWorkspaceMode === 'editing' && moduleDraftTree !== null && !viewedRelease && !viewingFullRepertoire}
               onAddLines={async (name, pgn) => {
                 const lines = parsePgnLinesWithMetadata(pgn)
                 if (findResponseConflicts({}, boardColor, lines.flatMap((line) => line.steps)).length > 0) throw new Error("The generated tree contains more than one repertoire response at a position and cannot become a single module.")
                 await repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)
                 return lines.length
+              }}
+              onFillLines={async (pgn) => {
+                if (moduleWorkspaceMode !== 'editing' || moduleDraftTree === null) throw new Error('Edit a personal module before filling its gaps.')
+                const lines = parsePgnLinesWithMetadata(pgn)
+                let nextTree = moduleDraftTree
+                const additions: PendingModuleChange[] = []
+                for (const line of lines) {
+                  if (findResponseConflicts(nextTree, boardColor, line.steps).length > 0) continue
+                  for (const step of line.steps) nextTree = addMoveToTree(nextTree, step.originFen, step)
+                  additions.push({ kind: 'add-line', color: boardColor, steps: line.steps, source: 'pgn_import', label: line.label, annotations: line.annotations, conflictPolicy: 'reject' })
+                }
+                setModuleDraftTree(nextTree)
+                setPendingModuleChanges((current) => [...current, ...additions])
+                setModuleWorkspaceNotice(additions.length === lines.length ? 'Gap recommendations added to the draft. Review and save the module.' : `${additions.length} recommendations added; conflicting responses were skipped.`)
+                return additions.length
               }}
             />
           </div>
