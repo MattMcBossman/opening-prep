@@ -93,6 +93,7 @@ export type CoverageSnapshot = {
   stats: ExplorerResponse | null
   statsFetchedAt: string | null
   evaluation: Pick<EngineEvaluation, 'scoreType' | 'scoreValue' | 'depth'> & { updatedAt: string } | null
+  analysis: { engineVersion: string; analysisProfile: string; depth: number; multiPv: number; updatedAt: string } | null
 }
 
 export function fetchCoverageSnapshots(

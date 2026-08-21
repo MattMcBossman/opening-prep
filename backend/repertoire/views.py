@@ -490,6 +490,13 @@ class CoverageSnapshotsView(APIView):
             positions[fen] = {
                 "stats": data,
                 "statsFetchedAt": stats_row.fetched_at if stats_row else None,
+                "analysis": ({
+                    "engineVersion": analysis.engine_version,
+                    "analysisProfile": analysis.analysis_profile,
+                    "depth": analysis.depth,
+                    "multiPv": analysis.multi_pv,
+                    "updatedAt": analysis.updated_at,
+                } if analysis else None),
                 "evaluation": ({
                     "scoreType": evaluation.score_type,
                     "scoreValue": evaluation.score_value,

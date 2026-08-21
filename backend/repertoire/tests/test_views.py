@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 
 from common.fen import normalize_fen
 from explorer_cache.cache import params_key_for
-from explorer_cache.models import EngineLineCache, PositionStatsCache
+from explorer_cache.models import EngineLineCache, PositionAnalysis, PositionStatsCache
 from repertoire.models import (
     ProfileModule,
     Repertoire,
@@ -303,6 +303,15 @@ class TestCoverageSnapshots:
             best_move_uci="e2e4",
             pv_uci=["e2e4"],
         )
+        PositionAnalysis.objects.create(
+            fen=fen,
+            engine_version="stockfish-18-lite-single",
+            analysis_profile="drill-review-basic-v1",
+            depth=24,
+            multi_pv=3,
+            candidates=[],
+            recurring_moves=[],
+        )
 
         response = client.post(
             "/api/v1/repertoires/coverage-snapshots/",
@@ -315,6 +324,10 @@ class TestCoverageSnapshots:
         assert snapshot["stats"]["totalGames"] == 100
         assert snapshot["evaluation"]["scoreType"] == "cp"
         assert snapshot["evaluation"]["scoreValue"] == 34
+        assert snapshot["analysis"]["engineVersion"] == "stockfish-18-lite-single"
+        assert snapshot["analysis"]["analysisProfile"] == "drill-review-basic-v1"
+        assert snapshot["analysis"]["depth"] == 24
+        assert snapshot["analysis"]["multiPv"] == 3
 
     def test_reports_missing_snapshots_without_fetching(self, client):
         fen = normalize_fen(AFTER_E4)
@@ -328,6 +341,7 @@ class TestCoverageSnapshots:
             "stats": None,
             "statsFetchedAt": None,
             "evaluation": None,
+            "analysis": None,
         }
 
 
