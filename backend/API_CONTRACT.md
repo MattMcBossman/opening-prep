@@ -250,11 +250,13 @@ frontend uses today (`ExplorerResponse` in `frontend/src/types.ts`), so
 }
 ```
 `opening` may be `null`. Cache key is `(source, normalized fen, params hash)`;
-TTL is `EXPLORER_CACHE_TTL_SECONDS`. The token used upstream is the signed-in
+TTL is `EXPLORER_CACHE_TTL_SECONDS` (30 days by default). Expired data is served
+as a fallback when an attempted refresh is rate-limited or unavailable. The token used upstream is the signed-in
 user's stored Lichess token; anonymous callers fall back to a server token if one
 is configured, and otherwise get `401` with a `detail` explaining that sign-in is
 required — the frontend then keeps using its existing direct-to-Lichess path.
-Upstream `429` is surfaced as `429` with `Retry-After` passed through. Concurrent
+Upstream `429` is surfaced as `429` with `Retry-After` passed through when no
+stale response exists. Concurrent
 requests for the same key should not produce duplicate upstream calls.
 
 ### `GET /api/v1/explorer/game-export/<lichess|chesscom>/?since=<unix-ms>`

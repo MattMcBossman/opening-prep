@@ -25,8 +25,9 @@ env = environ.Env(
     LICHESS_CLIENT_ID=(str, "opening-prep-local"),
     CHESS_COM_API_URL=(str, "https://api.chess.com/pub"),
     CHESS_COM_USER_AGENT=(str, "Mainline/0.1 (opening repertoire app)"),
-    EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 60 * 24),
+    EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 60 * 24 * 30),
     PLAYER_EXPLORER_CACHE_TTL_SECONDS=(int, 60 * 10),
+    OPENING_GENERATOR_STOCKFISH_PATH=(str, ""),
 )
 
 # Read backend/.env when present. Deployments may instead inject real env vars.
@@ -275,3 +276,4 @@ if ENVIRONMENT == "production":
 
 EXPLORER_CACHE_TTL_SECONDS = env("EXPLORER_CACHE_TTL_SECONDS")
 PLAYER_EXPLORER_CACHE_TTL_SECONDS = env("PLAYER_EXPLORER_CACHE_TTL_SECONDS")
+OPENING_GENERATOR_STOCKFISH_PATH = env("OPENING_GENERATOR_STOCKFISH_PATH")

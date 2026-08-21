@@ -5,6 +5,8 @@ test('coverage analysis stays unloaded until requested', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('tab', { name: 'Prep', exact: true }).click()
 
+  await expect(page.getByRole('heading', { name: 'Recommended tree' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Recommend moves' })).toBeVisible()
   await expect(page.locator('.coverage-dashboard')).toHaveCount(0)
   await page.getByRole('button', { name: 'Analyze coverage' }).click()
   await expect(page.locator('.coverage-dashboard')).toBeVisible()

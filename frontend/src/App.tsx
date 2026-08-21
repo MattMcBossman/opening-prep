@@ -49,7 +49,7 @@ import { canonicalMoveUci, normalizeFen, originFenForPly, sideToMove } from './l
 import { inheritedOpeningName, OPENING_NAME_GUARANTEE_MIN_GAMES } from './lib/openingName'
 import { collectDrillLines, createDrillStartContext, migrateDrillStartContext, openingDisambiguationLabel, prepareDrillLines } from './lib/repertoireDrills'
 import type { DrillLine, DrillStartContext, DrillStartMode } from './lib/repertoireDrills'
-import { calculatePositionCoverage, moduleCoverageScope } from './lib/repertoireCoverage'
+import { calculatePositionCoverage, DEFAULT_LEAF_SCORE_PARAMETERS, moduleCoverageScope } from './lib/repertoireCoverage'
 import { addMoveToTree, findResponseConflicts, removeMoveFromTree } from './lib/repertoireTree'
 import { diffModuleDraft, isAuthoredPathPrefixSaved, moduleMoveDraftState } from './lib/moduleDraftDiff'
 import { TUTORIAL_VIENNA_TREE, tutorialPersonalGameStats, tutorialPositionStats } from './lib/tutorialDemo'
@@ -229,6 +229,7 @@ function App() {
         : newModuleSelected ? `new-${boardColor}`
           : `module-${selectedModuleId ?? 'none'}`
   const [coverageRequestedScope, setCoverageRequestedScope] = useState<string | null>(null)
+  const [coverageScoreParameters, setCoverageScoreParameters] = useState(DEFAULT_LEAF_SCORE_PARAMETERS)
   const coverageRequested = coverageRequestedScope === coverageScopeKey
   const persistedModuleTree = viewedRelease?.tree ?? (viewingFullRepertoire ? repertoire.getTree(boardColor) : repertoire.getEditingTree(boardColor))
   const moduleWorkspaceTree = tutorialActive
@@ -1350,18 +1351,6 @@ function App() {
                 </p>
               )}
             </section>
-            <OpeningGeneratorPanel
-              color={boardColor}
-              prefixUci={moves.slice(0, pointer).map((move) => move.uci)}
-              openingName={resolvedOpening?.opening.name}
-              lichessToken={token}
-              onAddLines={async (name, pgn) => {
-                const lines = parsePgnLinesWithMetadata(pgn)
-                if (findResponseConflicts({}, boardColor, lines.flatMap((line) => line.steps)).length > 0) throw new Error("The generated tree contains more than one repertoire response at a position and cannot become a single module.")
-                await repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)
-                return lines.length
-              }}
-            />
           </div>
           <div
             id="mobile-prep-panel"
@@ -1369,6 +1358,49 @@ function App() {
             className={`explorer-prep-tools ${mobileExplorerSection !== 'prep' ? 'mobile-section-container-hidden' : ''}`}
             role="tabpanel"
           >
+            <OpeningGeneratorPanel
+              color={boardColor}
+              prefixUci={moves.slice(0, pointer).map((move) => move.uci)}
+              openingName={resolvedOpening?.opening.name}
+              lichessToken={token}
+              scoreParameters={coverageScoreParameters}
+              onScoreParametersChange={setCoverageScoreParameters}
+              existingLines={coverageLines.map((line) => line.steps.map((step) => step.uci))}
+              canFillGaps={selectedModuleId !== null && !newModuleSelected && !viewedRelease && !viewingFullRepertoire}
+              onExploreLine={(pathUci) => {
+                if (!loadLine(pathUci)) return
+                setMobileExplorerSection('stats')
+                requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-guide="board"]')?.scrollIntoView({
+                  behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+                  block: 'start',
+                }))
+              }}
+              onAddLines={async (name, pgn) => {
+                const lines = parsePgnLinesWithMetadata(pgn)
+                if (findResponseConflicts({}, boardColor, lines.flatMap((line) => line.steps)).length > 0) throw new Error("The generated tree contains more than one repertoire response at a position and cannot become a single module.")
+                await repertoire.importModule(boardColor, name, lines, repertoire.activeProfileId ?? undefined)
+                return lines.length
+              }}
+              onFillLines={async (pgn) => {
+                if (selectedModuleId === null || newModuleSelected || viewedRelease || viewingFullRepertoire) throw new Error('Select a personal module before filling its gaps.')
+                const lines = parsePgnLinesWithMetadata(pgn)
+                const alreadyEditing = moduleWorkspaceMode === 'editing' && moduleDraftTree !== null
+                let nextTree = alreadyEditing ? moduleDraftTree : structuredClone(persistedModuleTree)
+                const additions: PendingModuleChange[] = []
+                for (const line of lines) {
+                  if (findResponseConflicts(nextTree, boardColor, line.steps).length > 0) continue
+                  for (const step of line.steps) nextTree = addMoveToTree(nextTree, step.originFen, step)
+                  additions.push({ kind: 'add-line', color: boardColor, steps: line.steps, source: 'pgn_import', label: line.label, annotations: line.annotations, conflictPolicy: 'reject' })
+                }
+                if (additions.length > 0) {
+                  setModuleDraftTree(nextTree)
+                  setPendingModuleChanges((current) => alreadyEditing ? [...current, ...additions] : additions)
+                  setModuleWorkspaceMode('editing')
+                }
+                setModuleWorkspaceNotice(additions.length === lines.length ? 'Gap recommendations added to the draft. Review and save the module.' : `${additions.length} recommendations added; conflicting responses were skipped.`)
+                return additions.length
+              }}
+            />
             <section className="panel" data-guide="coverage">
               {!coverageRequested
                 ? <><h3>{coverageLabel} coverage <span className="development-tag">In development</span></h3><p className="panel-status">Coverage analysis can load saved statistics and run Stockfish across this module.</p><button type="button" onClick={() => setCoverageRequestedScope(coverageScopeKey)}>Analyze coverage</button></>
@@ -1380,6 +1412,8 @@ function App() {
                   lines={coverageLines}
                   fullRepertoire={viewingFullRepertoire}
                   signedIn={isSignedIn}
+                  scoreParameters={coverageScoreParameters}
+                  onScoreParametersChange={setCoverageScoreParameters}
                   onOpenPosition={openCoveragePosition}
                 /><button type="button" onClick={() => setCoverageRequestedScope(null)}>Hide coverage</button></>}
             </section>

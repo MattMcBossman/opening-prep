@@ -32,6 +32,20 @@ can proceed independently.
 ### R2 — Make coverage trustworthy and actionable
 
 - Rank individual uncovered replies by matching-game exposure.
+- Extend Recommended Tree with a review-first gap-filling mode for the selected
+  module. Rank candidate additions by marginal practical exposure using path
+  reach, local response rate, and logarithmically weighted game volume; optimize
+  globally for the most added coverage per new repertoire move instead of
+  independently chasing a percentage target at every position.
+- Give gap-filling candidates a bounded familiarity preference for exact
+  transpositions and structurally similar positions already in the repertoire.
+  Reuse shared moves/transposed subtrees at zero additional learning cost, use
+  piece-placement similarity only as a ranking signal, and never let similarity
+  override legality, engine soundness, or the single-response module invariant.
+- Preview proposed lines grouped by gap, including exposure, game sample,
+  coverage gain, new-move cost, similarity/transposition evidence, engine
+  tradeoff, and conflicts. Let users include/skip each proposal and explicitly
+  keep or replace conflicts before applying additions to the module draft.
 - Separate rare uncovered replies from the 95% practical-coverage label.
 - Add minimum-sample/reliability states and explain the sample used.
 - Deduplicate transposed positions while retaining module/path provenance.

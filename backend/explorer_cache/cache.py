@@ -119,8 +119,11 @@ def get_or_fetch_stats(
     """
     normalized = normalize_fen(fen)
     key = params_key_for(moves, since, until, ratings, speeds)
+    stale = PositionStatsCache.objects.filter(
+        source=PositionStatsCache.SOURCE_LICHESS, fen=normalized, params_key=key
+    ).first()
 
-    cached = _fresh_entry(normalized, key)
+    cached = stale if stale and not stale.is_expired else None
     if cached is not None:
         cache_event("public_explorer", "hit")
         return _with_preferred_opening_name(normalized, _to_explorer_response(cached.response))
@@ -141,7 +144,15 @@ def get_or_fetch_stats(
         if not token:
             raise TokenRequired()
 
-        raw = _fetch_upstream(normalized, moves, token, since, until, ratings, speeds)
+        try:
+            raw = _fetch_upstream(normalized, moves, token, since, until, ratings, speeds)
+        except (UpstreamRateLimited, UpstreamUnavailable):
+            if stale is not None:
+                cache_event("public_explorer", "stale_fallback")
+                return _with_preferred_opening_name(
+                    normalized, _to_explorer_response(stale.response)
+                )
+            raise
         cache_event("public_explorer", "upstream_fetch")
 
         entry, _ = PositionStatsCache.objects.update_or_create(

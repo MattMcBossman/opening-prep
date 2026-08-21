@@ -18,6 +18,17 @@ export type BoardTransition =
 export const START_FEN = new Chess().fen()
 const SESSION_STORAGE_KEY = 'opening-prep:explorer-session:v1'
 
+function replayUci(uci: string) {
+  const castleDestinations: Record<string, string> = {
+    e1h1: 'e1g1',
+    e1a1: 'e1c1',
+    e8h8: 'e8g8',
+    e8a8: 'e8c8',
+  }
+  const base = uci.slice(0, 4)
+  return `${castleDestinations[base] ?? base}${uci.slice(4)}`
+}
+
 type StoredGame = { baseFen: string; moves: HistoryEntry[]; pointer: number }
 
 function readStoredGame(): StoredGame {
@@ -27,7 +38,8 @@ function readStoredGame(): StoredGame {
     const game = new Chess(baseFen)
     const moves: HistoryEntry[] = []
     for (const stored of parsed?.moves ?? []) {
-      const result = game.move({ from: stored.uci.slice(0, 2), to: stored.uci.slice(2, 4), promotion: stored.uci.slice(4) || undefined })
+      const uci = replayUci(stored.uci)
+      const result = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4) || undefined })
       if (!result) throw new Error('Invalid stored move')
       moves.push({ san: result.san, uci: `${result.from}${result.to}${result.promotion ?? ''}`, fenAfter: game.fen() })
     }
@@ -114,7 +126,8 @@ export function useGame() {
     const history: HistoryEntry[] = []
     try {
       for (const uci of uciMoves) {
-        const result = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4) || undefined })
+        const replay = replayUci(uci)
+        const result = game.move({ from: replay.slice(0, 2), to: replay.slice(2, 4), promotion: replay.slice(4) || undefined })
         if (!result) return false
         history.push({
           san: result.san,
@@ -160,7 +173,8 @@ export function useGame() {
     const appended: HistoryEntry[] = []
     try {
       for (const uci of uciMoves) {
-        const result = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4) || undefined })
+        const replay = replayUci(uci)
+        const result = game.move({ from: replay.slice(0, 2), to: replay.slice(2, 4), promotion: replay.slice(4) || undefined })
         if (!result) return false
         appended.push({
           san: result.san,

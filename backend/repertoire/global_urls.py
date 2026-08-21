@@ -4,6 +4,7 @@ from . import generator_views, views
 
 urlpatterns = [
     path("generate/", generator_views.OpeningGenerationView.as_view(), name="opening-template-generate"),
+    path("generate-progress/<uuid:progress_id>/", generator_views.OpeningGenerationProgressView.as_view(), name="opening-template-generate-progress"),
     path("publish/", views.OpeningTemplatePublishView.as_view(), name="opening-template-publish"),
     path("", views.OpeningTemplateListView.as_view(), name="opening-template-list"),
     path(
