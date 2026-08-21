@@ -163,6 +163,37 @@ def test_upstream_rate_limit_is_surfaced_with_retry_after(user, settings):
 
 
 @responses.activate
+def test_expired_entry_is_served_when_refresh_is_rate_limited(user, settings):
+    responses.add(responses.GET, settings.LICHESS_EXPLORER_URL, json=_raw_response(), status=200)
+    expected = cache.get_or_fetch_stats(START_FEN, 12, user)
+    entry = PositionStatsCache.objects.get()
+    entry.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+    entry.save()
+    responses.add(
+        responses.GET,
+        settings.LICHESS_EXPLORER_URL,
+        status=429,
+        headers={"Retry-After": "30"},
+    )
+
+    assert cache.get_or_fetch_stats(START_FEN, 12, user) == expected
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_expired_entry_is_served_when_refresh_is_unavailable(user, settings):
+    responses.add(responses.GET, settings.LICHESS_EXPLORER_URL, json=_raw_response(), status=200)
+    expected = cache.get_or_fetch_stats(START_FEN, 12, user)
+    entry = PositionStatsCache.objects.get()
+    entry.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+    entry.save()
+    responses.add(responses.GET, settings.LICHESS_EXPLORER_URL, status=503)
+
+    assert cache.get_or_fetch_stats(START_FEN, 12, user) == expected
+    assert len(responses.calls) == 2
+
+
+@responses.activate
 def test_upstream_5xx_raises_unavailable_not_500(user, settings):
     responses.add(responses.GET, settings.LICHESS_EXPLORER_URL, status=503)
     with pytest.raises(cache.UpstreamUnavailable):

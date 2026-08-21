@@ -4,10 +4,11 @@ from common.fen import normalize_fen
 from repertoire.gap_recommender import (
     GapCandidate,
     candidates_from_generated_tree,
+    discover_module_gaps,
     position_distance,
     rank_gap_candidates,
 )
-from repertoire.opening_generator import GenerationResult, NodeReport
+from repertoire.opening_generator import ExplorerMove, ExplorerPosition, GenerationResult, NodeReport
 
 
 def fen_after(*moves: str) -> str:
@@ -77,6 +78,18 @@ def test_optimizer_prefers_familiar_positions_but_rejects_unsound_moves():
     assert proposals[0].exact_transposition is True
 
 
+def test_optimizer_does_not_charge_again_for_a_move_reused_after_a_transposition():
+    existing = ("d2d4", "d7d5", "g1f3", "g8f6", "c2c4")
+    transposed = ("g1f3", "g8f6", "d2d4", "d7d5", "c2c4")
+    proposal = candidate("transposed", "gap", transposed, reach=0.5, response=0.5, games=10_000)
+
+    ranked = rank_gap_candidates([proposal], [existing], {fen_after(*existing)}, move_budget=4)
+
+    assert len(ranked) == 1
+    # The final c2c4 edge starts from the same normalized position and is reused.
+    assert ranked[0].new_move_count == 4
+
+
 def test_position_similarity_requires_the_same_side_to_move():
     white = normalize_fen(fen_after("e2e4", "e7e6"))
     black = normalize_fen(fen_after("e2e4"))
@@ -110,3 +123,127 @@ def test_generated_candidate_uses_gap_reach_and_response_rate():
     assert candidates[0].reach_rate == 0.5
     assert candidates[0].response_rate == 0.4
     assert candidates[0].marginal_coverage == 0.2
+
+
+class FakeSource:
+    def __init__(self, positions):
+        self.positions = positions
+        self.calls = []
+
+    def lookup(self, board):
+        fen = normalize_fen(board.fen(en_passant="legal"))
+        self.calls.append(fen)
+        return self.positions.get(fen, ExplorerPosition(0, ()))
+
+
+def test_discovers_uncovered_opponent_replies_and_ignores_own_move_popularity():
+    after_e4 = fen_after("e2e4")
+    after_e4_e5_nc3 = fen_after("e2e4", "e7e5", "b1c3")
+    source = FakeSource({
+        normalize_fen(after_e4): ExplorerPosition(1000, (
+            ExplorerMove("e7e5", "e5", 500),
+            ExplorerMove("c7c5", "c5", 300),
+        )),
+        normalize_fen(after_e4_e5_nc3): ExplorerPosition(400, (
+            ExplorerMove("g8f6", "Nf6", 200),
+            ExplorerMove("b8c6", "Nc6", 120),
+        )),
+    })
+
+    gaps = discover_module_gaps(
+        [("e2e4", "e7e5", "b1c3", "g8f6", "g1f3")],
+        ("e2e4",),
+        "white",
+        source,
+    )
+
+    response_gaps = [gap for gap in gaps if gap.kind == "response"]
+    assert [(gap.path_uci[-1], gap.reach_rate, gap.response_rate) for gap in response_gaps] == [
+        ("c7c5", 1.0, 0.3),
+        ("b8c6", 0.5, 0.3),
+    ]
+    assert source.calls.count(normalize_fen(after_e4)) == 1
+
+
+def test_an_opponent_reply_without_a_following_response_is_still_a_gap():
+    after_e4 = fen_after("e2e4")
+    source = FakeSource({
+        normalize_fen(after_e4): ExplorerPosition(100, (ExplorerMove("e7e5", "e5", 70),)),
+    })
+
+    gaps = discover_module_gaps([("e2e4", "e7e5")], ("e2e4",), "white", source)
+
+    assert [gap.path_uci for gap in gaps] == [("e2e4", "e7e5")]
+
+
+def test_requested_coverage_selects_only_enough_common_uncovered_replies():
+    after_e4 = fen_after("e2e4")
+    source = FakeSource({
+        normalize_fen(after_e4): ExplorerPosition(1000, (
+            ExplorerMove("e7e5", "e5", 600),
+            ExplorerMove("c7c5", "c5", 300),
+            ExplorerMove("e7e6", "e6", 50),
+        )),
+    })
+
+    gaps = discover_module_gaps(
+        [("e2e4", "e7e5", "g1f3")],
+        ("e2e4",),
+        "white",
+        source,
+        requested_coverage=0.85,
+    )
+
+    response_gaps = [gap for gap in gaps if gap.kind == "response"]
+    assert [gap.path_uci[-1] for gap in response_gaps] == ["c7c5"]
+    assert response_gaps[0].gap_missing_rate == 0.4
+
+
+def test_score_failing_terminal_exposes_its_opponent_replies_at_path_reach():
+    path = ("e2e4", "e7e5", "g1f3")
+    after_e4 = fen_after("e2e4")
+    leaf = normalize_fen(fen_after(*path))
+    source = FakeSource({
+        normalize_fen(after_e4): ExplorerPosition(1000, (ExplorerMove("e7e5", "e5", 400),)),
+        leaf: ExplorerPosition(400, (ExplorerMove("b8c6", "Nc6", 200),)),
+    })
+
+    gaps = discover_module_gaps(
+        [path],
+        ("e2e4",),
+        "white",
+        source,
+        evaluations={leaf: ("cp", 0)},
+        minimum_score=10,
+        evaluation_weight=6,
+    )
+
+    continuation = next(gap for gap in gaps if gap.path_uci[-1] == "b8c6")
+    assert continuation.marginal_coverage == 0.2
+    assert continuation.depth == 3
+
+
+def test_qualifying_prepared_position_suppresses_terminal_and_descendant_gaps():
+    path = ("e2e4", "e7e5", "g1f3", "b8c6", "f1b5")
+    after_e4 = fen_after("e2e4")
+    after_nf3 = normalize_fen(fen_after("e2e4", "e7e5", "g1f3"))
+    after_nf3_origin = fen_after("e2e4", "e7e5", "g1f3")
+    source = FakeSource({
+        normalize_fen(after_e4): ExplorerPosition(1000, (ExplorerMove("e7e5", "e5", 500),)),
+        normalize_fen(after_nf3_origin): ExplorerPosition(500, (
+            ExplorerMove("b8c6", "Nc6", 300),
+            ExplorerMove("g8f6", "Nf6", 100),
+        )),
+    })
+
+    gaps = discover_module_gaps(
+        [path],
+        ("e2e4",),
+        "white",
+        source,
+        evaluations={after_nf3: ("cp", 0)},
+        minimum_score=3,
+        evaluation_weight=6,
+    )
+
+    assert gaps == []

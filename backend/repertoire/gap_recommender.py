@@ -9,6 +9,8 @@ import chess
 
 from common.fen import normalize_fen
 
+from .opening_generator import ExplorerPosition, PositionSource
+
 
 def _complete_fen(fen: str) -> str:
     return fen if len(fen.split()) >= 6 else f"{fen} 0 1"
@@ -33,6 +35,10 @@ class GapCandidate:
     response_rate: float
     move_games: int
     engine_loss_cp: int | None = None
+    depth: int = 0
+    gap_missing_rate: float = 0
+    kind: str = "response"
+    base_ply: int = 0
 
     @property
     def marginal_coverage(self) -> float:
@@ -59,6 +65,10 @@ class GapProposal:
             "moveGames": self.candidate.move_games,
             "marginalCoverage": self.candidate.marginal_coverage,
             "engineLossCp": self.candidate.engine_loss_cp,
+            "depth": self.candidate.depth,
+            "gapMissingRate": self.candidate.gap_missing_rate,
+            "kind": self.candidate.kind,
+            "basePly": self.candidate.base_ply,
             "score": self.score,
             "newMoveCount": self.new_move_count,
             "exactTransposition": self.exact_transposition,
@@ -67,8 +77,181 @@ class GapProposal:
         }
 
 
+def discover_module_gaps(
+    existing_paths: list[tuple[str, ...]],
+    prefix: tuple[str, ...],
+    color: str,
+    source: PositionSource,
+    *,
+    min_games: int = 20,
+    min_frequency: float = 0.01,
+    max_opponent_replies: int = 8,
+    requested_coverage: float = 0.95,
+    evaluations: dict[str, tuple[str, int]] | None = None,
+    minimum_score: float = 15,
+    evaluation_weight: float = 10,
+    minimum_evaluation: float = -1,
+    initial_white_evaluation: float = 0,
+) -> list[GapCandidate]:
+    """Find real uncovered opponent replies in the authored module.
+
+    Reach is conditional on arriving at ``prefix`` and multiplies only observed
+    opponent replies. The popularity of authored repertoire-side choices is
+    deliberately ignored, matching the coverage dashboard's probability model.
+    Transposed occurrences share one FEN-keyed gap while retaining a legal
+    authored path as the proposal prefix.
+    """
+    repertoire_turn = chess.WHITE if color == "white" else chess.BLACK
+    repertoire_sign = 1 if color == "white" else -1
+    evaluations = evaluations or {}
+
+    def qualifies(fen: str, ply: int) -> bool:
+        evaluation = evaluations.get(normalize_fen(fen))
+        if not evaluation:
+            return False
+        score_type, score_value = evaluation
+        if score_type == "mate":
+            pawns = math.inf if score_value * repertoire_sign > 0 else -math.inf
+        else:
+            pawns = score_value * repertoire_sign / 100
+        adjusted = pawns - repertoire_sign * initial_white_evaluation
+        return adjusted >= minimum_evaluation and ply + evaluation_weight * adjusted >= minimum_score
+    scoped_paths = [path for path in existing_paths if path[: len(prefix)] == prefix]
+    if not scoped_paths:
+        return []
+
+    lookup_cache: dict[str, ExplorerPosition] = {}
+
+    def lookup(board: chess.Board) -> ExplorerPosition:
+        key = normalize_fen(board.fen(en_passant="legal"))
+        if key not in lookup_cache:
+            lookup_cache[key] = source.lookup(board)
+        return lookup_cache[key]
+
+    # A reply is prepared only when the authored opponent edge has a following
+    # repertoire-side response. Merely ending a line after the opponent move is
+    # still a gap.
+    prepared_by_fen: dict[str, set[str]] = {}
+    occurrences: dict[str, list[tuple[tuple[str, ...], float]]] = {}
+    terminal_candidates: dict[tuple[str, ...], GapCandidate] = {}
+    for path in scoped_paths:
+        board = chess.Board()
+        reach = 1.0
+        minimum_sample = math.inf
+        covered = False
+        for ply, uci in enumerate(path):
+            in_scope = ply >= len(prefix)
+            fen = normalize_fen(board.fen(en_passant="legal"))
+            if in_scope and not covered and board.turn != repertoire_turn:
+                occurrences.setdefault(fen, []).append((path[:ply], reach))
+                if ply + 1 < len(path):
+                    prepared_by_fen.setdefault(fen, set()).add(uci)
+                position = lookup(board)
+                minimum_sample = min(minimum_sample, position.total_games)
+                move_games = next((move.games for move in position.moves if move.uci == uci), 0)
+                if position.total_games > 0:
+                    reach *= move_games / position.total_games
+            board.push_uci(uci)
+            if in_scope and board.turn != repertoire_turn and qualifies(
+                board.fen(en_passant="legal"), ply + 1
+            ):
+                covered = True
+        if not covered and board.turn != repertoire_turn:
+            # A line ending after our move is a 100%-missing opponent position.
+            # Discover its replies exactly like any other response gap.
+            normalized = normalize_fen(board.fen(en_passant="legal"))
+            occurrences.setdefault(normalized, []).append((path, reach))
+        elif not covered:
+            # A line ending after an opponent move (or an empty White module at
+            # the initial position) needs an immediate repertoire response.
+            normalized = normalize_fen(board.fen(en_passant="legal"))
+            terminal_candidates[path] = GapCandidate(
+                id=f"terminal|{' '.join(path)}",
+                gap_key=f"terminal|{normalized}",
+                path_uci=path,
+                resulting_fen=board.fen(en_passant="legal"),
+                reach_rate=reach,
+                response_rate=1,
+                move_games=int(minimum_sample) if math.isfinite(minimum_sample) else 0,
+                depth=len(path),
+                gap_missing_rate=1,
+                kind="terminal",
+            )
+
+    candidates: list[GapCandidate] = []
+    for fen, paths in occurrences.items():
+        board = chess.Board(_complete_fen(fen))
+        position = lookup(board)
+        if position.total_games <= 0:
+            continue
+        prepared = prepared_by_fen.get(fen, set())
+        # Several move orders can transpose into the same position. Count the
+        # position once and cap combined path reach at certainty.
+        reach = min(1.0, sum(dict(paths).values()))
+        origin_path = min((path for path, _ in paths), key=lambda path: (len(path), path))
+        eligible = [
+            move
+            for move in position.moves
+            if move.games >= min_games and move.games / position.total_games >= min_frequency
+        ][:max_opponent_replies]
+        prepared_games = sum(move.games for move in eligible if move.uci in prepared)
+        missing_rate = max(0.0, 1 - prepared_games / position.total_games)
+        selected_uncovered = []
+        covered_games = prepared_games
+        for move in eligible:
+            if move.uci in prepared:
+                continue
+            if covered_games / position.total_games >= requested_coverage:
+                break
+            selected_uncovered.append(move)
+            covered_games += move.games
+        for move in selected_uncovered:
+            child = board.copy(stack=False)
+            parsed = chess.Move.from_uci(move.uci)
+            if parsed not in child.legal_moves:
+                continue
+            child.push(parsed)
+            path = (*origin_path, move.uci)
+            candidates.append(GapCandidate(
+                id=f"{fen}|{move.uci}",
+                gap_key=f"{fen}|{move.uci}",
+                path_uci=path,
+                resulting_fen=child.fen(en_passant="legal"),
+                reach_rate=reach,
+                response_rate=move.games / position.total_games,
+                move_games=move.games,
+                depth=len(origin_path),
+                gap_missing_rate=missing_rate,
+            ))
+    response_paths = {candidate.path_uci for candidate in candidates}
+    candidates.extend(
+        candidate for candidate in terminal_candidates.values()
+        if candidate.path_uci not in response_paths
+    )
+    return sorted(
+        candidates,
+        key=lambda candidate: (
+            -(candidate.reach_rate * candidate.gap_missing_rate),
+            candidate.depth,
+            -candidate.marginal_coverage,
+            -candidate.move_games,
+            candidate.id,
+        ),
+    )
+
+
 def path_edges(path: tuple[str, ...]) -> set[tuple[str, ...]]:
     return {path[:index] for index in range(1, len(path) + 1)}
+
+
+def position_edges(path: tuple[str, ...]) -> set[tuple[str, str]]:
+    """Identify learned edges by position and move, not by move-order prefix."""
+    board = chess.Board()
+    edges = set()
+    for uci in path:
+        edges.add((normalize_fen(board.fen(en_passant="legal")), uci))
+        board.push_uci(uci)
+    return edges
 
 
 def rank_gap_candidates(
@@ -89,7 +272,11 @@ def rank_gap_candidates(
     """
     if move_budget < 1:
         return []
-    existing_edges = set().union(*(path_edges(path) for path in existing_paths)) if existing_paths else set()
+    existing_edges = (
+        set().union(*(position_edges(path) for path in existing_paths))
+        if existing_paths
+        else set()
+    )
     normalized_fens = {normalize_fen(fen) for fen in repertoire_fens}
     available = [
         candidate
@@ -97,7 +284,7 @@ def rank_gap_candidates(
         if candidate.engine_loss_cp is None or candidate.engine_loss_cp <= max_engine_loss_cp
     ]
     selected: list[GapProposal] = []
-    selected_edges: set[tuple[str, ...]] = set()
+    selected_edges: set[tuple[str, str]] = set()
     filled_gaps: set[str] = set()
     remaining_budget = move_budget
 
@@ -106,7 +293,7 @@ def rank_gap_candidates(
         for candidate in available:
             if candidate.gap_key in filled_gaps:
                 continue
-            new_edges = path_edges(candidate.path_uci) - existing_edges - selected_edges
+            new_edges = position_edges(candidate.path_uci) - existing_edges - selected_edges
             new_move_count = len(new_edges)
             if new_move_count > remaining_budget:
                 continue
@@ -146,7 +333,7 @@ def rank_gap_candidates(
         if best is None:
             break
         selected.append(best)
-        edges = path_edges(best.candidate.path_uci) - existing_edges - selected_edges
+        edges = position_edges(best.candidate.path_uci) - existing_edges - selected_edges
         selected_edges.update(edges)
         remaining_budget -= len(edges)
         filled_gaps.add(best.candidate.gap_key)

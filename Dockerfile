@@ -13,11 +13,16 @@ RUN VITE_APP_ENV=alpha npm run build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS backend
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends stockfish \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    OPENING_GENERATOR_STOCKFISH_PATH="/usr/games/stockfish"
 
 WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock ./

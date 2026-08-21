@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import heapq
 import json
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -42,7 +44,92 @@ class MoveEvaluator(Protocol):
 
     def scores(self, board: chess.Board, moves: list[chess.Move]) -> dict[str, int]: ...
 
+    def best_move(self, board: chess.Board) -> tuple[chess.Move, int] | None: ...
+
     def close(self) -> None: ...
+
+
+class RequestPacer:
+    """Share one upstream cadence across sources using the same Lichess token."""
+
+    def __init__(self, interval: float, sleep: Callable[[float], None] = time.sleep):
+        self.interval = interval
+        self.sleep = sleep
+        self.next_request_at = 0.0
+
+    def wait(self) -> None:
+        delay = self.next_request_at - time.monotonic()
+        if delay > 0:
+            self.sleep(delay)
+
+    def completed(self) -> None:
+        self.next_request_at = time.monotonic() + self.interval
+
+
+class RepertoirePositionSource:
+    """Use elite games for our choices and population games for opponent reach."""
+
+    def __init__(self, color: str, elite: PositionSource, population: PositionSource):
+        self.repertoire_turn = chess.WHITE if color == "white" else chess.BLACK
+        self.elite = elite
+        self.population = population
+
+    def lookup(self, board: chess.Board) -> ExplorerPosition:
+        if board.turn != self.repertoire_turn:
+            return self.population.lookup(board)
+        elite = self.elite.lookup(board)
+        return elite if elite.moves else self.population.lookup(board)
+
+    def population_lookup(self, board: chess.Board) -> ExplorerPosition:
+        return self.population.lookup(board)
+
+
+def _replies_needed_for_coverage(position: ExplorerPosition, coverage: float) -> int | None:
+    if position.total_games <= 0:
+        return None
+    covered = 0
+    for index, move in enumerate(position.moves, start=1):
+        covered += move.games
+        if covered / position.total_games >= coverage:
+            return index
+    return len(position.moves) or None
+
+
+def _select_repertoire_move(
+    board: chess.Board,
+    candidates: list[tuple[ExplorerMove, chess.Move]],
+    source: PositionSource,
+    coverage: float,
+    scores: dict[str, int],
+) -> tuple[ExplorerMove, chess.Move]:
+    """Balance quality, surprise, and the cost of covering likely replies."""
+    population_lookup = getattr(source, "population_lookup", source.lookup)
+    population = population_lookup(board)
+    population_games = {move.uci: move.games for move in population.moves}
+    max_elite_games = max((item.games for item, _ in candidates), default=1)
+    score_floor = min(scores.values()) if scores else 0
+    score_range = max(scores.values()) - score_floor if scores else 0
+
+    ranked = []
+    for item, move in candidates:
+        child = board.copy(stack=False)
+        child.push(move)
+        replies_needed = _replies_needed_for_coverage(source.lookup(child), coverage)
+        efficiency = 1 / replies_needed if replies_needed else 0
+        population_frequency = (
+            population_games.get(item.uci, 0) / population.total_games
+            if population.total_games
+            else 0
+        )
+        surprise = 1 - population_frequency
+        quality = (
+            (scores[item.uci] - score_floor) / score_range
+            if scores and score_range
+            else item.games / max_elite_games
+        )
+        utility = 0.45 * quality + 0.40 * efficiency + 0.15 * surprise
+        ranked.append((utility, quality, efficiency, item.games, item.uci, (item, move)))
+    return max(ranked)[-1]
 
 
 class LichessPositionSource:
@@ -55,18 +142,45 @@ class LichessPositionSource:
         *,
         ratings: str | None = None,
         speeds: str | None = None,
+        moves: int = 30,
         timeout: int = 15,
+        on_rate_limit: Callable[[int], None] | None = None,
+        max_rate_limit_wait: int = 180,
+        min_request_interval: float = 0,
+        cache_lookup: Callable[[chess.Board], ExplorerPosition | None] | None = None,
+        cache_store: Callable[[chess.Board, dict], None] | None = None,
+        request_pacer: RequestPacer | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.url = url
         self.token = token
         self.ratings = ratings
         self.speeds = speeds
+        self.moves = moves
         self.timeout = timeout
+        self.on_rate_limit = on_rate_limit
+        self.max_rate_limit_wait = max_rate_limit_wait
+        self.min_request_interval = min_request_interval
+        self.cache_lookup = cache_lookup
+        self.cache_store = cache_store
+        self.request_pacer = request_pacer
+        self.sleep = sleep
+        self._cache: dict[str, ExplorerPosition] = {}
+        self._next_request_at = 0.0
+        self._rate_limit_waited = 0
 
     def lookup(self, board: chess.Board) -> ExplorerPosition:
+        cache_key = normalize_fen(board.fen(en_passant="legal"))
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        if self.cache_lookup:
+            cached = self.cache_lookup(board)
+            if cached is not None:
+                self._cache[cache_key] = cached
+                return cached
         params = {
             "fen": board.fen(en_passant="legal"),
-            "moves": 30,
+            "moves": self.moves,
             "topGames": 0,
             "recentGames": 0,
         }
@@ -74,17 +188,43 @@ class LichessPositionSource:
             params["ratings"] = self.ratings
         if self.speeds:
             params["speeds"] = self.speeds
-        try:
-            response = requests.get(
-                self.url,
-                params=params,
-                headers={"Authorization": f"Bearer {self.token}"},
-                timeout=self.timeout,
-            )
-        except requests.RequestException as exc:
-            raise GenerationError(f"Lichess explorer request failed: {exc}") from exc
-        if response.status_code == 429:
-            raise GenerationError("Lichess explorer rate limit reached; wait before retrying.")
+        while True:
+            if self.request_pacer:
+                self.request_pacer.wait()
+            else:
+                pacing_wait = self._next_request_at - time.monotonic()
+                if pacing_wait > 0:
+                    self.sleep(pacing_wait)
+            try:
+                response = requests.get(
+                    self.url,
+                    params=params,
+                    headers={"Authorization": f"Bearer {self.token}"},
+                    timeout=self.timeout,
+                )
+            except requests.RequestException as exc:
+                raise GenerationError(f"Lichess explorer request failed: {exc}") from exc
+            if self.request_pacer:
+                self.request_pacer.completed()
+            if response.status_code != 429:
+                self._next_request_at = time.monotonic() + self.min_request_interval
+                break
+            try:
+                retry_after = max(1, int(response.headers.get("Retry-After", "30")))
+            except ValueError:
+                retry_after = 30
+            if self._rate_limit_waited + retry_after > self.max_rate_limit_wait:
+                raise GenerationError(
+                    "Lichess kept rate-limiting this generation after "
+                    f"{self._rate_limit_waited} seconds of automatic retries. Try again later."
+                )
+            for remaining in range(retry_after, 0, -1):
+                if self.on_rate_limit:
+                    self.on_rate_limit(remaining)
+                self.sleep(1)
+            if self.on_rate_limit:
+                self.on_rate_limit(0)
+            self._rate_limit_waited += retry_after
         if not response.ok:
             raise GenerationError(f"Lichess explorer returned HTTP {response.status_code}.")
         try:
@@ -99,7 +239,11 @@ class LichessPositionSource:
                 moves.append(ExplorerMove(item["uci"], item["san"], games))
         moves.sort(key=lambda move: (-move.games, move.uci))
         total = sum(int(payload.get(key) or 0) for key in ("white", "draws", "black"))
-        return ExplorerPosition(total_games=total, moves=tuple(moves))
+        result = ExplorerPosition(total_games=total, moves=tuple(moves))
+        self._cache[cache_key] = result
+        if self.cache_store:
+            self.cache_store(board, payload)
+        return result
 
 
 class StockfishEvaluator:
@@ -130,6 +274,15 @@ class StockfishEvaluator:
             if score is not None:
                 scores[move.uci()] = score
         return scores
+
+    def best_move(self, board: chess.Board) -> tuple[chess.Move, int] | None:
+        try:
+            result = self.engine.analyse(board, chess.engine.Limit(depth=self.depth))
+        except chess.engine.EngineError as exc:
+            raise GenerationError(f"Stockfish analysis failed: {exc}") from exc
+        pv = result.get("pv") or []
+        score = result["score"].pov(self.color).score(mate_score=100_000)
+        return (pv[0], score) if pv and score is not None else None
 
     def close(self) -> None:
         self.engine.quit()
@@ -292,6 +445,7 @@ def generate_candidate(
     config: GeneratorConfig,
     source: PositionSource,
     evaluator: MoveEvaluator | None = None,
+    on_progress: Callable[[int, int, list[str]], None] | None = None,
 ) -> GenerationResult:
     """Build a bounded, best-first repertoire tree rooted at an opening prefix."""
     config.validate()
@@ -313,13 +467,25 @@ def generate_candidate(
     finished: list[list[str]] = []
     leaf_count = 1
 
+    def ends_with_repertoire_move(path: list[str]) -> bool:
+        if not path:
+            return False
+        last_mover = chess.WHITE if len(path) % 2 else chess.BLACK
+        return last_mover == repertoire_color
+
     while queue:
         current = heapq.heappop(queue)
         board = current.board
-        if len(current.path) >= config.max_ply or board.is_game_over():
+        if board.is_game_over():
+            if ends_with_repertoire_move(current.path):
+                finished.append(current.path)
+            continue
+        if len(current.path) >= config.max_ply and ends_with_repertoire_move(current.path):
             finished.append(current.path)
             continue
 
+        if on_progress:
+            on_progress(len(reports) + 1, len(queue) + 1, current.path)
         position = source.lookup(board)
         legal = []
         for item in position.moves:
@@ -337,6 +503,34 @@ def generate_candidate(
             and (not total or pair[0].games / total >= config.min_frequency)
         ]
         turn = "white" if board.turn == chess.WHITE else "black"
+        scores: dict[str, int] = {}
+        sparse_player_fallback = False
+
+        # Sample thresholds protect opponent-likelihood estimates. They should
+        # not erase every possible repertoire response in a sparse deep
+        # position: retain the strongest available player moves for Stockfish
+        # and practical ranking instead.
+        if not eligible and legal and board.turn == repertoire_color:
+            eligible = legal[: config.engine_candidates]
+            sparse_player_fallback = True
+
+        if not eligible and evaluator:
+            best_move = getattr(evaluator, "best_move", lambda _board: None)(board)
+            if best_move:
+                move, score = best_move
+                scores = {move.uci(): score}
+            else:
+                engine_moves = list(board.legal_moves)[: config.engine_candidates]
+                scores = evaluator.scores(board, engine_moves)
+            if scores:
+                chosen = next(iter(scores)) if best_move else (
+                    max(scores, key=scores.get)
+                    if board.turn == repertoire_color
+                    else min(scores, key=scores.get)
+                )
+                move = chess.Move.from_uci(chosen)
+                eligible = [(ExplorerMove(chosen, board.san(move), 0), move)]
+                legal = eligible
 
         if not eligible:
             reports.append(
@@ -351,10 +545,12 @@ def generate_candidate(
                     "no_eligible_moves",
                 )
             )
-            finished.append(current.path)
+            if ends_with_repertoire_move(current.path):
+                finished.append(current.path)
+            elif ends_with_repertoire_move(current.path[:-1]):
+                finished.append(current.path[:-1])
             continue
 
-        scores: dict[str, int] = {}
         if board.turn == repertoire_color:
             candidates = eligible[: config.engine_candidates]
             if evaluator:
@@ -366,11 +562,23 @@ def generate_candidate(
                     for pair in candidates
                     if scores.get(pair[0].uci, -1_000_000) >= best - config.max_engine_loss_cp
                 ]
-                selected = [max(sound, key=lambda pair: (pair[0].games, pair[0].uci))]
-                reason = "popular_engine_sound_choice"
+                selected = [
+                    _select_repertoire_move(board, sound, source, config.coverage, scores)
+                ]
+                reason = (
+                    "sparse_engine_fallback_choice"
+                    if sparse_player_fallback
+                    else "balanced_engine_surprise_coverage_choice"
+                )
             else:
-                selected = [eligible[0]]
-                reason = "most_popular_choice"
+                selected = [
+                    _select_repertoire_move(board, candidates, source, config.coverage, scores)
+                ]
+                reason = (
+                    "sparse_elite_fallback_choice"
+                    if sparse_player_fallback
+                    else "balanced_elite_surprise_coverage_choice"
+                )
         else:
             available = max(1, config.max_lines - leaf_count + 1)
             selected = []
@@ -419,12 +627,12 @@ def generate_candidate(
             probability = current.probability * (item.games / total if total else 1.0)
             heapq.heappush(queue, leaf(child, [*current.path, move.uci()], probability))
 
-    lines = sorted(finished, key=lambda path: (len(path), path))
+    lines = sorted({tuple(path) for path in finished}, key=lambda path: (len(path), path))
     return GenerationResult(
         name=config.name,
         color=config.color,
         prefix_uci=prefix_uci,
-        lines=lines,
+        lines=[list(path) for path in lines],
         reports=reports,
         settings=asdict(config),
         engine=evaluator.name if evaluator else None,

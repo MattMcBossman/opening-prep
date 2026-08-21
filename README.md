@@ -49,22 +49,45 @@ A line's probability is the product of every opponent move's observed response
 rate after the module's listed opening position (or latest common ancestor when
 the lines branch earlier); the popularity of the repertoire side's own moves is
 deliberately ignored. A prepared position contributes when its preparation score is at
-the configured minimum (default 16), where `score = plies beyond the module
-opening + configurable evaluation weight (default 6) × evaluation in pawns
+the configured minimum (default 15), where `score = absolute game ply +
+configurable evaluation weight (default 10) × evaluation in pawns
 from the repertoire side`; evaluations worse than the configured floor
 (default −1), missing
 evaluations, and forced mates against the repertoire never qualify. Forced mate
 for the repertoire always qualifies. The per-position gap analysis retains a
 95% practical full-coverage
 target and distinguishes fully covered, partially covered, and no-data
-positions. Required path snapshots are warmed after a signed-in module changes
-and refreshed for positions traversed by completed drills. Coverage itself
+positions. Required path snapshots are warmed on demand after the user opens
+coverage analysis, and refreshed for positions traversed by completed drills. Coverage itself
 is a single PostgreSQL bulk read and never fans out to Lichess; stale saved
 samples remain usable while background warming refreshes them. Its highest-impact list
 ranks positions by uncovered matching games adjusted for the repertoire side's
 cached engine advantage, then opens each selected gap directly in Explorer.
 Equal or worse positions keep their full exposure while already-winning
 positions are discounted.
+Public Lichess explorer responses are retained in PostgreSQL for 30 days per
+position and filter combination. If a refresh is rate-limited or unavailable,
+Mainline serves the expired response instead of blocking the explorer;
+generation may reuse stored responses without requiring them to be fresh.
+Recommended Tree uses one gap-filling pipeline for both workflows: a new module
+is an empty module with 100% missing preparation at the selected position,
+while filling an existing module starts from its authored paths. Both share the
+coverage score inputs and rank real response gaps plus score-failing prepared
+terminals by coverage contribution (`path reach × missing reply share`). They
+add common uncovered replies only until the requested per-position coverage
+target is reached; lower ply breaks otherwise equal impact.
+Opponent reply likelihood always comes from the unfiltered public game pool.
+When choosing the repertoire side's response, recommendation uses Lichess's
+highest supported rating bucket (2500), falling back to the full population
+only when that elite sample has no usable moves. It does not blindly choose the
+most frequent elite move: among engine-sound candidates it balances Stockfish
+quality, surprise in the full population, and the number of likely opponent
+replies needed to reach the coverage target. The production image runs
+Stockfish automatically, and engine-best play continues a line when Lichess
+has no sampled moves. Generated leaves always end after the repertoire side's
+move; when an opponent reply lands on the configured ply limit, generation may
+add the final repertoire response one ply beyond it. The two datasets use distinct persistent cache keys while
+sharing one upstream request cadence.
 The completed calculation plots every position reached after a move by the
 repertoire side, by ply and cached engine evaluation, with terminal positions
 identified in the table. Positions reached after opponent moves remain
@@ -187,7 +210,7 @@ review.
 The `render-launch` branch configures one free Render Web Service and one free
 Render Postgres database for a small, disposable invited alpha. Render runs
 migrations and the idempotent starter-library seed before starting a single,
-two-thread Gunicorn worker with a 120-second request timeout. The second thread
+two-thread Gunicorn worker with a 300-second request timeout. The second thread
 keeps health checks and ordinary traffic responsive while incremental player-game
 indexing is in progress; the app exposes liveness
 at `/api/v1/health/`, database readiness at `/api/v1/ready/`, and the alpha

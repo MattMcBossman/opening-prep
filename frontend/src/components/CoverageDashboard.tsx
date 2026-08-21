@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { fetchCoverageSnapshots } from '../lib/repertoireApi'
-import { calculateModuleCoveragePartition, calculateRepertoireNodeProbabilities, clusterLeafCoverage, coveragePositionLabel, DEFAULT_LEAF_SCORE_PARAMETERS, leafEvaluationValue, leafPreparationScore, leafQualifiesForCoverage, moduleCoverageScope, opponentPositions, repertoireEvaluationPawns } from '../lib/repertoireCoverage'
+import { calculateModuleCoveragePartition, calculateRepertoireNodeProbabilities, clusterLeafCoverage, coveragePositionLabel, leafEvaluationValue, leafPreparationScore, leafQualifiesForCoverage, moduleCoverageScope, opponentPositions, repertoireEvaluationPawns } from '../lib/repertoireCoverage'
 import type { LeafCoverageCluster, LeafCoveragePoint, LeafScoreParameters, PositionCoverage } from '../lib/repertoireCoverage'
 import type { DrillLine } from '../lib/repertoireDrills'
 import { canonicalMoveUci, normalizeFen } from '../lib/chessUtils'
@@ -16,6 +16,8 @@ type Props = {
   lines: DrillLine[]
   fullRepertoire?: boolean
   signedIn: boolean
+  scoreParameters: LeafScoreParameters
+  onScoreParametersChange: (parameters: LeafScoreParameters) => void
   onOpenPosition: (fen: string, pathUci?: string[]) => void
 }
 
@@ -258,7 +260,7 @@ function PreparedPositionCoverageGraph({ points, color, openingPly, scoreParamet
   </section>
 }
 
-export function CoverageDashboard({ color, coverageLabel, tree, lines, fullRepertoire = false, signedIn, onOpenPosition }: Props) {
+export function CoverageDashboard({ color, coverageLabel, tree, lines, fullRepertoire = false, signedIn, scoreParameters, onScoreParametersChange, onOpenPosition }: Props) {
   const positions = useMemo(() => opponentPositions(tree, color), [color, tree])
   const scope = useMemo(() => moduleCoverageScope(lines, color, fullRepertoire), [color, fullRepertoire, lines])
   const nodeFens = useMemo(() => [...new Set([
@@ -274,7 +276,6 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
   const [leafDetails, setLeafDetails] = useState<Record<string, { openingName?: string; evaluation: LeafCoveragePoint['evaluation'] }>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [scoreParameters, setScoreParameters] = useState(DEFAULT_LEAF_SCORE_PARAMETERS)
 
   useEffect(() => {
     setStatsByFen({})
@@ -409,9 +410,9 @@ export function CoverageDashboard({ color, coverageLabel, tree, lines, fullReper
         Coverage is the share of sampled opponent-response probability that reaches a prepared position meeting your current depth and evaluation target. {qualifyingNodes} of {preparedPoints.length} sampled prepared positions meet that target.
       </p>}
       <div className="coverage-score-controls">
-        <label>Minimum score <input type="number" step="1" value={scoreParameters.minimumScore} onChange={(event) => setScoreParameters((current) => ({ ...current, minimumScore: Number(event.target.value) }))} /></label>
-        <label>Evaluation weight <input type="number" step="0.5" value={scoreParameters.evaluationWeight} onChange={(event) => setScoreParameters((current) => ({ ...current, evaluationWeight: Number(event.target.value) }))} /></label>
-        <label>Evaluation floor <input type="number" step="0.1" value={scoreParameters.minimumEvaluation} onChange={(event) => setScoreParameters((current) => ({ ...current, minimumEvaluation: Number(event.target.value) }))} /></label>
+        <label>Minimum score <input type="number" step="1" value={scoreParameters.minimumScore} onChange={(event) => onScoreParametersChange({ ...scoreParameters, minimumScore: Number(event.target.value) })} /></label>
+        <label>Evaluation weight <input type="number" step="0.5" value={scoreParameters.evaluationWeight} onChange={(event) => onScoreParametersChange({ ...scoreParameters, evaluationWeight: Number(event.target.value) })} /></label>
+        <label>Evaluation floor <input type="number" step="0.1" value={scoreParameters.minimumEvaluation} onChange={(event) => onScoreParametersChange({ ...scoreParameters, minimumEvaluation: Number(event.target.value) })} /></label>
       </div>
       {!loading && !error && <PreparedPositionCoverageGraph points={preparedPoints} color={color} openingPly={scope.openingPly} scoreParameters={scoreParameters} initialWhiteEvaluation={initialWhiteEvaluation} onOpenPosition={onOpenPosition} />}
       {loading && <p className="panel-status">Loading saved coverage data…</p>}
