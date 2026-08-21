@@ -1,5 +1,17 @@
 import { expect, test } from '@playwright/test'
 
+test('coverage analysis stays unloaded until requested', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Prep', exact: true }).click()
+
+  await expect(page.locator('.coverage-dashboard')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Analyze coverage' }).click()
+  await expect(page.locator('.coverage-dashboard')).toBeVisible()
+  await page.getByRole('button', { name: 'Hide coverage' }).click()
+  await expect(page.locator('.coverage-dashboard')).toHaveCount(0)
+})
+
 const VIEWPORTS = [
   { width: 320, height: 700 },
   { width: 390, height: 844 },
