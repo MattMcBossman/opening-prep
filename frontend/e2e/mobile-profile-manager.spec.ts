@@ -1,5 +1,38 @@
 import { expect, test } from '@playwright/test'
 
+test('viewing a managed module selects its color and returns drills to the explorer', async ({ page }) => {
+  await page.route('**/api/v1/auth/session/', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ authenticated: false, user: null }),
+  }))
+  await page.addInitScript(() => {
+    localStorage.setItem('opening-prep:board-color', 'white')
+    localStorage.setItem('opening-prep:repertoire', JSON.stringify({
+      version: 3,
+      nextId: 4,
+      activeProfileId: 1,
+      editingModuleIds: { white: 2, black: 3 },
+      profiles: [{ id: 1, name: 'Default', modules: [
+        { moduleId: 2, enabled: true, sortOrder: 0 },
+        { moduleId: 3, enabled: true, sortOrder: 1 },
+      ] }],
+      modules: [
+        { id: 2, name: 'White module', color: 'white', tree: {} },
+        { id: 3, name: 'Black module', color: 'black', tree: {} },
+      ],
+    }))
+  })
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Drills' }).click()
+  await page.getByRole('button', { name: 'Manage', exact: true }).click()
+  const blackModule = page.getByRole('article').filter({ hasText: 'Black module' })
+  await blackModule.getByRole('button', { name: 'View module' }).click()
+
+  await expect(page.getByRole('tab', { name: 'Explorer' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('switch', { name: 'Black module; switch to White' })).toBeVisible()
+  await expect(page.locator('.repertoire-profile-controls label').filter({ hasText: /^Viewing/ }).locator('select')).toHaveValue('3')
+})
+
 test('profile and module management works in the 320px full-screen sheet', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 })
   await page.goto('/')

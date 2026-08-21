@@ -228,6 +228,8 @@ function App() {
       : viewingFullRepertoire ? `full-${boardColor}`
         : newModuleSelected ? `new-${boardColor}`
           : `module-${selectedModuleId ?? 'none'}`
+  const [coverageRequestedScope, setCoverageRequestedScope] = useState<string | null>(null)
+  const coverageRequested = coverageRequestedScope === coverageScopeKey
   const persistedModuleTree = viewedRelease?.tree ?? (viewingFullRepertoire ? repertoire.getTree(boardColor) : repertoire.getEditingTree(boardColor))
   const moduleWorkspaceTree = tutorialActive
     ? TUTORIAL_VIENNA_TREE
@@ -241,7 +243,7 @@ function App() {
   useEffect(() => () => coverageWarmEngineRef.current?.terminate(), [])
 
   useEffect(() => {
-    if (!isSignedIn || tutorialActive) return
+    if (!coverageRequested || !isSignedIn || tutorialActive) return
     const lines = collectDrillLines(boardColor, (positionFen) => persistedModuleTree[normalizeFen(positionFen)] ?? [])
     const filterKey = 'unfiltered'
     const scope = moduleCoverageScope(lines, boardColor, viewingFullRepertoire)
@@ -336,10 +338,12 @@ function App() {
     return () => {
       cancelled = true
       controller.abort()
+      coverageWarmEngineRef.current?.terminate()
+      coverageWarmEngineRef.current = null
       window.removeEventListener('pointerdown', noteInteraction)
       window.removeEventListener('keydown', noteInteraction)
     }
-  }, [boardColor, isSignedIn, persistedModuleTree, token, tutorialActive, viewingFullRepertoire])
+  }, [boardColor, coverageRequested, isSignedIn, persistedModuleTree, token, tutorialActive, viewingFullRepertoire])
   const moduleDraftDiff = useMemo(
     () => diffModuleDraft(newModuleSelected || draftSourceRelease ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),
     [boardColor, draftSourceRelease, moduleDraftTree, newModuleSelected, persistedModuleTree],
@@ -495,6 +499,8 @@ function App() {
   }, [allowLeavingModuleDraft, repertoire])
 
   const viewModule = useCallback((moduleId: number) => {
+    const module = repertoire.modules.find((candidate) => candidate.id === moduleId)
+    if (!module || !allowLeavingModuleDraft()) return
     repertoire.setPreviewRelease(null)
     setNewModuleSelected(false)
     setModuleDraftTree(null)
@@ -502,8 +508,26 @@ function App() {
     setModuleWorkspaceNotice(null)
     setModuleWorkspaceMode('viewing')
     setViewingFullRepertoire(false)
-    repertoire.setEditingModule(boardColor, moduleId)
-  }, [boardColor, repertoire])
+    repertoire.setEditingModule(module.color, moduleId)
+    if (module.color !== boardColor) {
+      setBoardColor(module.color)
+      reset()
+    }
+    setMode('explorer')
+  }, [allowLeavingModuleDraft, boardColor, repertoire, reset, setBoardColor])
+
+  const previewTemplate = useCallback((release: OpeningTemplateRelease | null) => {
+    if (release && !allowLeavingModuleDraft()) return
+    if (release) {
+      setViewingFullRepertoire(false)
+      if (release.color !== boardColor) {
+        setBoardColor(release.color)
+        reset()
+      }
+      setMode('explorer')
+    }
+    repertoire.setPreviewRelease(release)
+  }, [allowLeavingModuleDraft, boardColor, repertoire, reset, setBoardColor])
 
   const viewFullRepertoire = useCallback(() => {
     if (!allowLeavingModuleDraft()) return
@@ -1007,7 +1031,7 @@ function App() {
             onCopyTemplate={repertoire.copyTemplate}
             onCopyMissingTemplateLines={repertoire.copyMissingTemplateLines}
             previewRelease={repertoire.previewRelease}
-            onPreviewTemplate={(release) => { if (release) setViewingFullRepertoire(false); repertoire.setPreviewRelease(release) }}
+            onPreviewTemplate={previewTemplate}
             workspaceMode={moduleWorkspaceMode}
             viewingFullRepertoire={viewingFullRepertoire}
             newModuleSelected={newModuleSelected}
@@ -1346,16 +1370,18 @@ function App() {
             role="tabpanel"
           >
             <section className="panel" data-guide="coverage">
-              <CoverageDashboard
-                key={coverageScopeKey}
-                color={boardColor}
-                coverageLabel={coverageLabel}
-                tree={moduleWorkspaceTree}
-                lines={coverageLines}
-                fullRepertoire={viewingFullRepertoire}
-                signedIn={isSignedIn}
-                onOpenPosition={openCoveragePosition}
-              />
+              {!coverageRequested
+                ? <><h3>{coverageLabel} coverage <span className="development-tag">In development</span></h3><p className="panel-status">Coverage analysis can load saved statistics and run Stockfish across this module.</p><button type="button" onClick={() => setCoverageRequestedScope(coverageScopeKey)}>Analyze coverage</button></>
+                : <><CoverageDashboard
+                  key={coverageScopeKey}
+                  color={boardColor}
+                  coverageLabel={coverageLabel}
+                  tree={moduleWorkspaceTree}
+                  lines={coverageLines}
+                  fullRepertoire={viewingFullRepertoire}
+                  signedIn={isSignedIn}
+                  onOpenPosition={openCoveragePosition}
+                /><button type="button" onClick={() => setCoverageRequestedScope(null)}>Hide coverage</button></>}
             </section>
           </div>
         </main>
