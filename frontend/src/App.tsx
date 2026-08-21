@@ -17,7 +17,9 @@ import type { ExplorerSource } from './hooks/useExplorerStats'
 import { useRepertoire } from './hooks/useRepertoire'
 import { fetchExplorerStats } from './lib/lichessExplorer'
 import { StockfishEngine } from './engine/stockfishEngine'
-import { getOrComputePositionAnalysis } from './lib/positionAnalysis'
+import { ANALYSIS_DEPTH, ANALYSIS_MULTIPV, ANALYSIS_PROFILE, getOrComputePositionAnalysis } from './lib/positionAnalysis'
+import { ENGINE_VERSION, getOrComputeEngineEvaluation } from './lib/engineEvaluationCache'
+import { fetchCoverageSnapshots } from './lib/repertoireApi'
 import type { LichessDatabaseFilters } from './lib/lichessExplorer'
 import { useSound } from './hooks/useSound'
 import { useMainlineGuide } from './hooks/useMainlineGuide'
@@ -233,6 +235,8 @@ function App() {
   const warmedCoverageStatsRef = useRef(new Set<string>())
   const warmedCoverageEvaluationsRef = useRef(new Set<string>())
   const coverageWarmEngineRef = useRef<StockfishEngine | null>(null)
+  const coverageVisibleFenRef = useRef(normalizeFen(fen))
+  coverageVisibleFenRef.current = normalizeFen(fen)
 
   useEffect(() => () => coverageWarmEngineRef.current?.terminate(), [])
 
@@ -250,31 +254,75 @@ function App() {
       .map((step) => step.fen))
     const coveragePositions = [...new Set([...displayedPositions, ...opponentOrigins])]
     const evaluationKeys = new Set(displayedPositions.map(normalizeFen))
+    const leafKeys = new Set(scope.leafFens.map(normalizeFen))
     const pending = coveragePositions.filter((position) => {
       const normalized = normalizeFen(position)
-      const statsMissing = !warmedCoverageStatsRef.current.has(`${normalized}|${filterKey}`)
-      const evaluationMissing = evaluationKeys.has(normalized) && !warmedCoverageEvaluationsRef.current.has(normalized)
-      return statsMissing || evaluationMissing
+      return !warmedCoverageStatsRef.current.has(`${normalized}|${filterKey}`)
+        || (evaluationKeys.has(normalized) && !warmedCoverageEvaluationsRef.current.has(normalized))
     })
     if (pending.length === 0) return
     const controller = new AbortController()
     let cancelled = false
+    let interactionPauseUntil = 0
+    const noteInteraction = () => { interactionPauseUntil = Date.now() + 750 }
+    window.addEventListener('pointerdown', noteInteraction, { passive: true })
+    window.addEventListener('keydown', noteInteraction, { passive: true })
+    const waitForIdle = async () => {
+      while (!cancelled && (document.visibilityState === 'hidden' || Date.now() < interactionPauseUntil)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250))
+      }
+      if (cancelled) return
+      await new Promise<void>((resolve) => {
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(() => resolve(), { timeout: 1000 })
+        } else globalThis.setTimeout(resolve, 16)
+      })
+    }
     const warm = async () => {
-      if (!coverageWarmEngineRef.current) coverageWarmEngineRef.current = new StockfishEngine()
-      for (const position of pending) {
+      const engine = () => {
+        if (!coverageWarmEngineRef.current) coverageWarmEngineRef.current = new StockfishEngine()
+        return coverageWarmEngineRef.current
+      }
+      const normalizedPending = [...new Set(pending.map(normalizeFen))]
+      const { positions: snapshots } = await fetchCoverageSnapshots(normalizedPending, undefined, controller.signal)
+      const prioritized = [...pending].sort((left, right) => {
+        const leftKey = normalizeFen(left)
+        const rightKey = normalizeFen(right)
+        return Number(rightKey === coverageVisibleFenRef.current) - Number(leftKey === coverageVisibleFenRef.current)
+          || Number(leafKeys.has(rightKey)) - Number(leafKeys.has(leftKey))
+          || Number(!snapshots[rightKey]?.stats) - Number(!snapshots[leftKey]?.stats)
+      })
+      for (const position of prioritized) {
+        if (cancelled) return
+        await waitForIdle()
         if (cancelled) return
         const completePosition = position.split(' ').length >= 6 ? position : `${position} 0 1`
         try {
           const normalized = normalizeFen(position)
           const statsKey = `${normalized}|${filterKey}`
+          const snapshot = snapshots[normalized]
           const tasks: Promise<unknown>[] = []
-          if (!warmedCoverageStatsRef.current.has(statsKey)) tasks.push(fetchExplorerStats(completePosition, {
+          if (!snapshot?.stats && !warmedCoverageStatsRef.current.has(statsKey)) tasks.push(fetchExplorerStats(completePosition, {
               apiToken: token,
               signedIn: true,
               signal: controller.signal,
             }))
           if (evaluationKeys.has(normalized) && !warmedCoverageEvaluationsRef.current.has(normalized)) {
-            tasks.push(getOrComputePositionAnalysis(completePosition, true, coverageWarmEngineRef.current))
+            const cachedAnalysis = snapshot?.analysis
+            const completeLeafAnalysis = cachedAnalysis?.engineVersion === ENGINE_VERSION
+              && cachedAnalysis.analysisProfile === ANALYSIS_PROFILE
+              && cachedAnalysis.depth >= ANALYSIS_DEPTH
+              && cachedAnalysis.multiPv >= ANALYSIS_MULTIPV
+            if (leafKeys.has(normalized) && !completeLeafAnalysis) {
+              tasks.push(getOrComputePositionAnalysis(completePosition, true, engine()))
+            } else if (!leafKeys.has(normalized) && (snapshot?.evaluation?.depth ?? 0) < ANALYSIS_DEPTH) {
+              tasks.push(getOrComputeEngineEvaluation(
+                completePosition,
+                ANALYSIS_DEPTH,
+                true,
+                () => engine().evaluateOnce(completePosition, ANALYSIS_DEPTH),
+              ))
+            }
           }
           await Promise.all(tasks)
           warmedCoverageStatsRef.current.add(statsKey)
@@ -284,8 +332,13 @@ function App() {
         }
       }
     }
-    void warm()
-    return () => { cancelled = true; controller.abort() }
+    void warm().catch(() => undefined)
+    return () => {
+      cancelled = true
+      controller.abort()
+      window.removeEventListener('pointerdown', noteInteraction)
+      window.removeEventListener('keydown', noteInteraction)
+    }
   }, [boardColor, isSignedIn, persistedModuleTree, token, tutorialActive, viewingFullRepertoire])
   const moduleDraftDiff = useMemo(
     () => diffModuleDraft(newModuleSelected || draftSourceRelease ? {} : persistedModuleTree, moduleDraftTree ?? persistedModuleTree, boardColor),

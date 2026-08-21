@@ -158,7 +158,31 @@ export function DrillView({
 
   const { state } = session
   const fen = state.currentFen
-  const boardFen = wrongMovePreview?.fen ?? fen
+  const [historyPointer, setHistoryPointer] = useState<number | null>(null)
+  const historySteps = useMemo(() => {
+    const completedLineId = state.completionPause?.lineId
+    return completedLineId
+      ? state.linesById.get(completedLineId)?.steps ?? []
+      : state.playedSteps
+  }, [state.completionPause?.lineId, state.linesById, state.playedSteps])
+  const historyFens = useMemo(() => {
+    const game = new Chess(state.rootFen)
+    const positions = [game.fen()]
+    for (const step of historySteps) {
+      const move = game.move({
+        from: step.uci.slice(0, 2),
+        to: step.uci.slice(2, 4),
+        promotion: step.uci.slice(4) || undefined,
+      })
+      if (!move) break
+      positions.push(game.fen())
+    }
+    return positions
+  }, [historySteps, state.rootFen])
+  const liveHistoryPointer = historyFens.length - 1
+  const displayedHistoryPointer = historyPointer ?? liveHistoryPointer
+  const isHistoryReview = historyPointer !== null
+  const boardFen = wrongMovePreview?.fen ?? (isHistoryReview ? historyFens[displayedHistoryPointer] ?? fen : fen)
   const isOwnTurn = sideToMove(fen) === color
   const feedback = state.lastFeedback
   const isPaused = state.completionPause !== null
@@ -166,7 +190,7 @@ export function DrillView({
   const [opponentAnimationInFlight, setOpponentAnimationInFlight] = useState(false)
   const queuedMoveRef = useRef<{ from: string; to: string; promotion?: string } | null>(null)
   const preserveSelectionRef = useRef(false)
-  const boardInputEnabled = isOwnTurn && !session.complete && !isPaused && !wrongMovePreview
+  const boardInputEnabled = isOwnTurn && !session.complete && !isPaused && !wrongMovePreview && !isHistoryReview
   const boardInteractionEnabled = (boardInputEnabled || opponentMovePending || opponentAnimationInFlight)
     && !session.complete && !isPaused && !wrongMovePreview
   const isDesktopReview = useMediaQuery('(min-width: 701px)')
@@ -181,6 +205,22 @@ export function DrillView({
     session.startNewSession()
   }, [session])
   useResetKeyboardShortcut(restartFromKeyboard, active && state.lines.length > 0)
+
+  useEffect(() => setHistoryPointer(null), [historySteps])
+
+  const reviewPreviousPosition = () => {
+    setWrongMovePreview(null)
+    setHistoryPointer(Math.max(0, displayedHistoryPointer - 1))
+  }
+  const reviewNextPosition = () => {
+    setWrongMovePreview(null)
+    const next = displayedHistoryPointer + 1
+    setHistoryPointer(next >= liveHistoryPointer ? null : next)
+  }
+  const reviewStartPosition = () => {
+    setWrongMovePreview(null)
+    setHistoryPointer(0)
+  }
 
   useEffect(() => {
     if (preserveSelectionRef.current) {
@@ -411,7 +451,7 @@ export function DrillView({
   // categories among replies. The player's later ideas retain frequency shading.
   const arrows = useMemo<Arrow[]>(() => {
     const analysis = arrowAnalysis?.fen === reviewFen ? arrowAnalysis : null
-    if (!isPaused || !analysis) return []
+    if (!isPaused || isHistoryReview || !analysis) return []
     const result: Arrow[] = []
     for (const move of analysisArrowMoves(analysis, color)) {
       const arrowUci = canonicalArrowUci(move.uci)
@@ -426,7 +466,7 @@ export function DrillView({
       })
     }
     return result
-  }, [arrowAnalysis, color, isPaused, reviewFen])
+  }, [arrowAnalysis, color, isHistoryReview, isPaused, reviewFen])
 
   const tryMove = useCallback(
     (candidate: { from: string; to: string; promotion?: string }): boolean => {
@@ -594,7 +634,7 @@ export function DrillView({
                     onSquareClick: handleSquareClick,
                     onMouseOverSquare: ({ square }) => setHoveredSquare(square),
                     onMouseOutSquare: ({ square }) => setHoveredSquare((current) => current === square ? null : current),
-                    squareStyles,
+                    squareStyles: isHistoryReview ? {} : squareStyles,
                     dropSquareStyle: DROP_SQUARE_STYLE,
                     arrows,
                     showAnimations: true,
@@ -609,13 +649,27 @@ export function DrillView({
               give away whether the move just played was the prepared one. The
               placeholder reserves the same width, so the board doesn't resize
               when the review pause starts and ends. */}
-          {isPaused ? (
+          {isPaused && !isHistoryReview ? (
             <EvalBar evaluation={reviewEvaluation} boardColor={color} />
           ) : (
             <div className="eval-bar-placeholder" aria-hidden="true" />
           )}
         </div>
-        <div className="board-controls">
+        <div className="board-controls drill-board-controls">
+          <div className="drill-history-controls">
+            <button type="button" onClick={reviewPreviousPosition} disabled={displayedHistoryPointer === 0} aria-label="Back">
+              <span className="desktop-control-label">← Back</span>
+              <svg className="mobile-control-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4M10 6l-6 6 6 6" /></svg>
+            </button>
+            <button type="button" onClick={reviewNextPosition} disabled={!isHistoryReview} aria-label="Next">
+              <span className="desktop-control-label">Next →</span>
+              <svg className="mobile-control-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M14 6l6 6-6 6" /></svg>
+            </button>
+            <button type="button" onClick={reviewStartPosition} disabled={displayedHistoryPointer === 0} aria-label="Reset">
+              <span className="desktop-control-label">Reset</span>
+              <span className="mobile-reset-symbol" aria-hidden="true">↻</span>
+            </button>
+          </div>
           {isPaused && (
             <div className="drill-review-actions">
               <button type="button" onClick={viewCompletionInExplorer}>View in Explorer</button>
@@ -642,10 +696,10 @@ export function DrillView({
               <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>Shuffle drills</button>
             </div>
           )}
-          {!isPaused && <>
+          {!isPaused && <div className="drill-session-actions">
             <button type="button" onClick={session.shuffleOrder} disabled={session.complete}>Shuffle drills</button>
             <button type="button" onClick={session.startNewSession} title="Restart session (R)">Restart session</button>
-          </>}
+          </div>}
         </div>
       </div>
       {(!isPaused || isDesktopReview || reviewSection !== null) && <div className="side-column">
