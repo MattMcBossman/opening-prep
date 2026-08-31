@@ -1,4 +1,3 @@
-from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Count
@@ -16,13 +15,12 @@ from repertoire.models import (
 from repertoire.render_sync import _account_for_identifier
 from repertoire.serializers import RepertoireLineSerializer
 
-
 CONFIRMATION = "DELETE ALL OTHER MODULES"
-CORE_MODULES = (("caro", "caro-kann", 46), ("vienna", "vienna", 99))
+CORE_MODULES = (("caro", "caro-kann", 120), ("vienna", "vienna", 99))
 
 
 class Command(BaseCommand):
-    help = "Destructively retain only the 46-line Caro-Kann and 99-line Vienna modules."
+    help = "Destructively retain only the 120-line Caro-Kann and 99-line Vienna modules."
 
     def add_arguments(self, parser):
         parser.add_argument("--username", default="matt.mcclelland")

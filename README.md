@@ -25,7 +25,7 @@ highlights exact board squares.
 
 Both boards play distinct sound effects for a regular move, a capture, a check, and a checkmate; drills add corrective wrong-move feedback and a completion chime. They're synthesized in the browser with the Web Audio API rather than shipped as audio files, so there are no binary assets to license or download. A toggle in the header mutes them, persisted like the theme preference. Dark mode is the first-visit default; an explicit light or dark choice remains persisted.
 
-Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Signing in is optional, and signed-out users can create reusable local opening modules. Saved modules open in viewing mode; Edit creates a buffered draft, and Save/Discard commits or abandons changes. The authoritative opening library currently contains only the 46-line Caro Kann and 99-line Vienna Game. Library selections are temporary in-memory previews; “Copy to My modules” creates a normal editable personal copy. Persistent read-only module attachments are not supported. Signed-in users with linked Lichess can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines. Private phone access uses Tailscale. Remaining work is consolidated in [ROADMAP.md](ROADMAP.md).
+Phase 4 (backend) is implemented: a Django + DRF + PostgreSQL backend (`backend/`) adds Google sign-in, optional post-sign-in Lichess OAuth linking, validated Chess.com public-username linking, server-side repertoire storage, a caching explorer/engine-eval proxy, and persistent drill statistics. Signing in is optional, and signed-out users can create reusable local opening modules. Saved modules open in viewing mode; Edit creates a buffered draft, and Save/Discard commits or abandons changes. The authoritative opening library currently contains only the 120-line Caro Kann and 99-line Vienna Game. Library selections are temporary in-memory previews; “Copy to My modules” creates a normal editable personal copy. Persistent read-only module attachments are not supported. Signed-in users with linked Lichess can generate a recommended coverage tree from the current explorer position and create a new personal module from its PGN lines. Private phone access uses Tailscale. Remaining work is consolidated in [ROADMAP.md](ROADMAP.md).
 
 During the invited alpha, signed-out users receive an editable local-storage copy of the published Vienna module and reuse that copy on later visits. Signed-in accounts use editable personal copies only.
 
@@ -92,6 +92,9 @@ the guide at any time.
 - `AUTONOMOUS_TASKS.md` — isolated feature-branch tasks that need no product decision.
 
 ## Getting started
+
+Install Node.js 24 (the project includes an `.nvmrc`, so nvm users can run
+`nvm install` followed by `nvm use`).
 
 Install the repository's Git hooks once after cloning:
 
